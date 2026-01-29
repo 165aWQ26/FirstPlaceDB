@@ -1,0 +1,19 @@
+{
+    "version": "0.2",
+    "ignorePaths": [
+        ".gitignore",
+        "pyproject.toml"
+    ],
+    "dictionaryDefinitions": [],
+    "dictionaries": [],
+    "words": [],
+    "ignoreWords": [
+        "pyclass",
+        "pymethods",
+        "pymodule",
+        "pyfunction",
+        "pyproject",
+        "lstore"
+    ],
+    "import": []
+}
