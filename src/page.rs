@@ -42,7 +42,7 @@ pub struct Page {
 }
 
 impl Page {
-    pub const DEFAULT_SIZE: usize = 512;
+    const DEFAULT_SIZE: usize = 512;
 
     fn new_internal(expected_type: ValueType, nullable: bool, capacity: usize) -> Self {
         Self {
