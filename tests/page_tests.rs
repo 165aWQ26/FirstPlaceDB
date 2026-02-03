@@ -19,7 +19,6 @@ mod tests {
     }
 
 
-    //Uncomment if/when we create a corresponding constructor
     #[test]
     fn test_nullable_and_expected_type() {
         let page = Page::new_nullable_f64();
