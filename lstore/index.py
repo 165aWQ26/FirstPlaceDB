@@ -5,7 +5,7 @@ A data structure holding indices for various columns of a table. Key column shou
 class Index:
 
     def __init__(self, table):
-        # One index for each table. All our empty initially.
+        # One index for each column. All our empty initially.
         self.indices = [None] *  table.num_columns
         pass
 
