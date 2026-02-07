@@ -7,7 +7,7 @@ pub struct PageRange {
     range : Vec<PageCollection>,
     next_addr : PhysicalAddressIterator,
     num_pages : usize
-    
+
 }
 
 impl PageRange {
@@ -26,15 +26,19 @@ impl PageRange {
             num_pages
         }
     }
-    
+
     //Append assumes metadata has been pre-calculated (allData)
-    fn append(&mut self, allData : Vec<Option<i64>>) {
+    //All it does is write to the current offset
+    pub fn append(&mut self, allData : Vec<Option<i64>>) -> PhysicalAddress {
         let addr = self.next_addr.next().unwrap();
         self.lazy_create_page_collection(addr.collection_num);
+
         for (page, data) in self.range[addr.collection_num].iter().zip(allData.iter())  {
             page.write(*data).expect("TODO: panic message");
         }
+        addr //return
     }
+
     fn lazy_create_page_collection(&mut self, page : usize) {
         while self.range.len() <= page {
             self.range.push(PageCollection::new(self.num_pages));
