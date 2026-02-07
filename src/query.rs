@@ -1,4 +1,3 @@
-use crate::table::Record;
 
 pub struct Query {
     // table: Table
