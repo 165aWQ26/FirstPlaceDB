@@ -30,7 +30,7 @@ impl Index {
     }
 
     // for query and table
-    pub fn insert_index(&mut self, key: i64, rid: u64) -> () {
+    pub fn insert(&mut self, key: i64, rid: u64) -> () {
         if self.index.contains_key(&key) {
             // push RID onto the vector 
             self.index.get_mut(&key).unwrap().push(rid);
