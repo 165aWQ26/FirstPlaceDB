@@ -1,27 +1,17 @@
-pub struct Query<T> {
+use crate::table::Record;
 
+pub struct Query {
+    // table: Table
 }
 
-impl Query<T> {
-    
-    pub fn select(&self, key: T) -> Result<Vec<Record>, bool>{
-        
+// impl Query {
+//     pub fn select(&self, key: i64) -> Result<Vec<Record>, bool> {}
 
-    }
+//     pub fn insert(&self, record: Record) -> bool {}
 
-    pub fn insert(&self, record: Record) -> bool{
-        
-    }
+//     pub fn delete(&self, key: i64) -> bool {}
 
-    pub fn delete(&self) -> bool{
+//     pub fn sum(&self, key: i64) {}
 
-    }
-
-    pub fn sum(&self, key: T){
-
-    }
-
-    pub fn update(&self, ) -> bool{
-
-    }
-}
+//     pub fn update(&self) -> bool {}
+// }
