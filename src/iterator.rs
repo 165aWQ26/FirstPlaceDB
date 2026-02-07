@@ -7,6 +7,7 @@ pub struct BasicIterator {
 }
 
 //All this does it create an iterator from 0 - inf & unwrap the option
+//Used for RID
 impl BasicIterator {
     fn new() -> Self {
         BasicIterator { val: 0.. }

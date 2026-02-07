@@ -20,10 +20,12 @@ pub struct Table {
 
 impl Table {
     pub const PROJECTED_NUM_RECORDS : usize = 1200;
-    pub fn new(&mut self, tableName: String, pages_per_collection: usize) -> Table {
+    pub const NUM_META_PAGES: usize = 3;
+    //data_pages_per_collection is the total number of pages in a pagedir
+    pub fn new(&mut self, tableName: String, data_pages_per_collection: usize) -> Table {
         Self {
             name: tableName,
-            pageRanges : PageRanges::new(pages_per_collection),
+            pageRanges : PageRanges::new(data_pages_per_collection),
             pageDirectory : PageDirectory::default(),
             rid : BasicIterator::default(),
         }

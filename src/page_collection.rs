@@ -9,32 +9,32 @@ pub struct PageCollection {
     pages: Vec<Page>
 }
 impl PageCollection {
-
-    const NUM_META_PAGES: usize = 3;
-    pub fn new(pagePerCollection: usize) -> PageCollection {
+    
+    pub fn new(pages_per_collection: usize) -> PageCollection {
         Self {
-            pages: vec![Page::default(); pagePerCollection] //Creates actual pages
+            pages: vec![Page::default(); pages_per_collection] //Creates actual pages
         }
     }
 
+    //different iterators for all, meta, and data cols
     pub fn iter(&mut self) -> impl Iterator<Item=&mut Page> {
         self.pages.iter_mut()
     }
-    
+
     //Panics when you didn't alloc enough pages per page collection
     // Some exception handling thingy should handle when pages per collection < NUM_META_PAGES
-    //.saturating_sub() fails silently 
+    //.saturating_sub() fails silently
     pub fn iter_data(&mut self) -> impl Iterator<Item=&mut Page> {
-        let end = self.pages.len() - PageCollection::NUM_META_PAGES;
+        let end = self.pages.len() - Table::NUM_META_PAGES;
         self.pages[..end].iter_mut()
     }
 
     //Panics when you didn't alloc enough pages per page collection see above
     pub fn iter_meta(&mut self) -> impl Iterator<Item=&mut Page> {
-        let beg = self.pages.len() - PageCollection::NUM_META_PAGES;
+        let beg = self.pages.len() - Table::NUM_META_PAGES;
         self.pages[beg..].iter_mut()
     }
 
     //TODO: Write getters for specific metaDataCols
-
+    
 }

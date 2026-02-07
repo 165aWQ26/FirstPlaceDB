@@ -7,7 +7,6 @@ pub struct PageRange {
     range : Vec<PageCollection>,
     next_addr : PhysicalAddressIterator,
     pages_per_collection : usize
-
 }
 
 impl PageRange {
@@ -16,7 +15,8 @@ impl PageRange {
     //These optimizations are more for fun than anything.
     pub const PROJECTED_NUM_PAGE_COLLECTIONS: usize = (Page::PAGE_SIZE / Table::PROJECTED_NUM_RECORDS * 2) / 3;
 
-    pub fn new(pages_per_collection: usize) -> Self {
+    pub fn new(data_pages_per_collection: usize) -> Self {
+        let pages_per_collection = data_pages_per_collection + Table::NUM_META_PAGES;
         let mut initRange : Vec<PageCollection> = Vec::with_capacity(PageRange::PROJECTED_NUM_PAGE_COLLECTIONS);
         initRange.push(PageCollection::new(pages_per_collection));
 
@@ -33,7 +33,7 @@ impl PageRange {
     pub fn append(&mut self, allData : Vec<Option<i64>>) -> PhysicalAddress {
         //get next addr
         let addr = self.next_addr.next().unwrap();
-       
+
         //Lazily create page collection and associated pages
         self.lazy_create_page_collection(addr.collection_num);
 
@@ -41,12 +41,13 @@ impl PageRange {
         for (page, data) in self.range[addr.collection_num].iter().zip(allData.iter())  {
             page.write(*data).expect("TODO: panic message");
         }
-        
+
         addr //return addr (from here add this addr to a page_dir)
             //Note that you should deal with RID elsewhere (imo) --> isn't a PageRange Construct.
-            //By this point it will have been generated and be in data
+            //By this point it will have been generated and be in data.
     }
 
+    //iterators make this so cleannnnn
     fn lazy_create_page_collection(&mut self, page : usize) {
         while self.range.len() <= page {
             self.range.push(PageCollection::new(self.pages_per_collection));
@@ -69,6 +70,8 @@ impl PageRanges {
     }
 }
 
+//Possibly put here & below into its own file
+//This iterator automatically manages where you write to.
 #[derive(Hash, Eq, PartialEq, Copy, Clone, Debug, Default)]
 pub struct PhysicalAddress {
     offset : usize,
