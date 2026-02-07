@@ -2,7 +2,6 @@ use std::ptr::addr_of_mut;
 use rustc_hash::FxHashMap;
 
 use crate::page::Page;
-use crate::iterator::BasicIterator;
 use crate::page_directory::PageDirectory;
 use crate::page_range::PageRanges;
 
