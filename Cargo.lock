@@ -35,6 +35,7 @@ version = "0.1.0"
 dependencies = [
  "pyo3",
  "pyo3-build-config",
+ "rustc-hash",
 ]
 
 [[package]]
@@ -136,6 +137,12 @@ checksum = "dc74d9a594b72ae6656596548f56f667211f8a97b3d4c3d467150794690dc40a"
 dependencies = [
  "proc-macro2",
 ]
+
+[[package]]
+name = "rustc-hash"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "357703d41365b4b27c590e3ed91eabb1b663f07c4c084095e60cbed4362dff0d"
 
 [[package]]
 name = "rustversion"
