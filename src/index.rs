@@ -29,8 +29,15 @@ impl Index {
         return result
     }
 
+    // for query and table
     pub fn insert_index(&mut self, key: i64, rid: u64) -> () {
-        self.index.insert(key, vec![rid]);
+        if self.index.contains_key(&key) {
+            // push RID onto the vector 
+            self.index.get_mut(&key).unwrap().push(rid);
+        } else {
+            // no RID yet
+            self.index.insert(key, vec![rid]);
+        }
     }
 
     // --drop_index and create_index-- is left to the Table
