@@ -6,21 +6,20 @@ class Index:
 
     def __init__(self, table):
         # One index for each column. All our empty initially.
-        self.indices = [None] *  table.num_columns
         pass
 
     """
     # returns the location of all records with the given value on column "column"
     """
 
-    def locate(self, column, value):
+    def locate(self, value):
         pass
 
     """
     # Returns the RIDs of all records with values in column "column" between "begin" and "end"
     """
 
-    def locate_range(self, begin, end, column):
+    def locate_range(self, begin, end):
         pass
 
     """
