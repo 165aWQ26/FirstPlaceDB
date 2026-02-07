@@ -14,18 +14,18 @@ pub struct Table {
 
     pub pageDirectory: PageDirectory,
 
-    pub rid : BasicIterator
+    pub rid : BasicIterator,
+
 }
 
 impl Table {
     pub const PROJECTED_NUM_RECORDS : usize = 1200;
-    pub fn new(&mut self, tableName: String) -> Table {
+    pub fn new(&mut self, tableName: String, num_pages: usize) -> Table {
         Self {
             name: tableName,
-            pageRanges : PageRanges::default(),
+            pageRanges : PageRanges::new(num_pages),
             pageDirectory : PageDirectory::default(),
-            rid : BasicIterator::default()
-
+            rid : BasicIterator::default(),
         }
     }
 }
