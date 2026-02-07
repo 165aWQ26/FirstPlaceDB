@@ -14,7 +14,7 @@ pub struct Table {
 
     pub pageDirectory: PageDirectory,
 
-    pub rid : BasicIterator,
+    pub rid : std::ops::RangeFrom<usize>,
 
 }
 
@@ -27,7 +27,7 @@ impl Table {
             name: tableName,
             pageRanges : PageRanges::new(data_pages_per_collection),
             pageDirectory : PageDirectory::default(),
-            rid : BasicIterator::default(),
+            rid : 0..,
         }
     }
 }
