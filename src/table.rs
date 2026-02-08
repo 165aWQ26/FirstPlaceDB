@@ -2,7 +2,6 @@ use std::ptr::addr_of_mut;
 use rustc_hash::FxHashMap;
 
 use crate::page::Page;
-use crate::iterator::BasicIterator;
 use crate::page_directory::PageDirectory;
 use crate::page_range::PageRanges;
 
@@ -14,7 +13,7 @@ pub struct Table {
 
     pub pageDirectory: PageDirectory,
 
-    pub rid : BasicIterator,
+    pub rid : std::ops::RangeFrom<usize>,
 
 }
 
@@ -27,7 +26,7 @@ impl Table {
             name: tableName,
             pageRanges : PageRanges::new(data_pages_per_collection),
             pageDirectory : PageDirectory::default(),
-            rid : BasicIterator::default(),
+            rid : 0..,
         }
     }
 }
