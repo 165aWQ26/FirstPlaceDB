@@ -14,7 +14,11 @@ Don't know if we every need to delete, RID isn't reused
 impl PageDirectory {
     //TODO: Calculate this by looking at testers
     pub fn add(&mut self, rid: i64, address: PhysicalAddress) {
-        self.directory[rid as usize] = Some(address);
+        let index = rid as usize;
+        if index >= self.directory.len() {
+            self.directory.resize(index + 1, None);
+        }
+        self.directory[index] = Some(address);
     }
 
     pub fn delete(&mut self, rid: i64) -> Result<(), DbError> {
