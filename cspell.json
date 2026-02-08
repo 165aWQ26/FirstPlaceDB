@@ -8,6 +8,11 @@
     "dictionaries": [],
     "words": [
         "bplustree",
+        "cdylib",
+        "libc",
+        "libpython",
+        "maturin",
+        "rlib",
         "rustc"
     ],
     "ignoreWords": [
