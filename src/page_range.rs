@@ -68,6 +68,28 @@ impl PageRanges {
             base: PageRange::new(pages_per_collection),
         }
     }
+
+    // For inserts: stages metadata (rid, indirection=rid, schema=0) then appends to base
+    pub fn append_base(&mut self, mut data_cols: Vec<Option<i64>>, rid: usize) -> PhysicalAddress {
+        data_cols.push(Some(rid as i64)); // RID
+        data_cols.push(Some(rid as i64)); // indirection (self for new base record)
+        data_cols.push(Some(0)); // schema_encoding (no updates)
+        self.base.append(data_cols)
+    }
+
+    // For updates: caller provides indirection (previous version) and schema_encoding (which cols updated)
+    pub fn append_tail(
+        &mut self,
+        mut data_cols: Vec<Option<i64>>,
+        rid: usize,
+        indirection: usize,
+        schema_encoding: i64,
+    ) -> PhysicalAddress {
+        data_cols.push(Some(rid as i64)); // RID
+        data_cols.push(Some(indirection as i64)); // indirection (points to prev version)
+        data_cols.push(Some(schema_encoding)); // schema_encoding (bitmask of updated cols)
+        self.tail.append(data_cols)
+    }
 }
 
 //Possibly put here & below into its own file
