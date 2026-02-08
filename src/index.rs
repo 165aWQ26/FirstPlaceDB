@@ -21,7 +21,7 @@ impl Index {
         }
     }
 
-    pub fn locate(&self, value: i64) -> Option<&Vec<u64>> {
+    pub fn locate(&self, value: i64) -> Option<&Vec<i64>> {
         self.index.get(&value)
     }
 
@@ -33,11 +33,6 @@ impl Index {
         }
 
         Some(result)
-        if result.is_empty() {
-            None
-        } else {
-            Some(result)
-        }
     }
 
     // for query and table

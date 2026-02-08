@@ -1,6 +1,6 @@
 use crate::error::DbError;
 use crate::index::Index;
-use crate::page_collection::SCHEMA_ENCODING_COL;
+use crate::page_collection::{PageCollection, SCHEMA_ENCODING_COL};
 use crate::page_directory::PageDirectory;
 use crate::page_range::PageRanges;
 
@@ -26,17 +26,16 @@ impl Table {
     //data_pages_per_collection is the total number of pages in a PageDirectory
     pub fn new(
         table_name: String,
-        data_pages_per_collection: usize,
         num_columns: usize,
         key_index: usize,
     ) -> Table {
         Self {
             name: table_name,
-            page_ranges: PageRanges::new(data_pages_per_collection),
+            page_ranges: PageRanges::new(num_columns + Table::NUM_META_PAGES),
             page_directory: PageDirectory::default(),
             rid: 0..,
-            key_index: key_index,
-            num_columns: num_columns,
+            key_index,
+            num_columns,
             indices: (0..num_columns).map(|_| Index::new()).collect(),
         }
     }

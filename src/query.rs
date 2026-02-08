@@ -57,7 +57,7 @@ impl Query {
                 //logic to sub None for col. dropping
                 records.push(
                     self.table
-                        .read_latest_projected(projected_columns_index, *rid)?,
+                        .read_latest_projected(projected_columns_index, *rid as i64)?,
                 );
             }
 
