@@ -12,17 +12,17 @@ Don't know if we every need to delete, RID isn't reused
 */
 impl PageDirectory {
     //TODO: Calculate this by looking at testers
-    pub fn add(&mut self, rid: u64, address: PhysicalAddress) {
+    pub fn add(&mut self, rid: i64, address: PhysicalAddress) {
         self.directory[rid as usize] = Some(address);
     }
 
-    pub fn delete(&mut self, rid: u64) {
+    pub fn delete(&mut self, rid: i64) {
         self.directory[rid as usize] = None;
     }
 
     //When this throws a panic it means you are either accessing a record that
     //DNE or has been deleted... Too lazy to write real exception handling DAANNNYYY Fix me
-    pub fn get(&self, rid: u64) -> PhysicalAddress {
+    pub fn get(&self, rid: i64) -> PhysicalAddress {
         self.directory[rid as usize].unwrap()
     }
 }
