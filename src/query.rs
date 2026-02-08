@@ -31,18 +31,18 @@ impl Query {
         return false
     }
 
-    pub fn select(&self, key: i64, search_key_index:i64,
+    pub fn select(&self, key: i64, search_key_index:usize,
                   projected_columns_index: &mut [i64]) -> Result<Vec<Record>, bool> { 
 
         if let Some(rids) = self.table.index[search_key_index].locate(key){
             
-            let mut records:Vec<Record> = Vec::with_capacity(rids.len())
+            let mut records:Vec<Record> = Vec::new();
         
             for rid in rids{
-                records.push(self.table.pagerange.read(rid, projected_columns_index))
+                records.push(self.table.pagerange.read(projected_columns_index, rid));
             }
 
-            OK(records)
+            Ok(records)
         }
 
         else{
@@ -51,7 +51,7 @@ impl Query {
 
     }
 
-    pub fn select_version(&self, key: i64, search_key_index:i64,
+    pub fn select_version(&self, key: i64, search_key_index:usize,
                   projected_columns_index: &mut [i64], relative_version:i64) -> Result<Vec<Record>, bool> {
         
         
@@ -97,7 +97,18 @@ impl Query {
 
     
 
-    pub fn sum(&self, key: i64) {
+    pub fn sum(&self, start_range:i64, end_range:i64, col: i64) -> Result<i64, bool>{
+        if let Some(rids) = self.table.index[self.table.key_index].locate_range(start_range, end_range){
+            let sum:i64 = 0
+            
+            for rid in rids{
+                sum += self.table.pagerange.read_single(col, rid)
+            }
+            OK(sum)
+        }
+        else{
+            Err(false)
+        }
 
     }
 
@@ -106,8 +117,25 @@ impl Query {
         
     }
 
-    pub fn increment(&self, key: i64, column){
+    pub fn increment(&self, key: i64, column: usize) -> bool{
 
+        let mut record:Vec<Option<i64>> = vec![None; self.table.num_columns];
+
+        if let Some(rid) = self.table.index[self.table.key_index].locate(key){
+            record[column] = self.table.read(column, rid) + 1;
+            
+            if self.update(key, record){
+                return true;
+            }
+            else{
+                return false;
+            }
+                
+        }
+
+        else{
+            return false;
+        }
     }
 
 }
