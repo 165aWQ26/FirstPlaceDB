@@ -1,6 +1,7 @@
 use pyo3::prelude::*;
 
 pub mod db;
+pub mod error;
 pub mod index;
 mod page;
 mod page_collection;

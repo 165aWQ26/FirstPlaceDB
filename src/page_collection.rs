@@ -1,5 +1,4 @@
 use crate::page::{Page, PageError};
-use crate::page_range::PhysicalAddress;
 use crate::table::Table;
 
 pub const RID_COL: usize = 0;

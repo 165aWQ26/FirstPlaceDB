@@ -1,3 +1,4 @@
+use crate::error::DbError;
 use crate::page_range::PhysicalAddress;
 use crate::table::Table;
 
@@ -13,17 +14,30 @@ Don't know if we every need to delete, RID isn't reused
 impl PageDirectory {
     //TODO: Calculate this by looking at testers
     pub fn add(&mut self, rid: i64, address: PhysicalAddress) {
-        self.directory[rid as usize] = Some(address);
+        let index = rid as usize;
+        if index >= self.directory.len() {
+            self.directory.resize(index + 1, None);
+        }
+        self.directory[index] = Some(address);
     }
 
-    pub fn delete(&mut self, rid: i64) {
-        self.directory[rid as usize] = None;
+    pub fn delete(&mut self, rid: i64) -> Result<(), DbError> {
+        let index = rid as usize;
+        self.directory
+            .get(index)
+            .ok_or(DbError::RecordNotFound(rid))?;
+        self.directory[index] = None;
+        Ok(())
     }
 
     //When this throws a panic it means you are either accessing a record that
     //DNE or has been deleted... Too lazy to write real exception handling DAANNNYYY Fix me
-    pub fn get(&self, rid: i64) -> PhysicalAddress {
-        self.directory[rid as usize].unwrap()
+    pub fn get(&self, rid: i64) -> Result<PhysicalAddress, DbError> {
+        self.directory
+            .get(rid as usize)
+            .copied()
+            .flatten()
+            .ok_or(DbError::RecordNotFound(rid))
     }
 }
 
