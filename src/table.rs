@@ -11,8 +11,6 @@ pub struct Table {
     pub rid: std::ops::RangeFrom<usize>,
 
     pub key_index: usize,
-
-    pub num_columns: usize,
 }
 
 impl Table {
@@ -25,8 +23,6 @@ impl Table {
             page_ranges: PageRanges::new(data_pages_per_collection),
             page_directory: PageDirectory::default(),
             rid: 0..,
-            key_index: key_index,
-            num_columns: data_pages_per_collection,
         }
     }
 }
