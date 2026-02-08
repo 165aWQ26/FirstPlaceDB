@@ -1,5 +1,5 @@
 use bplustree::BPlusTreeMap;    
-const MAX_RECORDS: usize = 512;
+const MAX_RECORDS_TOTAL: usize = 64000;
 // This is just a wrapper over a B+ tree. Table will have many of these.
 // Table will have [Index, Index, Index, ..., ]
 // B+ Tree wrapper for mappping primary/secondary keys -> vector of RIDs
@@ -9,9 +9,9 @@ pub struct Index {
 }
 
 impl Index {
-    pub fn new(self) -> Self {
+    pub fn new() -> Self {
         Index {
-            index: BPlusTreeMap::new(MAX_RECORDS).unwrap(),
+            index: BPlusTreeMap::new(MAX_RECORDS_TOTAL).unwrap(),
         }
     }
     
@@ -19,14 +19,18 @@ impl Index {
         return self.index.get(&value);
     }
 
-    pub fn locate_range(&self, begin: i64, end: i64) -> Vec<u64> {
+    pub fn locate_range(&self, begin: i64, end: i64) -> Option<Vec<u64>> {
         let mut result: Vec<u64> = Vec::new();
 
         for (_key, rid) in self.index.range(begin..=end) {
             result.extend(rid);
         }
 
-        return result
+        if result.is_empty() {
+            None 
+        } else {
+            Some(result)
+        }
     }
 
     // for query and table
@@ -41,4 +45,46 @@ impl Index {
     }
 
     // --drop_index and create_index-- is left to the Table
+}
+
+// -- tests --
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn insert_one() {
+        let mut my_index = Index::new();
+        my_index.insert(5, 1);
+        assert_eq!(my_index.locate(5), Some(&vec![1]));
+    }
+
+    #[test]
+    fn insert_two() {
+        let mut my_index = Index::new();
+        my_index.insert(5, 1);
+        my_index.insert(4,2);
+        assert_eq!(my_index.locate(5), Some(&vec![1]));
+        assert_eq!(my_index.locate(4), Some(&vec![2]));
+    }
+
+    #[test]
+    fn insert_dups() {
+        let mut my_index = Index::new();
+        my_index.insert(5, 1);
+        my_index.insert(5,2);
+        assert_eq!(my_index.locate(5), Some(&vec![1, 2]));
+    }
+
+    #[test]
+    fn range_query() {
+        let mut my_index = Index::new();
+        my_index.insert(5, 1);
+        my_index.insert(5,2);
+        my_index.insert(6, 3);
+        my_index.insert(7,4);
+        my_index.insert(8, 5);
+        my_index.insert(8,6);
+        assert_eq!(my_index.locate_range(5, 8), Some(vec![1, 2, 3, 4, 5, 6]));
+    }
 }
