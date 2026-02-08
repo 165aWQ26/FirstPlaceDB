@@ -1,11 +1,9 @@
-use core::num;
-
 use rustc_hash::FxHashMap;
 
-use crate::table::{self, Table};
+use crate::table::Table;
 
 struct Database {
-    tables: FxHashMap<String, Table>
+    tables: FxHashMap<String, Table>,
 }
 
 impl Database {
@@ -21,4 +19,3 @@ impl Database {
         self.tables.remove(name);
     }
 }
-
