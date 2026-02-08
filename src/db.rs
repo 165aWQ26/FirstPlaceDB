@@ -2,13 +2,14 @@ use rustc_hash::FxHashMap;
 
 use crate::table::Table;
 
+#[derive(Default)]
 struct Database {
     tables: FxHashMap<String, Table>,
 }
 
 impl Database {
-    pub fn create_table(&mut self, name: String, num_columns: usize, key_index: usize) {
-        let table = Table::new(name.clone(), num_columns + Table::NUM_META_PAGES, num_columns, key_index);
+    pub fn create_table(&mut self, name: String, num_columns: usize, _key_index: usize) {
+        let table = Table::new(name.clone(), num_columns + Table::NUM_META_PAGES, num_columns);
         self.tables.insert(name, table);
     }
 

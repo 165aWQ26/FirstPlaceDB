@@ -1,5 +1,5 @@
 use bplustree::BPlusTreeMap;
-const MAX_RECORDS_TOTAL: usize = 64000;
+
 // This is just a wrapper over a B+ tree. Table will have many of these.
 // Table will have [Index, Index, Index, ..., ]
 // B+ Tree wrapper for mappping primary/secondary keys -> vector of RIDs
@@ -9,14 +9,20 @@ pub struct Index {
 }
 
 impl Index {
+    //TODO: B+ tree should not be init to this value, you misread the docs...
+    //determine if you actually need to maintain this weird capacity limit
+    const MAX_RECORDS_TOTAL: usize = 64000;
+
+    //Changed to this value: essentially just when a mode
+    const MAX_RECORDS_PER_NODE: usize = 128;
     pub fn new() -> Self {
         Index {
-            index: BPlusTreeMap::new(MAX_RECORDS_TOTAL).unwrap(),
+            index: BPlusTreeMap::new(128).unwrap(),
         }
     }
 
     pub fn locate(&self, value: i64) -> Option<&Vec<u64>> {
-        return self.index.get(&value);
+        self.index.get(&value)
     }
 
     pub fn locate_range(&self, begin: i64, end: i64) -> Option<Vec<u64>> {
@@ -25,33 +31,34 @@ impl Index {
         for (_key, rid) in self.index.range(begin..=end) {
             result.extend(rid);
         }
-        
+
         Some(result)
     }
 
     // for query and table
     pub fn insert(&mut self, key: i64, rid: u64) -> () {
-        if self.index.contains_key(&key) {
-            // push RID onto the vector
-            self.index.get_mut(&key).unwrap().push(rid);
+        //Single lookup
+        if let Some(rids) = self.index.get_mut(&key) {
+            rids.push(rid);
         } else {
-            // no RID yet
             self.index.insert(key, vec![rid]);
         }
     }
 
-    pub fn remove(&mut self, key: i64, rid: u64) -> () {
+    pub fn remove(&mut self, key: i64, rid: u64) {
         // find vector for key, remove that RID from the vector
         // if vector is empty, remove will REMOVE THAT MAPPING.
         // locate will then always generate some result, never None.
-        
-        if self.index.get(&key).unwrap().is_empty() {
-            let _ = self.index.remove_item(&key);
-        } else {    
-            // scan RIDs for which one to remove
-            self.index.get_mut(&key).unwrap().retain(|&x| x != rid);
+
+        //Lookup key
+        if let Some(rids) = self.index.get_mut(&key) {
+            rids.retain(|&x| x != rid);
+
+            //We only need to remove entire keys directly after removing associated rids
+            if rids.is_empty() {
+                self.index.remove(&key);
+            }
         }
     }
-
-    // --drop_index and create_index-- is left to the Table
+// --drop_index and create_index-- is left to the Table
 }
