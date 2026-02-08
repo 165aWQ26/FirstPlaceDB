@@ -7,7 +7,6 @@ mod page_collection;
 mod page_directory;
 mod page_range;
 pub mod query;
-pub mod record;
 pub mod table;
 
 /// A Python module implemented in Rust. The name of this module must match
