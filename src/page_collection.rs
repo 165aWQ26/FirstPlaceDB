@@ -37,6 +37,15 @@ impl PageCollection {
         self.pages[col].read(offset)
     }
 
+    pub fn update_column(
+        &mut self,
+        col: usize,
+        offset: usize,
+        val: Option<i64>,
+    ) -> Result<(), PageError> {
+        self.pages[col].update(offset, val)
+    }
+
     //Panics when you didn't alloc enough pages per page collection see above
     pub fn iter_meta(&mut self) -> impl Iterator<Item = &mut Page> {
         let beg = self.pages.len() - Table::NUM_META_PAGES;
