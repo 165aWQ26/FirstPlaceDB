@@ -32,7 +32,27 @@ impl Query {
     }
 
     pub fn select(&self, key: i64, search_key_index:i64,
-                  projected_columns_index: &mut [i64]) -> Result<Vec<Record>, bool> {
+                  projected_columns_index: &mut [i64]) -> Result<Vec<Record>, bool> { 
+
+        if let Some(rids) = self.table.index[search_key_index].locate(key){
+            
+            let mut records:Vec<Record> = Vec::with_capacity(rids.len())
+        
+            for rid in rids{
+                records.push(self.table.pagerange.read(rid, projected_columns_index))
+            }
+
+            OK(records)
+        }
+
+        else{
+            Err(false)
+        }
+
+    }
+
+    pub fn select_version(&self, key: i64, search_key_index:i64,
+                  projected_columns_index: &mut [i64], relative_version:i64) -> Result<Vec<Record>, bool> {
         
         
     }
