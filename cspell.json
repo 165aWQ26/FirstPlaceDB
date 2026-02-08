@@ -6,7 +6,15 @@
     ],
     "dictionaryDefinitions": [],
     "dictionaries": [],
-    "words": [],
+    "words": [
+        "bplustree",
+        "cdylib",
+        "libc",
+        "libpython",
+        "maturin",
+        "rlib",
+        "rustc"
+    ],
     "ignoreWords": [
         "pyclass",
         "pymethods",

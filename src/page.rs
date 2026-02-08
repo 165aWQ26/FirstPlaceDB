@@ -1,4 +1,3 @@
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum PageError {
     Full,
@@ -12,7 +11,7 @@ pub struct Page {
 
 impl Page {
     pub const PAGE_SIZE: usize = 512;
-    
+
     pub fn has_capacity(&self) -> bool {
         self.data.len() < Page::PAGE_SIZE
     }
@@ -36,7 +35,9 @@ impl Page {
             .copied()
             .ok_or(PageError::IndexOutOfBounds(index))
     }
-    
+
+    pub fn update(&mut self, index: usize, val: Option<i64>) {}
+
     pub fn len(&self) -> usize {
         self.data.len()
     }

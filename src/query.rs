@@ -1,4 +1,3 @@
-
 pub struct Query {
     // table: Table
 }
