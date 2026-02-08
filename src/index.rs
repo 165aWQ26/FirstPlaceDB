@@ -88,3 +88,4 @@ mod tests {
         assert_eq!(my_index.locate_range(5, 8), Some(vec![1, 2, 3, 4, 5, 6]));
     }
 }
+
