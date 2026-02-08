@@ -8,6 +8,7 @@ mod page_directory;
 mod page_range;
 pub mod query;
 pub mod table;
+pub mod db;
 
 /// A Python module implemented in Rust. The name of this module must match
 /// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
