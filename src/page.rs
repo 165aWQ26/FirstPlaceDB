@@ -36,7 +36,13 @@ impl Page {
             .ok_or(PageError::IndexOutOfBounds(index))
     }
 
-    pub fn update(&mut self, index: usize, val: Option<i64>) {}
+    pub fn update(&mut self, index: usize, val: Option<i64>) -> Result<(), PageError> {
+        if index >= self.data.len() {
+            return Err(PageError::IndexOutOfBounds(index));
+        }
+        self.data[index] = val;
+        Ok(())
+    }
 
     pub fn len(&self) -> usize {
         self.data.len()

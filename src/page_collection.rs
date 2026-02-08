@@ -1,4 +1,4 @@
-use crate::page::Page;
+use crate::page::{Page, PageError};
 use crate::table::Table;
 
 //In general this structure will make a lot of assumptions about the data that is passed (not good for modularity but wtv).
@@ -34,4 +34,11 @@ impl PageCollection {
     }
 
     //TODO: Write getters for specific metaDataCols
+
+    const INDIRECTION_COL: usize = 1;
+
+    pub fn update_indirection(&mut self, offset: usize, val: Option<i64>) -> Result<(), PageError> {
+        let meta_start = self.pages.len() - Table::NUM_META_PAGES;
+        self.pages[meta_start + Self::INDIRECTION_COL].update(offset, val)
+    }
 }
