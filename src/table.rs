@@ -68,7 +68,7 @@ impl Table {
             None => return Ok(result),
             Some(tail_rid) => {
                 let mut current_tail_rid = tail_rid;
-                let mut accmulated_schema: i64 = 0;
+                let mut accumulated_schema: i64 = 0;
                 loop {
                     let tail_addr = self.page_directory.get(current_tail_rid)?;
                     let tail_schema = self
@@ -77,14 +77,14 @@ impl Table {
                         .ok_or(DbError::NullValue(SCHEMA_ENCODING_COL))?;
 
                     // Columns updated in this tail but not yet seen in newer tail
-                    let new_cols = tail_schema & !accmulated_schema;
+                    let new_cols = tail_schema & !accumulated_schema;
 
                     for col in 0..self.num_columns {
                         if (new_cols >> col) & 1 == 1 {
                             result[col] = self.page_ranges.read_tail_single(col, &tail_addr)?;
                         }
                     }
-                    accmulated_schema |= tail_schema;
+                    accumulated_schema |= tail_schema;
 
                     // Follow indirection to next (older tail record)
                     let next_rid = self.page_ranges.get_tail_indirection(&tail_addr)?;
@@ -101,6 +101,7 @@ impl Table {
 
     pub fn read_latest_single(&self, rid: i64, col: usize) -> Result<Option<i64>, DbError> {
         let base_addr = self.page_directory.get(rid)?;
+        // ? What is this for?
         let mut result = self.read(rid)?;
         let indirection = self.page_ranges.get_indirection(&base_addr)?;
 
@@ -113,7 +114,8 @@ impl Table {
                     let tail_addr = self.page_directory.get(current_tail_rid)?;
                     let tail_schema = self
                         .page_ranges
-                        .get_tail_schema_encoding(&tail_addr)?.ok_or(DbError::NullValue(SCHEMA_ENCODING_COL))?;
+                        .get_tail_schema_encoding(&tail_addr)?
+                        .ok_or(DbError::NullValue(SCHEMA_ENCODING_COL))?;
 
                     if (tail_schema >> col) & 1 == 1 {
                         // Newest tail that updates this column
@@ -133,7 +135,11 @@ impl Table {
         }
     }
 
-    pub fn read_latest_projected(&self, projected: &[i64], rid: i64) -> Result<Vec<Option<i64>>, DbError> {
+    pub fn read_latest_projected(
+        &self,
+        projected: &[i64],
+        rid: i64,
+    ) -> Result<Vec<Option<i64>>, DbError> {
         let full = self.read_latest(rid)?;
         Ok(projected
             .iter()

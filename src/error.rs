@@ -1,4 +1,4 @@
-use crate::page::{Page, PageError};
+use crate::page::PageError;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
