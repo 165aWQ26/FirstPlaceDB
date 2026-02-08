@@ -9,6 +9,8 @@ source = "git+https://github.com/KentBeck/BPlusTree3#ca80e4d85a99cd0af2effe717f7
 dependencies = [
  "paste",
 ]
+
+[[package]]
 name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
