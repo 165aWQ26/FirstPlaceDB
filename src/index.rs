@@ -1,11 +1,11 @@
-use bplustree::BPlusTreeMap;
-
 // This is just a wrapper over a B+ tree. Table will have many of these.
 // Table will have [Index, Index, Index, ..., ]
-// B+ Tree wrapper for mappping primary/secondary keys -> vector of RIDs
+// B+ Tree wrapper for mapping primary/secondary keys -> vector of RIDs
+use bplustree::BPlusTreeMap;
+
 pub struct Index {
     // primary key ->> STILL a vector of 1 RID
-    index: BPlusTreeMap<i64, Vec<u64>>,
+    index: BPlusTreeMap<i64, Vec<i64>>,
 }
 
 impl Index {
@@ -17,7 +17,7 @@ impl Index {
     const MAX_RECORDS_PER_NODE: usize = 128;
     pub fn new() -> Self {
         Index {
-            index: BPlusTreeMap::new(128).unwrap(),
+            index: BPlusTreeMap::new(Index::MAX_RECORDS_PER_NODE).unwrap(),
         }
     }
 
@@ -25,18 +25,23 @@ impl Index {
         self.index.get(&value)
     }
 
-    pub fn locate_range(&self, begin: i64, end: i64) -> Option<Vec<u64>> {
-        let mut result: Vec<u64> = Vec::new();
+    pub fn locate_range(&self, begin: i64, end: i64) -> Option<Vec<i64>> {
+        let mut result: Vec<i64> = Vec::new();
 
         for (_key, rid) in self.index.range(begin..=end) {
             result.extend(rid);
         }
 
         Some(result)
+        if result.is_empty() {
+            None
+        } else {
+            Some(result)
+        }
     }
 
     // for query and table
-    pub fn insert(&mut self, key: i64, rid: u64) -> () {
+    pub fn insert(&mut self, key: i64, rid: i64) -> () {
         //Single lookup
         if let Some(rids) = self.index.get_mut(&key) {
             rids.push(rid);
@@ -45,7 +50,7 @@ impl Index {
         }
     }
 
-    pub fn remove(&mut self, key: i64, rid: u64) {
+    pub fn remove(&mut self, key: i64, rid: i64) -> () {
         // find vector for key, remove that RID from the vector
         // if vector is empty, remove will REMOVE THAT MAPPING.
         // locate will then always generate some result, never None.
@@ -60,5 +65,6 @@ impl Index {
             }
         }
     }
-// --drop_index and create_index-- is left to the Table
+
+    // --drop_index and create_index-- is left to the Table
 }

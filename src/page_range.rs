@@ -1,4 +1,5 @@
-use crate::page::Page;
+use crate::error::DbError;
+use crate::page::{Page, PageError};
 use crate::page_collection::PageCollection;
 use crate::table::Table;
 
@@ -30,7 +31,7 @@ impl PageRange {
     //Append assumes metadata has been pre-calculated (allData)
     //All it does is write to the current offset
     //allData cols must be in correct places
-    pub fn append(&mut self, all_data: Vec<Option<i64>>) -> PhysicalAddress {
+    pub fn append(&mut self, all_data: Vec<Option<i64>>) -> Result<PhysicalAddress, DbError> {
         //get next addr
         let addr = self.next_addr.next().unwrap();
 
@@ -39,10 +40,10 @@ impl PageRange {
 
         //iterate over page and data
         for (page, data) in self.range[addr.collection_num].iter().zip(all_data.iter()) {
-            page.write(*data).expect("TODO: panic message");
+            page.write(*data)?;
         }
 
-        addr //return addr (from here add this addr to a page_dir)
+        Ok(addr) //return addr (from here add this addr to a page_dir)
         //Note that you should deal with RID elsewhere (imo) --> isn't a PageRange Construct.
         //By this point it will have been generated and be in data.
     }
@@ -54,11 +55,66 @@ impl PageRange {
                 .push(PageCollection::new(self.pages_per_collection));
         }
     }
+
+    fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
+        // given an array (project_columns) of 0's and 1's, return all requested columns (1's), ignore non-required(0's)
+        let num_data_cols = self.pages_per_collection - Table::NUM_META_PAGES;
+        (0..num_data_cols)
+            .map(|col| self.read_single(col, addr))
+            .collect()
+    }
+
+    fn read_single(&self, column: usize, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
+        //given single column, return value in row x column
+        Ok(self.range[addr.collection_num].read_column(column, addr.offset)?)
+    }
+
+    pub fn write_single(
+        &mut self,
+        col: usize,
+        addr: &PhysicalAddress,
+        val: Option<i64>,
+    ) -> Result<(), PageError> {
+        self.range[addr.collection_num].update_column(col, addr.offset, val)
+    }
+
+    pub fn get_rid(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
+        Ok(self.range[addr.collection_num].get_rid(addr.offset)?)
+    }
+
+    pub fn get_indirection(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
+        Ok(self.range[addr.collection_num].get_indirection(addr.offset)?)
+    }
+    pub fn get_schema_encoding(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
+        Ok(self.range[addr.collection_num].get_schema_encoding(addr.offset)?)
+    }
+
+    pub fn get_start_time(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
+        Ok(self.range[addr.collection_num].get_start_time(addr.offset)?)
+    }
+
+    fn read_projected(
+        &self,
+        projected: &[i64],
+        addr: &PhysicalAddress,
+    ) -> Result<Vec<Option<i64>>, DbError> {
+        projected
+            .iter()
+            .enumerate()
+            .map(|(col, &flag)| {
+                if flag == 1 {
+                    self.read_single(col, addr)
+                } else {
+                    Ok(None)
+                }
+            })
+            .collect()
+    }
 }
 
 pub struct PageRanges {
-    tail: PageRange,
-    base: PageRange,
+    pub tail: PageRange,
+    pub base: PageRange,
 }
 
 impl PageRanges {
@@ -70,25 +126,95 @@ impl PageRanges {
     }
 
     // For inserts: stages metadata (rid, indirection=rid, schema=0) then appends to base
-    pub fn append_base(&mut self, mut data_cols: Vec<Option<i64>>, rid: u64) -> PhysicalAddress {
+    pub fn append_base(
+        &mut self,
+        mut data_cols: Vec<Option<i64>>,
+        rid: i64,
+    ) -> Result<PhysicalAddress, DbError> {
         data_cols.push(Some(rid as i64)); // RID
         data_cols.push(Some(rid as i64)); // indirection (self for new base record)
         data_cols.push(Some(0)); // schema_encoding (no updates)
-        self.base.append(data_cols)
+        data_cols.push(None);
+        Ok(self.base.append(data_cols)?)
+    }
+
+    pub fn read_tail(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
+        self.tail.read(addr)
+    }
+
+    pub fn read_tail_single(
+        &self,
+        col: usize,
+        addr: &PhysicalAddress,
+    ) -> Result<Option<i64>, DbError> {
+        self.tail.read_single(col, addr)
+    }
+
+    pub fn get_tail_indirection(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
+        self.tail.get_indirection(addr)
+    }
+    pub fn get_tail_schema_encoding(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
+        self.tail.get_schema_encoding(addr)
     }
 
     // For updates: caller provides indirection (previous version) and schema_encoding (which cols updated)
     pub fn append_tail(
         &mut self,
         mut data_cols: Vec<Option<i64>>,
-        rid: u64,
-        indirection: u64,
+        rid: i64,
+        indirection: i64,
         schema_encoding: i64,
-    ) -> PhysicalAddress {
+    ) -> Result<PhysicalAddress, DbError> {
         data_cols.push(Some(rid as i64)); // RID
         data_cols.push(Some(indirection as i64)); // indirection (points to prev version)
         data_cols.push(Some(schema_encoding)); // schema_encoding (bitmask of updated cols)
+        data_cols.push(None);
         self.tail.append(data_cols)
+    }
+
+    pub fn read_single(
+        &self,
+        column: usize,
+        addr: &PhysicalAddress,
+    ) -> Result<Option<i64>, DbError> {
+        self.base.read_single(column, addr)
+    }
+
+    pub fn write_single(
+        &mut self,
+        col: usize,
+        addr: &PhysicalAddress,
+        val: Option<i64>,
+    ) -> Result<(), PageError> {
+        self.base.write_single(col, addr, val)
+    }
+
+    pub fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
+        self.base.read(addr)
+    }
+
+    pub fn read_projected(
+        &self,
+        projected: &[i64],
+        addr: &PhysicalAddress,
+    ) -> Result<Vec<Option<i64>>, DbError> {
+        self.base.read_projected(projected, addr)
+    }
+
+    pub fn get_rid(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
+        self.base.get_rid(addr)
+    }
+
+    pub fn get_indirection(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
+        self.base.get_indirection(addr)
+    }
+
+    pub fn get_schema_encoding(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
+        self.base.get_schema_encoding(addr)
+    }
+
+    pub fn get_start_time(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
+        self.base.get_start_time(addr)
     }
 }
 
