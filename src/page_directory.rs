@@ -17,9 +17,14 @@ impl PageDirectory {
         self.directory[rid as usize] = Some(address);
     }
 
-    pub fn delete(&mut self, rid: i64) {
-            self.directory[rid as usize] = None;
-        }
+    pub fn delete(&mut self, rid: i64) -> Result<(), DbError> {
+        let index = rid as usize;
+        self.directory
+        .get(index)
+        .ok_or(DbError::RecordNotFound(rid))?;
+    self.directory[index] = None;
+    Ok(())
+    }
 
     //When this throws a panic it means you are either accessing a record that
     //DNE or has been deleted... Too lazy to write real exception handling DAANNNYYY Fix me
