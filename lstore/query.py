@@ -81,7 +81,7 @@ class Query:
     def sum(self, start_range, end_range, aggregate_column_index):
         pass
 
-    
+
     """
     :param start_range: int         # Start of the key range to aggregate 
     :param end_range: int           # End of the key range to aggregate 
