@@ -27,7 +27,6 @@ impl Index {
         for (_key, rid) in self.index.range(begin..=end) {
             result.extend(rid);
         }
-
         if result.is_empty() {
             None
         } else {
@@ -55,6 +54,7 @@ impl Index {
         }
 
         self.index.get_mut(&key).unwrap().retain(|&x| x != rid);
+
         if self.index.get(&key).unwrap().is_empty() {
             let _ = self.index.remove_item(&key);
         }
