@@ -3,10 +3,9 @@ mod tests {
     // use ::index::*;src
     // use ::Table::*;src
     // use ::Query::*;
+    use lstore::index::Index;
     use lstore::query::Query;
     use lstore::table::Table;
-    use lstore::index::Index;
-
 
     #[test]
     fn quick_test_all() {
@@ -24,7 +23,7 @@ mod tests {
         let rid1 = query.table.indices[0].locate(1).unwrap();
 
         println!("{:?}", query.table.read(rid1[0]));
-        
+
         //assert!(query.table.read(rid1[0]) == vec![Some(1); 5]);
 
         let rid2 = query.table.indices[0].locate(2);
@@ -33,7 +32,7 @@ mod tests {
 
         query.insert(rec_three);
 
-        let ans:i64 = query.sum(1, 3, 3).unwrap();
+        let ans: i64 = query.sum(1, 3, 3).unwrap();
 
         //assert!(ans == 8);
         println!("{:?}", ans);
@@ -41,12 +40,11 @@ mod tests {
         query.insert(rec_four);
 
         query.delete(4);
-    
-        
+
         let mut mask: [i64; 5] = [1, 0, 1, 0, 1];
         let ans_list: Vec<Vec<Option<i64>>> = query.select(1, 0, &mut mask).unwrap();
 
-        for answer in ans_list{
+        for answer in ans_list {
             println!("{:?}", answer);
         }
 
@@ -55,11 +53,9 @@ mod tests {
 
         query.increment(2, 0);
         query.increment(1, 0);
-        
 
         let ans_list_two: Vec<Vec<Option<i64>>> = query.select(2, 0, &mut mask).unwrap();
 
         println!("{:?}", ans_list_two[0])
-
     }
 }

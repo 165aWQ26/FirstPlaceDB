@@ -18,7 +18,6 @@ impl fmt::Display for DbError {
             DbError::KeyNotFound(key) => write!(f, "key not found: {}", key),
             DbError::DuplicateKey(key) => write!(f, "duplicate key: {}", key),
             DbError::NullValue(col) => write!(f, "unexpected null in column {}", col),
-
         }
     }
 }

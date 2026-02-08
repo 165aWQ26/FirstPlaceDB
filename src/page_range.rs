@@ -1,4 +1,3 @@
-
 use crate::page::Page;
 use crate::page_collection::PageCollection;
 use crate::table::Table;
