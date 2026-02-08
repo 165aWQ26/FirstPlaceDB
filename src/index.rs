@@ -25,12 +25,8 @@ impl Index {
         for (_key, rid) in self.index.range(begin..=end) {
             result.extend(rid);
         }
-
-        if result.is_empty() {
-            None
-        } else {
-            Some(result)
-        }
+        
+        Some(result)
     }
 
     // for query and table
@@ -46,10 +42,15 @@ impl Index {
 
     pub fn remove(&mut self, key: i64, rid: u64) -> () {
         // find vector for key, remove that RID from the vector
-        // We will call remove always when we have 
+        // if vector is empty, remove will REMOVE THAT MAPPING.
+        // locate will then always generate some result, never None.
         
-        // scan RIDs for which one to remove
-        self.index.get_mut(&key).unwrap().retain(|&x| x != rid);
+        if self.index.get(&key).unwrap().is_empty() {
+            let _ = self.index.remove_item(&key);
+        } else {    
+            // scan RIDs for which one to remove
+            self.index.get_mut(&key).unwrap().retain(|&x| x != rid);
+        }
     }
 
     // --drop_index and create_index-- is left to the Table

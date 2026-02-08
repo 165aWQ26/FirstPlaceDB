@@ -33,12 +33,30 @@ impl PageCollection {
         self.pages[beg..].iter_mut()
     }
 
-    //TODO: Write getters for specific metaDataCols
-
+    const RID_COL: usize = 0;
     const INDIRECTION_COL: usize = 1;
+    const SCHEMA_ENCODING_COL: usize = 2;
+    const START_TIME_COL: usize = 3;
 
-    pub fn update_indirection(&mut self, offset: usize, val: Option<i64>) -> Result<(), PageError> {
+    // Returns a reference to the metadata page at the given column index
+    fn meta_page(&self, col: usize) -> &Page {
         let meta_start = self.pages.len() - Table::NUM_META_PAGES;
-        self.pages[meta_start + Self::INDIRECTION_COL].update(offset, val)
+        &self.pages[meta_start + col]
+    }
+
+    pub fn get_rid(&self, offset: usize) -> Result<Option<i64>, PageError> {
+        self.meta_page(Self::RID_COL).read(offset)
+    }
+
+    pub fn get_indirection(&self, offset: usize) -> Result<Option<i64>, PageError> {
+        self.meta_page(Self::INDIRECTION_COL).read(offset)
+    }
+
+    pub fn get_schema_encoding(&self, offset: usize) -> Result<Option<i64>, PageError> {
+        self.meta_page(Self::SCHEMA_ENCODING_COL).read(offset)
+    }
+
+    pub fn get_start_time(&self, offset: usize) -> Result<Option<i64>, PageError> {
+        self.meta_page(Self::START_TIME_COL).read(offset)
     }
 }
