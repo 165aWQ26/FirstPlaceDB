@@ -6,7 +6,10 @@
     ],
     "dictionaryDefinitions": [],
     "dictionaries": [],
-    "words": [],
+    "words": [
+        "bplustree",
+        "rustc"
+    ],
     "ignoreWords": [
         "pyclass",
         "pymethods",
