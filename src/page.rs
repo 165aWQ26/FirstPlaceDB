@@ -10,7 +10,7 @@ pub struct Page {
 }
 
 impl Page {
-    pub const PAGE_SIZE: usize = 512;
+    pub const PAGE_SIZE: usize = 4096;
 
     pub fn has_capacity(&self) -> bool {
         self.data.len() < Page::PAGE_SIZE
