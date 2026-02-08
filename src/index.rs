@@ -44,6 +44,14 @@ impl Index {
         }
     }
 
+    pub fn remove(&mut self, key: i64, rid: u64) -> () {
+        // find vector for key, remove that RID from the vector
+        // We will call remove always when we have 
+        
+        // scan RIDs for which one to remove
+        self.index.get_mut(&key).unwrap().retain(|&x| x != rid);
+    }
+
     // --drop_index and create_index-- is left to the Table
 }
 
@@ -86,6 +94,19 @@ mod tests {
         my_index.insert(8, 5);
         my_index.insert(8,6);
         assert_eq!(my_index.locate_range(5, 8), Some(vec![1, 2, 3, 4, 5, 6]));
+    }
+
+    #[test]
+    fn test_remove() {
+        let mut my_index = Index::new();
+        my_index.insert(5, 1);
+        my_index.insert(5,2);
+        my_index.insert(6, 3);
+        my_index.insert(7,4);
+        my_index.insert(8, 5);
+        my_index.insert(8,6);
+        my_index.remove(5, 1);
+        assert_eq!(my_index.locate_range(5, 8), Some(vec![2, 3, 4, 5, 6]));
     }
 }
 
