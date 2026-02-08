@@ -27,8 +27,11 @@ impl Index {
         for (_key, rid) in self.index.range(begin..=end) {
             result.extend(rid);
         }
-
-        Some(result)
+        if result.is_empty() {
+            None
+        } else {
+            Some(result)
+        }
     }
 
     // for query and table
@@ -46,14 +49,8 @@ impl Index {
         // find vector for key, remove that RID from the vector
         // if vector is empty, remove will REMOVE THAT MAPPING.
         // locate will then always generate some result, never None.
-
-        // if self.index.get(&key).unwrap().is_empty() {
-        //     let _ = self.index.remove_item(&key);
-        // } else {
-        //     // scan RIDs for which one to remove
-        //     self.index.get_mut(&key).unwrap().retain(|&x| x != rid);
-        // }
         self.index.get_mut(&key).unwrap().retain(|&x| x != rid);
+
         if self.index.get(&key).unwrap().is_empty() {
             let _ = self.index.remove_item(&key);
         }
