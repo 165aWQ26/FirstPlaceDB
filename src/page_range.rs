@@ -38,7 +38,7 @@ impl PageRange {
         self.lazy_create_page_collection(addr.collection_num);
 
         //iterate over page and data
-        for (page, data) in self.range[addr.collection_num].iter().zip(allData.iter()) {
+        for (page, data) in self.range[addr.collection_num].iter().zip(all_data.iter()) {
             page.write(*data).expect("TODO: panic message");
         }
 
