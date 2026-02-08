@@ -70,7 +70,7 @@ impl PageRanges {
     }
 
     // For inserts: stages metadata (rid, indirection=rid, schema=0) then appends to base
-    pub fn append_base(&mut self, mut data_cols: Vec<Option<i64>>, rid: usize) -> PhysicalAddress {
+    pub fn append_base(&mut self, mut data_cols: Vec<Option<i64>>, rid: u64) -> PhysicalAddress {
         data_cols.push(Some(rid as i64)); // RID
         data_cols.push(Some(rid as i64)); // indirection (self for new base record)
         data_cols.push(Some(0)); // schema_encoding (no updates)
@@ -81,8 +81,8 @@ impl PageRanges {
     pub fn append_tail(
         &mut self,
         mut data_cols: Vec<Option<i64>>,
-        rid: usize,
-        indirection: usize,
+        rid: u64,
+        indirection: u64,
         schema_encoding: i64,
     ) -> PhysicalAddress {
         data_cols.push(Some(rid as i64)); // RID
