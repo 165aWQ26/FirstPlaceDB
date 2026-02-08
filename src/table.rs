@@ -17,14 +17,9 @@ pub struct Table {
 
 impl Table {
     pub const PROJECTED_NUM_RECORDS: usize = 1200;
-    pub const NUM_META_PAGES: usize = 3;
-    //data_pages_per_collection is the number of data values in a relation.
-    pub fn new(
-        table_name: String,
-        data_pages_per_collection: usize,
-        num_columns: usize,
-        key_index: usize,
-    ) -> Table {
+    pub const NUM_META_PAGES: usize = 4;
+    //data_pages_per_collection is the total number of pages in a PageDirectory
+    pub fn new(table_name: String, data_pages_per_collection: usize, key_index: usize) -> Table {
         Self {
             name: table_name,
             page_ranges: PageRanges::new(data_pages_per_collection),
