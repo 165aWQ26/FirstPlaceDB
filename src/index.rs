@@ -29,9 +29,9 @@ impl Index {
         }
 
         if result.is_empty() {
-            Some(result)
-        } else {
             None
+        } else {
+            Some(result)
         }
     }
 
@@ -50,6 +50,9 @@ impl Index {
         // find vector for key, remove that RID from the vector
         // if vector is empty, remove will REMOVE THAT MAPPING.
         // locate will then always generate some result, never None.
+        if !self.index.contains_key(&key) {
+            return;
+        }
 
         self.index.get_mut(&key).unwrap().retain(|&x| x != rid);
         if self.index.get(&key).unwrap().is_empty() {
