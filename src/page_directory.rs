@@ -13,6 +13,7 @@ Don't know if we every need to delete, RID isn't reused
 */
 impl PageDirectory {
     //TODO: Calculate this by looking at testers
+    #[inline]
     pub fn add(&mut self, rid: i64, address: PhysicalAddress) {
         let index = rid as usize;
         if index >= self.directory.len() {
@@ -32,6 +33,7 @@ impl PageDirectory {
 
     //When this throws a panic it means you are either accessing a record that
     //DNE or has been deleted... Too lazy to write real exception handling DAANNNYYY Fix me
+    #[inline]
     pub fn get(&self, rid: i64) -> Result<PhysicalAddress, DbError> {
         self.directory
             .get(rid as usize)

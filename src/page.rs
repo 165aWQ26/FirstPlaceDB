@@ -12,10 +12,12 @@ pub struct Page {
 impl Page {
     pub const PAGE_SIZE: usize = 512;
 
+    #[inline]
     pub fn has_capacity(&self) -> bool {
         self.data.len() < Page::PAGE_SIZE
     }
 
+    #[inline]
     pub fn write(&mut self, val: Option<i64>) -> Result<(), PageError> {
         if !self.has_capacity() {
             return Err(PageError::Full);
@@ -25,6 +27,7 @@ impl Page {
         Ok(())
     }
 
+    #[inline]
     pub fn read(&self, index: usize) -> Result<Option<i64>, PageError> {
         self.data
             .get(index)
@@ -32,6 +35,7 @@ impl Page {
             .ok_or(PageError::IndexOutOfBounds(index))
     }
 
+    #[inline]
     pub fn update(&mut self, index: usize, val: Option<i64>) -> Result<(), PageError> {
         if index >= self.data.len() {
             return Err(PageError::IndexOutOfBounds(index));
