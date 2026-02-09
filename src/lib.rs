@@ -20,7 +20,6 @@ mod bindings;
 /// import the module.
 #[pymodule]
 mod _core {
-    use pyo3::prelude::*;
     #[pymodule_export]
     use crate::bindings::CoreQuery;
 }

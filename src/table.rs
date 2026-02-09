@@ -73,7 +73,7 @@ impl Table {
                     let tail_schema = self
                         .page_ranges
                         .get_tail_schema_encoding(&tail_addr)?
-                        .ok_or(DbError::NullValue(SCHEMA_ENCODING_COL))?;
+                        .unwrap_or(0); // None = deletion tail, no columns updated
 
                     // Columns updated in this tail but not yet seen in newer tail
                     let new_cols = tail_schema & !accumulated_schema;
@@ -100,8 +100,6 @@ impl Table {
 
     pub fn read_latest_single(&self, rid: i64, col: usize) -> Result<Option<i64>, DbError> {
         let base_addr = self.page_directory.get(rid)?;
-        // ? What is this for?
-        let mut result = self.read(rid)?;
         let indirection = self.page_ranges.get_indirection(&base_addr)?;
 
         match indirection {
@@ -114,7 +112,7 @@ impl Table {
                     let tail_schema = self
                         .page_ranges
                         .get_tail_schema_encoding(&tail_addr)?
-                        .ok_or(DbError::NullValue(SCHEMA_ENCODING_COL))?;
+                        .unwrap_or(0); // None = deletion tail, no columns updated
 
                     if (tail_schema >> col) & 1 == 1 {
                         // Newest tail that updates this column
@@ -145,6 +143,21 @@ impl Table {
             .enumerate()
             .map(|(col, &flag)| if flag == 1 { full[col] } else { None })
             .collect())
+    }
+
+    /// Check if a base RID's latest tail has schema_encoding == None (deletion marker).
+    pub fn is_deleted(&self, rid: i64) -> Result<bool, DbError> {
+        let base_addr = self.page_directory.get(rid)?;
+        let indirection = self.page_ranges.get_indirection(&base_addr)?;
+        match indirection {
+            None => Ok(false),
+            Some(ind_rid) if ind_rid == rid => Ok(false),
+            Some(tail_rid) => {
+                let tail_addr = self.page_directory.get(tail_rid)?;
+                let schema = self.page_ranges.get_tail_schema_encoding(&tail_addr)?;
+                Ok(schema.is_none())
+            }
+        }
     }
 
     // TODO do for m2 -- what the helly do these do

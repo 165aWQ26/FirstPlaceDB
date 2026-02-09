@@ -163,11 +163,11 @@ impl PageRanges {
         mut data_cols: Vec<Option<i64>>,
         rid: i64,
         indirection: i64,
-        schema_encoding: i64,
+        schema_encoding: Option<i64>,
     ) -> Result<PhysicalAddress, DbError> {
         data_cols.push(Some(rid)); // RID
         data_cols.push(Some(indirection)); // indirection (points to prev version)
-        data_cols.push(Some(schema_encoding)); // schema_encoding (bitmask of updated cols)
+        data_cols.push(schema_encoding); // schema_encoding: None = deletion, Some(bitmask) = update
         data_cols.push(None);
         self.tail.append(data_cols)
     }

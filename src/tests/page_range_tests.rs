@@ -54,7 +54,7 @@ fn append_tail_and_read() {
     let mut pr = new_ranges(3);
     let tail_data = vec![Some(99), None, Some(77)];
     let schema: i64 = 0b101; // columns 0 and 2 updated
-    let addr = pr.append_tail(tail_data, 1, 0, schema).unwrap();
+    let addr = pr.append_tail(tail_data, 1, 0, Some(schema)).unwrap();
 
     assert_eq!(pr.read_tail_single(0, &addr).unwrap(), Some(99));
     assert_eq!(pr.read_tail_single(1, &addr).unwrap(), None);
