@@ -27,9 +27,13 @@ impl Query {
             return Ok(false);
         }
         //Update indices
-        for (i, val) in record.iter().enumerate() {
-            self.table.indices[i].insert(val.unwrap(), rid);
-        }
+
+        //// DELETE THIS WHEN MOVING ONTO MILESTONE 2:
+        self.table.indices[self.table.key_index].insert(key.unwrap(),rid);
+
+        // for (i, val) in record.iter().enumerate() {
+        //     self.table.indices[i].insert(val.unwrap(), rid);
+        // }
         // Write record (append_base handles all 4 metadata columns)
         let address = self.table.page_ranges.append_base(record, rid)?;
 
@@ -145,15 +149,27 @@ impl Query {
         }
 
         // remove the previous tail from the index
+
+        //// DELETE THIS WHEN MOVING ONTO MILESTONE 2:
         let current_values = self.table.read_latest(rid)?;
-        for (i, val) in record.iter().enumerate() {
-            if val.is_some() {
-                if let Some(old_val) = current_values[i] {
-                    self.table.indices[i].remove(old_val, rid);
-                }
-                self.table.indices[i].insert(val.ok_or(DbError::NullValue(i))?, rid);
+        let key = record[self.table.key_index];
+        if key.is_some() {
+            if current_values[0].is_some() {
+                self.table.indices[0].remove(current_values[0].unwrap(), rid);
             }
+            self.table.indices[0].insert(key.ok_or(DbError::NullValue(0))?, rid);
         }
+        ////
+
+        // let current_values = self.table.read_latest(rid)?;
+        // for (i, val) in record.iter().enumerate() {
+        //     if val.is_some() {
+        //         if let Some(old_val) = current_values[i] {
+        //             self.table.indices[i].remove(old_val, rid);
+        //         }
+        //         self.table.indices[i].insert(val.ok_or(DbError::NullValue(i))?, rid);
+        //     }
+        // }
 
         let next_rid = self.table.rid.next().unwrap();
 

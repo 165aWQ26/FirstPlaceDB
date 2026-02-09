@@ -67,3 +67,13 @@ fn read_latest_single() {
     assert_eq!(q.table.read_latest_single(rid, 1).unwrap(), Some(60));
     assert_eq!(q.table.read_latest_single(rid, 2).unwrap(), Some(7));
 }
+
+
+#[test]
+fn index_being_weird() {
+    let mut q = setup(3);
+    q.insert(vec![Some(5), Some(6), Some(7)]).unwrap();
+
+    let rid = q.table.indices[0].locate(5).unwrap()[0];
+    assert_eq!(q.table.read_latest_single(rid, 0).unwrap(), Some(5));
+}
