@@ -35,7 +35,7 @@ impl Table {
             rid: 0..,
             key_index,
             num_columns,
-            indices: (0..num_columns).map(|_| Index::new()).collect(),
+            indices: (0..1).map(|_| Index::new()).collect(),
         }
     }
     /// Returns all the columns of the record
