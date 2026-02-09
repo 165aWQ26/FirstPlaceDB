@@ -145,9 +145,10 @@ impl Query {
         }
 
         // remove the previous tail from the index
+        let current_values = self.table.read_latest(rid)?;
         for (i, val) in record.iter().enumerate() {
             if val.is_some() {
-                if let Some(old_val) = self.table.read_latest_single(rid, i)? {
+                if let Some(old_val) = current_values[i] {
                     self.table.indices[i].remove(old_val, rid);
                 }
                 self.table.indices[i].insert(val.ok_or(DbError::NullValue(i))?, rid);

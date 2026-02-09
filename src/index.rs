@@ -53,7 +53,9 @@ impl Index {
 
         //Lookup key
         if let Some(rids) = self.index.get_mut(&key) {
-            rids.retain(|&x| x != rid);
+            if let Some(pos) = rids.iter().position(|&x| x == rid) {
+                rids.swap_remove(pos);
+            }
 
             //We only need to remove entire keys directly after removing associated rids
             if rids.is_empty() {

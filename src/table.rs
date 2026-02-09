@@ -100,8 +100,6 @@ impl Table {
 
     pub fn read_latest_single(&self, rid: i64, col: usize) -> Result<Option<i64>, DbError> {
         let base_addr = self.page_directory.get(rid)?;
-        // ? What is this for?
-        let mut result = self.read(rid)?;
         let indirection = self.page_ranges.get_indirection(&base_addr)?;
 
         match indirection {
