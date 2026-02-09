@@ -1,1 +1,2 @@
-// Empty - ready for future bindings
+mod core_query;
+pub use core_query::CoreQuery;
