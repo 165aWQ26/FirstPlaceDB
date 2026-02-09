@@ -1,68 +1,62 @@
-// This is just a wrapper over a B+ tree. Table will have many of these.
-// Table will have [Index, Index, Index, ..., ]
+// Wrapper over the std btreemap. Table will have [Index, Index, Index, ..., ]
 // B+ Tree wrapper for mapping primary/secondary keys -> vector of RIDs
-use bplustree::BPlusTreeMap;
+// M1: primary key only (BTreeMap<i64, i64>)
+// M2: restore secondary indices — switch back to BTreeMap<i64, Vec<i64>> or similar
+use std::collections::BTreeMap;
 
-#[derive(Default)]
 pub struct Index {
-    // primary key ->> STILL a vector of 1 RID
-    index: BPlusTreeMap<i64, Vec<i64>>,
+    index: BTreeMap<i64, i64>,
+}
+
+impl Default for Index {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Index {
-
-    //Changed to this value: essentially just when a mode
-    const MAX_RECORDS_PER_NODE: usize = 64;
     pub fn new() -> Self {
         Index {
-            index: BPlusTreeMap::new(Index::MAX_RECORDS_PER_NODE).unwrap(),
+            index: BTreeMap::new(),
+        }
+    }
+
+    /// Single-traversal insert that checks uniqueness. Returns true if inserted, false if key exists.
+    #[inline]
+    pub fn insert_unique(&mut self, key: i64, rid: i64) -> bool {
+        use std::collections::btree_map::Entry;
+        match self.index.entry(key) {
+            Entry::Vacant(e) => {
+                e.insert(rid);
+                true
+            }
+            Entry::Occupied(_) => false,
         }
     }
 
     #[inline]
-    pub fn locate(&self, value: i64) -> Option<&Vec<i64>> {
-        self.index.get(&value)
+    pub fn locate(&self, value: i64) -> Option<i64> {
+        self.index.get(&value).copied()
     }
 
     pub fn locate_range(&self, begin: i64, end: i64) -> Option<Vec<i64>> {
-        let mut result: Vec<i64> = Vec::new();
-
-        for (_key, rid) in self.index.range(begin..=end) {
-            result.extend(rid);
+        let result: Vec<i64> = self.index.range(begin..=end).map(|(_, &rid)| rid).collect();
+        if result.is_empty() {
+            None
+        } else {
+            Some(result)
         }
-
-        Some(result)
     }
 
-    // for query and table
     #[inline]
     pub fn insert(&mut self, key: i64, rid: i64) {
-        //Single lookup
-        if let Some(rids) = self.index.get_mut(&key) {
-            rids.push(rid);
-        } else {
-            self.index.insert(key, vec![rid]);
-        }
+        self.index.insert(key, rid);
     }
 
     #[inline]
-    pub fn remove(&mut self, key: i64, rid: i64) {
-        // find vector for key, remove that RID from the vector
-        // if vector is empty, remove will REMOVE THAT MAPPING.
-        // locate will then always generate some result, never None.
-
-        //Lookup key
-        if let Some(rids) = self.index.get_mut(&key) {
-            if let Some(pos) = rids.iter().position(|&x| x == rid) {
-                rids.swap_remove(pos);
-            }
-
-            //We only need to remove entire keys directly after removing associated rids
-            if rids.is_empty() {
-                self.index.remove(&key);
-            }
-        }
+    pub fn remove(&mut self, key: i64, _rid: i64) {
+        self.index.remove(&key);
     }
 
-    // --drop_index and create_index-- is left to the Table
+    // drop_index and create_index is left to the Table
 }

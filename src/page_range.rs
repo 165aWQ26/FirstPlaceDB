@@ -13,7 +13,7 @@ impl PageRange {
     //Assumes equal base page and tail page num collections which is suboptimal. Better to over alloc
     //These optimizations are more for fun than anything.
     pub const PROJECTED_NUM_PAGE_COLLECTIONS: usize =
-        (Page::PAGE_SIZE / Table::PROJECTED_NUM_RECORDS * 2) / 3;
+        (Table::PROJECTED_NUM_RECORDS + Page::PAGE_SIZE - 1) / Page::PAGE_SIZE;
 
     pub fn new(data_pages_per_collection: usize) -> Self {
         let pages_per_collection = data_pages_per_collection + Table::NUM_META_PAGES;
@@ -38,9 +38,9 @@ impl PageRange {
         //Lazily create page collection and associated pages
         self.lazy_create_page_collection(addr.collection_num);
 
-        //iterate over page and data
-        for (page, data) in self.range[addr.collection_num].iter().zip(all_data.iter()) {
-            page.write(*data)?;
+        let collection = &mut self.range[addr.collection_num];
+        for (i, data) in all_data.iter().enumerate() {
+            collection.write_column(i, *data)?;
         }
 
         Ok(addr) //return addr (from here add this addr to a page_dir)

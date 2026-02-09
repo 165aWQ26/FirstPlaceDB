@@ -20,7 +20,7 @@ pub struct Table {
 }
 
 impl Table {
-    pub const PROJECTED_NUM_RECORDS: usize = 1200;
+    pub const PROJECTED_NUM_RECORDS: usize = 10001;
     pub const NUM_META_PAGES: usize = 4;
     //data_pages_per_collection is the total number of pages in a PageDirectory
     pub fn new(

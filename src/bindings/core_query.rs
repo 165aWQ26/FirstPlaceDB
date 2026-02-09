@@ -21,7 +21,8 @@ impl CoreQuery {
 
     #[pyo3(signature = (*columns))]
     fn insert(&mut self, columns: Vec<i64>) -> bool {
-        let nullable_rec = columns.into_iter().map(Some).collect();
+        let mut nullable_rec = Vec::with_capacity(columns.len() + 4);
+        nullable_rec.extend(columns.into_iter().map(Some));
         self.inner.insert(nullable_rec).unwrap_or(false)
     }
 

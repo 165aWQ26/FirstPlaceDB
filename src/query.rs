@@ -14,32 +14,24 @@ impl Query {
         Self { table }
     }
 
-    //Need to get the values
+    // TODO
+    // M1: primary key index only. For M2: restore secondary indices here.
+    // Old secondary index code:
+    // for (i, val) in record.iter().enumerate() {
+    //     self.table.indices[i].insert(val.unwrap(), rid);
+    // }
     pub fn insert(&mut self, record: Vec<Option<i64>>) -> Result<bool, DbError> {
         let rid = self.table.rid.next().unwrap();
+        let key = record[self.table.key_index].ok_or(DbError::NullValue(self.table.key_index))?;
 
-        let key: Option<i64> = record[self.table.key_index];
-
-        if self.table.indices[self.table.key_index]
-            .locate(key.ok_or(DbError::NullValue(self.table.key_index))?)
-            .is_some()
-        {
+        // Single-traversal uniqueness check + insert
+        if !self.table.indices[self.table.key_index].insert_unique(key, rid) {
             return Ok(false);
         }
-        //Update indices
 
-        //// DELETE THIS WHEN MOVING ONTO MILESTONE 2:
-        self.table.indices[self.table.key_index].insert(key.unwrap(),rid);
-
-        // for (i, val) in record.iter().enumerate() {
-        //     self.table.indices[i].insert(val.unwrap(), rid);
-        // }
         // Write record (append_base handles all 4 metadata columns)
         let address = self.table.page_ranges.append_base(record, rid)?;
-
-        //Add to page directory
         self.table.page_directory.add(rid, address);
-
         Ok(true)
     }
 
@@ -49,26 +41,18 @@ impl Query {
         search_key_index: usize,
         projected_columns_index: &[i64],
     ) -> Result<Vec<Vec<Option<i64>>>, DbError> {
-        if let Some(rids) = self.table.indices[search_key_index].locate(key) {
-            let mut records: Vec<Vec<Option<i64>>> = Vec::new();
+        let rid = self.table.indices[search_key_index]
+            .locate(key)
+            .ok_or(DbError::KeyNotFound(key))?;
 
-            for rid in rids {
-                if self.table.is_deleted(*rid)? {
-                    continue;
-                }
-                records.push(
-                    self.table
-                        .read_latest_projected(projected_columns_index, *rid)?,
-                );
-            }
-
-            if records.is_empty() {
-                return Err(DbError::KeyNotFound(key));
-            }
-            Ok(records)
-        } else {
-            Err(DbError::KeyNotFound(key))
+        if self.table.is_deleted(rid)? {
+            return Err(DbError::KeyNotFound(key));
         }
+
+        Ok(vec![
+            self.table
+                .read_latest_projected(projected_columns_index, rid)?,
+        ])
     }
     // TODO m3
     //     pub fn select_version(&self, key: i64, search_key_index:usize,
@@ -127,7 +111,7 @@ impl Query {
     // }
     pub fn update(&mut self, key: i64, record: Vec<Option<i64>>) -> Result<bool, DbError> {
         let rid = match self.table.indices[self.table.key_index].locate(key) {
-            Some(rid) => rid[0],
+            Some(rid) => rid,
             None => return Ok(false),
         };
 
@@ -194,7 +178,7 @@ impl Query {
 
     pub fn delete(&mut self, key: i64) -> Result<bool, DbError> {
         let rid = match self.table.indices[self.table.key_index].locate(key) {
-            Some(rids) => rids[0],
+            Some(rid) => rid,
             None => return Err(DbError::KeyNotFound(key)),
         };
 
@@ -261,7 +245,7 @@ impl Query {
     pub fn increment(&mut self, key: i64, col: usize) -> Result<bool, DbError> {
         let rid = self.table.indices[self.table.key_index]
             .locate(key)
-            .ok_or(DbError::KeyNotFound(key))?[0];
+            .ok_or(DbError::KeyNotFound(key))?;
 
         let mut record: Vec<Option<i64>> = vec![None; self.table.num_columns];
 

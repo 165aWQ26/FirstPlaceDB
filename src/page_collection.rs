@@ -19,9 +19,9 @@ impl PageCollection {
         }
     }
 
-    //different iterators for all, meta, and data cols
-    pub fn iter(&mut self) -> impl Iterator<Item = &mut Page> {
-        self.pages.iter_mut()
+    #[inline]
+    pub fn write_column(&mut self, col: usize, val: Option<i64>) -> Result<(), PageError> {
+        self.pages[col].write(val)
     }
 
     #[inline]

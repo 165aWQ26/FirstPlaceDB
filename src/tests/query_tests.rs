@@ -100,10 +100,10 @@ fn quick_test_all() {
     query.insert(rec_two).unwrap();
 
     let rid1 = query.table.indices[0].locate(1).unwrap();
-    assert_eq!(query.table.read(rid1[0]), Ok(vec![Some(1); 5]));
+    assert_eq!(query.table.read(rid1), Ok(vec![Some(1); 5]));
 
     let rid2 = query.table.indices[0].locate(2).unwrap();
-    assert_eq!(query.table.read(rid2[0]), Ok(vec![Some(2); 5]));
+    assert_eq!(query.table.read(rid2), Ok(vec![Some(2); 5]));
 
     query.insert(rec_three).unwrap();
 
