@@ -10,9 +10,6 @@ pub struct Index {
 }
 
 impl Index {
-    //TODO: B+ tree should not be init to this value, you misread the docs...
-    //determine if you actually need to maintain this weird capacity limit
-    const MAX_RECORDS_TOTAL: usize = 64000;
 
     //Changed to this value: essentially just when a mode
     const MAX_RECORDS_PER_NODE: usize = 128;

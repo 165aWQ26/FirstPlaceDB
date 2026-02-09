@@ -16,10 +16,6 @@ impl Page {
         self.data.len() < Page::PAGE_SIZE
     }
 
-    pub fn capacity(&self) -> usize {
-        self.data.capacity()
-    }
-
     pub fn write(&mut self, val: Option<i64>) -> Result<(), PageError> {
         if !self.has_capacity() {
             return Err(PageError::Full);
@@ -42,10 +38,6 @@ impl Page {
         }
         self.data[index] = val;
         Ok(())
-    }
-
-    pub fn len(&self) -> usize {
-        self.data.len()
     }
 }
 

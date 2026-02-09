@@ -24,14 +24,6 @@ impl PageCollection {
         self.pages.iter_mut()
     }
 
-    //Panics when you didn't alloc enough pages per page collection
-    // Some exception handling thingy should handle when pages per collection < NUM_META_PAGES
-    //.saturating_sub() fails silently
-    pub fn iter_data(&mut self) -> impl Iterator<Item = &mut Page> {
-        let end = self.pages.len() - Table::NUM_META_PAGES;
-        self.pages[..end].iter_mut()
-    }
-
     pub fn read_column(&self, col: usize, offset: usize) -> Result<Option<i64>, PageError> {
         self.pages[col].read(offset)
     }
@@ -43,12 +35,6 @@ impl PageCollection {
         val: Option<i64>,
     ) -> Result<(), PageError> {
         self.pages[col].update(offset, val)
-    }
-
-    //Panics when you didn't alloc enough pages per page collection see above
-    pub fn iter_meta(&mut self) -> impl Iterator<Item = &mut Page> {
-        let beg = self.pages.len() - Table::NUM_META_PAGES;
-        self.pages[beg..].iter_mut()
     }
 
     // Returns a reference to the metadata page at the given column index

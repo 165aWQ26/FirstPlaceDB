@@ -1,6 +1,5 @@
 use crate::error::DbError;
 use crate::index::Index;
-use crate::page_collection::{PageCollection, SCHEMA_ENCODING_COL};
 use crate::page_directory::PageDirectory;
 use crate::page_range::PageRanges;
 
