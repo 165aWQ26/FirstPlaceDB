@@ -64,11 +64,13 @@ impl PageRange {
             .collect()
     }
 
+    #[inline]
     fn read_single(&self, column: usize, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
         //given single column, return value in row x column
         Ok(self.range[addr.collection_num].read_column(column, addr.offset)?)
     }
 
+    #[inline]
     pub fn write_single(
         &mut self,
         col: usize,
@@ -78,17 +80,22 @@ impl PageRange {
         self.range[addr.collection_num].update_column(col, addr.offset, val)
     }
 
+    #[inline]
     pub fn get_rid(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
         Ok(self.range[addr.collection_num].get_rid(addr.offset)?)
     }
 
+    #[inline]
     pub fn get_indirection(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
         Ok(self.range[addr.collection_num].get_indirection(addr.offset)?)
     }
+
+    #[inline]
     pub fn get_schema_encoding(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
         Ok(self.range[addr.collection_num].get_schema_encoding(addr.offset)?)
     }
 
+    #[inline]
     pub fn get_start_time(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
         Ok(self.range[addr.collection_num].get_start_time(addr.offset)?)
     }
@@ -142,6 +149,7 @@ impl PageRanges {
         self.tail.read(addr)
     }
 
+    #[inline]
     pub fn read_tail_single(
         &self,
         col: usize,
@@ -150,9 +158,12 @@ impl PageRanges {
         self.tail.read_single(col, addr)
     }
 
+    #[inline]
     pub fn get_tail_indirection(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
         self.tail.get_indirection(addr)
     }
+
+    #[inline]
     pub fn get_tail_schema_encoding(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
         self.tail.get_schema_encoding(addr)
     }
@@ -172,6 +183,7 @@ impl PageRanges {
         self.tail.append(data_cols)
     }
 
+    #[inline]
     pub fn read_single(
         &self,
         column: usize,
@@ -180,6 +192,7 @@ impl PageRanges {
         self.base.read_single(column, addr)
     }
 
+    #[inline]
     pub fn write_single(
         &mut self,
         col: usize,
@@ -189,10 +202,12 @@ impl PageRanges {
         self.base.write_single(col, addr, val)
     }
 
+    #[inline]
     pub fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
         self.base.read(addr)
     }
 
+    #[inline]
     pub fn read_projected(
         &self,
         projected: &[i64],
@@ -201,18 +216,22 @@ impl PageRanges {
         self.base.read_projected(projected, addr)
     }
 
+    #[inline]
     pub fn get_rid(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
         self.base.get_rid(addr)
     }
 
+    #[inline]
     pub fn get_indirection(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
         self.base.get_indirection(addr)
     }
 
+    #[inline]
     pub fn get_schema_encoding(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
         self.base.get_schema_encoding(addr)
     }
 
+    #[inline]
     pub fn get_start_time(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
         self.base.get_start_time(addr)
     }

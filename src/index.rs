@@ -19,6 +19,7 @@ impl Index {
         }
     }
 
+    #[inline]
     pub fn locate(&self, value: i64) -> Option<&Vec<i64>> {
         self.index.get(&value)
     }
@@ -34,6 +35,7 @@ impl Index {
     }
 
     // for query and table
+    #[inline]
     pub fn insert(&mut self, key: i64, rid: i64) {
         //Single lookup
         if let Some(rids) = self.index.get_mut(&key) {
@@ -43,6 +45,7 @@ impl Index {
         }
     }
 
+    #[inline]
     pub fn remove(&mut self, key: i64, rid: i64) {
         // find vector for key, remove that RID from the vector
         // if vector is empty, remove will REMOVE THAT MAPPING.

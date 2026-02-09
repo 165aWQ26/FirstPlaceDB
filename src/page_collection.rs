@@ -24,10 +24,12 @@ impl PageCollection {
         self.pages.iter_mut()
     }
 
+    #[inline]
     pub fn read_column(&self, col: usize, offset: usize) -> Result<Option<i64>, PageError> {
         self.pages[col].read(offset)
     }
 
+    #[inline]
     pub fn update_column(
         &mut self,
         col: usize,
@@ -38,23 +40,28 @@ impl PageCollection {
     }
 
     // Returns a reference to the metadata page at the given column index
+    #[inline]
     fn meta_page(&self, col: usize) -> &Page {
         let meta_start = self.pages.len() - Table::NUM_META_PAGES;
         &self.pages[meta_start + col]
     }
 
+    #[inline]
     pub fn get_rid(&self, offset: usize) -> Result<Option<i64>, PageError> {
         self.meta_page(RID_COL).read(offset)
     }
 
+    #[inline]
     pub fn get_indirection(&self, offset: usize) -> Result<Option<i64>, PageError> {
         self.meta_page(INDIRECTION_COL).read(offset)
     }
 
+    #[inline]
     pub fn get_schema_encoding(&self, offset: usize) -> Result<Option<i64>, PageError> {
         self.meta_page(SCHEMA_ENCODING_COL).read(offset)
     }
 
+    #[inline]
     pub fn get_start_time(&self, offset: usize) -> Result<Option<i64>, PageError> {
         self.meta_page(START_TIME_COL).read(offset)
     }
