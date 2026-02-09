@@ -62,7 +62,7 @@ impl Table {
 
         // If indirection is None, no updates
         match indirection {
-            Some(ind_rid) if ind_rid == rid => return Ok(result),
+            Some(ind_rid) if ind_rid == rid => Ok(result),
             None => Ok(result),
             Some(tail_rid) => {
                 let mut current_tail_rid = tail_rid;

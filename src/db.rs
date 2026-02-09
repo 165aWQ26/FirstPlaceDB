@@ -7,11 +7,11 @@ struct Database {
 }
 
 impl Database {
-    pub fn create_table(&mut self, name: String, num_columns: usize, _key_index: usize) {
+    pub fn create_table(&mut self, name: String, num_columns: usize, key_index: usize) {
         let table = Table::new(
             name.clone(),
             num_columns + Table::NUM_META_PAGES,
-            num_columns,
+            key_index,
         );
         self.tables.insert(name, table);
     }
