@@ -15,7 +15,7 @@ impl Query {
     }
 
     //Need to get the values
-    pub fn insert(&mut self, mut record: Vec<Option<i64>>) -> Result<bool, DbError> {
+    pub fn insert(&mut self, record: Vec<Option<i64>>) -> Result<bool, DbError> {
         let rid = self.table.rid.next().unwrap();
 
         let key: Option<i64> = record[self.table.key_index];
@@ -49,13 +49,18 @@ impl Query {
             let mut records: Vec<Vec<Option<i64>>> = Vec::new();
 
             for rid in rids {
-                //logic to sub None for col. dropping
+                if self.table.is_deleted(*rid)? {
+                    continue;
+                }
                 records.push(
                     self.table
                         .read_latest_projected(projected_columns_index, *rid)?,
                 );
             }
 
+            if records.is_empty() {
+                return Err(DbError::KeyNotFound(key));
+            }
             Ok(records)
         } else {
             Err(DbError::KeyNotFound(key))
@@ -156,7 +161,7 @@ impl Query {
             record,
             next_rid,
             current_indirection,
-            schema_encoding,
+            Some(schema_encoding),
         )?;
 
         self.table.page_directory.add(next_rid, address);
@@ -171,37 +176,41 @@ impl Query {
     }
 
     pub fn delete(&mut self, key: i64) -> Result<bool, DbError> {
-        // Only
-        //update() with only null values
+        let rid = match self.table.indices[self.table.key_index].locate(key) {
+            Some(rids) => rids[0],
+            None => return Err(DbError::KeyNotFound(key)),
+        };
 
-        // let schema_encoding: i64 = 0;
-        // let v: Vec<Option<i64>> = vec![None; self.table.num_columns];
+        // Only remove from primary key index; secondary indices are filtered lazily
+        self.table.indices[self.table.key_index].remove(key, rid);
 
-        // if let Some(rid) = self.table.indices[self.table.key_index].locate(key) {
-        //     let rid = rid[0];
+        let base_addr = self.table.page_directory.get(rid)?;
 
-        //     for i in 0..self.table.num_columns {
-        //         if let Some(val) = self.table.read_single(rid, i) {
-        //             self.table.indices[i].remove(val, rid);
-        //         }
-        //     }
-        //     return true;
-        // }
-        // return false;
+        let current_indirection = self
+            .table
+            .page_ranges
+            .get_indirection(&base_addr)?
+            .unwrap_or(rid);
 
-        if let Some(rid) = self.table.indices[self.table.key_index].locate(key) {
-            let rid = rid[0];
-            let record: Vec<Option<i64>> = vec![None; self.table.num_columns];
+        // Append deletion tail (schema_encoding = None marks deletion)
+        let next_rid = self.table.rid.next().unwrap();
+        let tail_record = vec![None; self.table.num_columns];
+        let address = self.table.page_ranges.append_tail(
+            tail_record,
+            next_rid,
+            current_indirection,
+            None,
+        )?;
 
-            for i in 0..self.table.num_columns {
-                if let Some(val) = self.table.read_single(rid, i)? {
-                    self.table.indices[i].remove(val, rid);
-                }
-            }
-            self.update(key, record)
-        } else {
-            Err(DbError::KeyNotFound(key))
-        }
+        self.table.page_directory.add(next_rid, address);
+
+        // Update base indirection to point to deletion tail
+        let indirection_col = self.table.num_columns + INDIRECTION_COL;
+        self.table
+            .page_ranges
+            .write_single(indirection_col, &base_addr, Some(next_rid))?;
+
+        Ok(true)
     }
 
     pub fn sum(&self, start_range: i64, end_range: i64, col: usize) -> Result<i64, DbError> {
@@ -211,6 +220,9 @@ impl Query {
             let mut sum: i64 = 0;
 
             for rid in rids {
+                if self.table.is_deleted(rid)? {
+                    continue;
+                }
                 sum += self
                     .table
                     .read_latest_single(rid, col)?
