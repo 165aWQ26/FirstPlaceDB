@@ -10,6 +10,9 @@ mod page_range;
 pub mod query;
 pub mod table;
 
+#[cfg(test)]
+mod tests;
+
 mod bindings;
 
 /// A Python module implemented in Rust. The name of this module must match

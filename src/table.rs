@@ -31,7 +31,7 @@ impl Table {
     ) -> Table {
         Self {
             name: table_name,
-            page_ranges: PageRanges::new(num_columns + Table::NUM_META_PAGES),
+            page_ranges: PageRanges::new(num_columns),
             page_directory: PageDirectory::default(),
             rid: 0..,
             key_index,
@@ -64,7 +64,7 @@ impl Table {
         // If indirection is None, no updates
         match indirection {
             Some(ind_rid) if ind_rid == rid => return Ok(result),
-            None => return Ok(result),
+            None => Ok(result),
             Some(tail_rid) => {
                 let mut current_tail_rid = tail_rid;
                 let mut accumulated_schema: i64 = 0;
