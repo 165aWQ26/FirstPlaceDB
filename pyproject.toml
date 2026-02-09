@@ -1,5 +1,5 @@
 [project]
-name = "lstore"
+name = "lstore-python"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -18,7 +18,7 @@ lstore = "lstore:main"
 [tool.maturin]
 module-name = "lstore._core"
 python-packages = ["lstore"]
-python-source = "src"
+python-source = "python"
 
 [tool.uv]
 cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
