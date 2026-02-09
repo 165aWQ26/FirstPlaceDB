@@ -12,7 +12,7 @@ pub struct Index {
 impl Index {
 
     //Changed to this value: essentially just when a mode
-    const MAX_RECORDS_PER_NODE: usize = 128;
+    const MAX_RECORDS_PER_NODE: usize = 64;
     pub fn new() -> Self {
         Index {
             index: BPlusTreeMap::new(Index::MAX_RECORDS_PER_NODE).unwrap(),
