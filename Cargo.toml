@@ -1,10 +1,10 @@
 [package]
-name = "lstore"
+name = "lstore-python"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "lstore"
+name = "lstore_python"
 # "cdylib" is necessary to produce a shared library for Python to import from.
 crate-type = ["cdylib", "rlib"]
 
@@ -17,3 +17,9 @@ rustc-hash = "2.1.1"
 
 [build-dependencies]
 pyo3-build-config = "0.28.0"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true

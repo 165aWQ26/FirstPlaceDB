@@ -3,6 +3,7 @@
 // B+ Tree wrapper for mapping primary/secondary keys -> vector of RIDs
 use bplustree::BPlusTreeMap;
 
+#[derive(Default)]
 pub struct Index {
     // primary key ->> STILL a vector of 1 RID
     index: BPlusTreeMap<i64, Vec<i64>>,
@@ -36,7 +37,7 @@ impl Index {
     }
 
     // for query and table
-    pub fn insert(&mut self, key: i64, rid: i64) -> () {
+    pub fn insert(&mut self, key: i64, rid: i64) {
         //Single lookup
         if let Some(rids) = self.index.get_mut(&key) {
             rids.push(rid);
@@ -45,7 +46,7 @@ impl Index {
         }
     }
 
-    pub fn remove(&mut self, key: i64, rid: i64) -> () {
+    pub fn remove(&mut self, key: i64, rid: i64) {
         // find vector for key, remove that RID from the vector
         // if vector is empty, remove will REMOVE THAT MAPPING.
         // locate will then always generate some result, never None.

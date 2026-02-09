@@ -2,7 +2,6 @@ use rustc_hash::FxHashMap;
 
 use crate::table::Table;
 
-#[derive(Default)]
 struct Database {
     tables: FxHashMap<String, Table>,
 }

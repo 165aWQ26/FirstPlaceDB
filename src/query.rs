@@ -27,16 +27,11 @@ impl Query {
             return Ok(false);
         }
         //Update indices
-        for i in 0..record.len() {
-            self.table.indices[i].insert(record[i].unwrap(), rid);
+        for (i, val) in record.iter().enumerate() {
+            self.table.indices[i].insert(val.unwrap(), rid);
         }
-        // Write record
-        record.push(Some(rid));
-        record.push(Query::DEFAULT_INDIRECTION);
-        record.push(Query::DEFAULT_SCHEMA_ENCODING);
-
-        //Write record
-        let address = self.table.page_ranges.base.append(record)?;
+        // Write record (append_base handles all 4 metadata columns)
+        let address = self.table.page_ranges.append_base(record, rid)?;
 
         //Add to page directory
         self.table.page_directory.add(rid, address);
@@ -57,7 +52,7 @@ impl Query {
                 //logic to sub None for col. dropping
                 records.push(
                     self.table
-                        .read_latest_projected(projected_columns_index, *rid as i64)?,
+                        .read_latest_projected(projected_columns_index, *rid)?,
                 );
             }
 
@@ -138,19 +133,19 @@ impl Query {
 
         // Build schema encoding for this tail record
         let mut schema_encoding: i64 = 0;
-        for i in 0..record.len() {
-            if record[i].is_some() {
+        for (i, val) in record.iter().enumerate() {
+            if val.is_some() {
                 schema_encoding |= 1 << i;
             }
         }
 
         // remove the previous tail from the index
-        for i in 0..record.len() {
-            if record[i].is_some() {
+        for (i, val) in record.iter().enumerate() {
+            if val.is_some() {
                 if let Some(old_val) = self.table.read_latest_single(rid, i)? {
                     self.table.indices[i].remove(old_val, rid);
                 }
-                self.table.indices[i].insert(record[i].ok_or(DbError::NullValue(i))?, rid);
+                self.table.indices[i].insert(val.ok_or(DbError::NullValue(i))?, rid);
             }
         }
 
@@ -203,7 +198,7 @@ impl Query {
                     self.table.indices[i].remove(val, rid);
                 }
             }
-            return self.update(key, record);
+            self.update(key, record)
         } else {
             Err(DbError::KeyNotFound(key))
         }
@@ -248,6 +243,6 @@ impl Query {
             + 1;
         record[col] = Some(temp);
 
-        return self.update(key, record);
+        self.update(key, record)
     }
 }
