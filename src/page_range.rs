@@ -131,11 +131,11 @@ impl PageRanges {
         mut data_cols: Vec<Option<i64>>,
         rid: i64,
     ) -> Result<PhysicalAddress, DbError> {
-        data_cols.push(Some(rid as i64)); // RID
-        data_cols.push(Some(rid as i64)); // indirection (self for new base record)
+        data_cols.push(Some(rid)); // RID
+        data_cols.push(Some(rid)); // indirection (self for new base record)
         data_cols.push(Some(0)); // schema_encoding (no updates)
         data_cols.push(None);
-        Ok(self.base.append(data_cols)?)
+        self.base.append(data_cols)
     }
 
     pub fn read_tail(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
@@ -165,8 +165,8 @@ impl PageRanges {
         indirection: i64,
         schema_encoding: i64,
     ) -> Result<PhysicalAddress, DbError> {
-        data_cols.push(Some(rid as i64)); // RID
-        data_cols.push(Some(indirection as i64)); // indirection (points to prev version)
+        data_cols.push(Some(rid)); // RID
+        data_cols.push(Some(indirection)); // indirection (points to prev version)
         data_cols.push(Some(schema_encoding)); // schema_encoding (bitmask of updated cols)
         data_cols.push(None);
         self.tail.append(data_cols)
@@ -222,8 +222,8 @@ impl PageRanges {
 //This iterator automatically manages where you write to.
 #[derive(Hash, Eq, PartialEq, Copy, Clone, Debug, Default)]
 pub struct PhysicalAddress {
-    offset: usize,
-    collection_num: usize,
+    pub(crate) offset: usize,
+    pub(crate) collection_num: usize,
 }
 
 #[derive(Default)]
@@ -234,14 +234,12 @@ pub struct PhysicalAddressIterator {
 impl Iterator for PhysicalAddressIterator {
     type Item = PhysicalAddress;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current.offset < Page::PAGE_SIZE {
-            let addr = self.current;
-            self.current.offset += 1;
-            Some(addr)
-        } else {
+        let addr = self.current;
+        self.current.offset += 1;
+        if self.current.offset >= Page::PAGE_SIZE {
             self.current.offset = 0;
             self.current.collection_num += 1;
-            Some(self.current)
         }
+        Some(addr)
     }
 }
