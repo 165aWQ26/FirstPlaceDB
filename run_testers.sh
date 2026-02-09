@@ -39,16 +39,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Create venv
-VENV_DIR=".venv"
-if [ -z "$VIRTUAL_ENV" ]; then
-    if [ ! -d "$VENV_DIR" ]; then
-        echo "Creating virtual environment in $VENV_DIR..."
-        python3 -m venv "$VENV_DIR"
-    fi
-    source "$VENV_DIR/bin/activate"
-fi
-
 # Suppress warnings
 if [ "$SUPPRESS_WARNINGS" = true ]; then
     export RUSTFLAGS="-Awarnings"
