@@ -235,12 +235,29 @@ impl Query {
         }
     }
 
-    /*
-    pub fn sum_version(&self, search_key:i64, search_key_index:i64,
-                            projected_columns_index:i64, relative_version:i64){
+    
+    pub fn sum_version(&self, start_range: i64, end_range: i64, col: usize, relative_version:i64) -> Result<i64, DbError>{
+        
+        if let Some(rids) =
+            self.table.indices[self.table.key_index].locate_range(start_range, end_range)
+        {
+            let mut sum: i64 = 0;
 
+            for rid in rids {
+                if self.table.is_deleted(rid)? {
+                    continue;
+                }
+                sum += self
+                    .table
+                    .read_latest_single(rid, col)?
+                    .ok_or(DbError::NullValue(col))?;
+            }
+            Ok(sum)
+        } else {
+            Err(DbError::KeyNotFound(start_range))
+        }
     }
-    */
+    
 
     pub fn increment(&mut self, key: i64, col: usize) -> Result<bool, DbError> {
         let rid = self.table.indices[self.table.key_index]
