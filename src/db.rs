@@ -6,6 +6,7 @@ struct Database {
     tables: FxHashMap<String, Table>,
 }
 
+#[allow(dead_code)]
 impl Database {
     pub fn create_table(&mut self, name: String, num_columns: usize, key_index: usize) {
         let table = Table::new(
