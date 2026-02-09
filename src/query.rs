@@ -47,7 +47,7 @@ impl Query {
         &self,
         key: i64,
         search_key_index: usize,
-        projected_columns_index: &mut [i64],
+        projected_columns_index: &[i64],
     ) -> Result<Vec<Vec<Option<i64>>>, DbError> {
         if let Some(rids) = self.table.indices[search_key_index].locate(key) {
             let mut records: Vec<Vec<Option<i64>>> = Vec::new();
@@ -72,7 +72,7 @@ impl Query {
     }
     // TODO m3
     //     pub fn select_version(&self, key: i64, search_key_index:usize,
-    //                   projected_columns_index: &mut [i64], relative_version:i64) -> Result<Vec<Record>, bool> {
+    //                   projected_columns_index: &[i64], relative_version:i64) -> Result<Vec<Record>, bool> {
 
     // if let Some(indirection_pointer) = self.table.read_single(rid, record.len() + 2) {
     //             // set to previous tail page

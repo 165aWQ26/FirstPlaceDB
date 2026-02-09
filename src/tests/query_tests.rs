@@ -12,8 +12,8 @@ fn insert_and_select() {
     let mut q = setup(3);
     q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
 
-    let mut mask = [1i64, 1, 1];
-    let result = q.select(10, 0, &mut mask).unwrap();
+    let mask = [1i64, 1, 1];
+    let result = q.select(10, 0, &mask).unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], vec![Some(10), Some(20), Some(30)]);
 }
@@ -33,8 +33,8 @@ fn update_and_select() {
     // Update columns 1 and 3
     q.update(1, vec![None, Some(20), None, Some(40)]).unwrap();
 
-    let mut mask = [1i64, 1, 1, 1];
-    let result = q.select(1, 0, &mut mask).unwrap();
+    let mask = [1i64, 1, 1, 1];
+    let result = q.select(1, 0, &mask).unwrap();
     assert_eq!(result[0], vec![Some(1), Some(20), Some(3), Some(40)]);
 }
 
@@ -52,8 +52,8 @@ fn select_deleted_key_fails() {
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
     q.delete(1).unwrap();
 
-    let mut mask = [1i64, 1, 1];
-    assert_eq!(q.select(1, 0, &mut mask), Err(DbError::KeyNotFound(1)));
+    let mask = [1i64, 1, 1];
+    assert_eq!(q.select(1, 0, &mask), Err(DbError::KeyNotFound(1)));
 }
 
 #[test]
@@ -77,8 +77,8 @@ fn increment() {
     q.increment(1, 1).unwrap(); // col 1: 10 → 11
     q.increment(1, 1).unwrap(); // col 1: 11 → 12
 
-    let mut mask = [1i64, 1, 1];
-    let result = q.select(1, 0, &mut mask).unwrap();
+    let mask = [1i64, 1, 1];
+    let result = q.select(1, 0, &mask).unwrap();
     assert_eq!(result[0][1], Some(12));
     // Other columns unchanged
     assert_eq!(result[0][0], Some(1));
@@ -114,8 +114,8 @@ fn quick_test_all() {
     query.insert(rec_four).unwrap();
     query.delete(4).unwrap();
 
-    let mut mask: [i64; 5] = [1, 0, 1, 0, 1];
-    let ans_list: Vec<Vec<Option<i64>>> = query.select(1, 0, &mut mask).unwrap();
+    let mask: [i64; 5] = [1, 0, 1, 0, 1];
+    let ans_list: Vec<Vec<Option<i64>>> = query.select(1, 0, &mask).unwrap();
     assert_eq!(ans_list.len(), 1);
 
     assert!(query.table.indices[0].locate(4).is_none());
@@ -124,10 +124,10 @@ fn quick_test_all() {
     query.increment(1, 0).unwrap();
 
     // After increment(2,0): key 2→3. After increment(1,0): key 1→2.
-    let mut full_mask: [i64; 5] = [1, 1, 1, 1, 1];
-    let ans_list_two: Vec<Vec<Option<i64>>> = query.select(2, 0, &mut full_mask).unwrap();
+    let full_mask: [i64; 5] = [1, 1, 1, 1, 1];
+    let ans_list_two: Vec<Vec<Option<i64>>> = query.select(2, 0, &full_mask).unwrap();
     assert_eq!(ans_list_two[0][0], Some(2));
 
-    let ans_list_three: Vec<Vec<Option<i64>>> = query.select(3, 0, &mut full_mask).unwrap();
+    let ans_list_three: Vec<Vec<Option<i64>>> = query.select(3, 0, &full_mask).unwrap();
     assert_eq!(ans_list_three[0][0], Some(3));
 }

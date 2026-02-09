@@ -29,10 +29,10 @@ impl CoreQuery {
         &self,
         search_key: i64,
         search_key_index: usize,
-        mut projected_columns_index: Vec<i64>,
+        projected_columns_index: Vec<i64>,
     ) -> PyResult<Vec<Vec<Option<i64>>>> {
         self.inner
-            .select(search_key, search_key_index, &mut projected_columns_index)
+            .select(search_key, search_key_index, &projected_columns_index)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
