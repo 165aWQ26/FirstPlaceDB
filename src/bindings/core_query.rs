@@ -55,4 +55,14 @@ impl CoreQuery {
     fn increment(&mut self, key: i64, column: usize) -> bool {
         self.inner.increment(key, column).unwrap_or(false)
     }
+    
+    fn sum_version(&self, start_range: i64, end_range: i64, column: usize, relative_version: i64) -> PyResult<i64>{
+        self.inner.sum_version(start_range, end_range, column, relative_version)
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+
+    pub fn select_version(&self, key: i64, search_key_index:usize, 
+            projected_columns_index: Vec<i64>, relative_version:i64) -> PyResult<i64>{
+        self.inner.select_version(key,search_key_index, projected_columns_index, relative_version).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
 }
