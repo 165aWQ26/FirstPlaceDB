@@ -57,11 +57,13 @@ impl Query {
     
     pub fn select_version(&self, key: i64, search_key_index:usize,
             projected_columns_index: &[i64], relative_version:i64) -> Result<Vec<Vec<Option<i64>>>, DbError> {
-        
+                
+            
+        //Get value of rid
         let rid = self.table.indices[search_key_index]
             .locate(key)
             .ok_or(DbError::KeyNotFound(key))?;
-
+        
         if self.table.is_deleted(rid)? {
             return Err(DbError::KeyNotFound(key));
         }
@@ -75,13 +77,13 @@ impl Query {
         let mut ret_records: Vec<Vec<Option<i64>>> = Vec::new();
 
         loop {
-
+            //Beginning at the base page of the first column.
+            //Will be used to 
             let addr = self.table.page_directory.get(curr_rid)?;
             
-            if let ret_records = vec![self.table.page_ranges.read_projected(projected_columns_index, &addr)?] {
-                if count == relative_version.abs() {
-                    Ok(ret_records);
-                }
+            if count == relative_version.abs() {
+                ret_records = vec![self.table.page_ranges.read_projected(projected_columns_index, &addr)?];
+                return Ok(ret_records);
             }
             else{
                 count -= 1;
@@ -92,14 +94,14 @@ impl Query {
             match next_rid {
                 // base page
                 Some(next) if next == rid => {
-                    if let ret_records = vec![self.table.page_ranges.read_projected(projected_columns_index, &base_addr)?]{
-                        Ok(ret_records);
+                    let ret_records = vec![self.table.page_ranges.read_projected(projected_columns_index, &base_addr)?]{
+                        return Ok(ret_records);
                     }
                 },
                 // base page
                 None => {
                     if let ret_records = vec![self.table.page_ranges.read_projected(projected_columns_index, &base_addr)?]{
-                        Ok(ret_records);
+                        return Ok(ret_records);
                     }
                 },
                 // iterate to next tail, continue loop
@@ -303,71 +305,11 @@ impl Query {
             let mut sum: i64 = 0;
 
             for rid in rids {
-
-                // rid to iterate with
-                let mut curr_rid = rid;
-
-                // check against relative_version to ensure proper value
-                let mut count: i64 = 0;
-
-                // base record address for termination cases
-                let base_addr = self.table.page_directory.get(rid)?;
-
-                loop {
-
-                    // get addr of current base/tail
-                    let addr = self.table.page_directory.get(curr_rid)?;
-                    
-                    // if val is not None
-                    if let Some(val) = self.table.page_ranges.read_single(col, &addr)? {
-
-                        // if we have reached relative version
-                        if count == relative_version.abs() {
-
-                            // add val to sum and continue to next RID
-                            sum += val;
-                            break;
-                        }
-                    }
-                    else{
-
-                        // subtracting 1 from count because val is None
-                        count -= 1;
-                    }
-                    
-                    // iterate to next tail
-                    let next_rid = self.table.page_ranges.get_tail_indirection(&addr)?;
-                    
-                    match next_rid {
-
-                        // if next tail exists and points to base --> add val of base to sum continue to next RID
-                        Some(next) if next == rid => {
-                            if let Some(val) = self.table.page_ranges.read_single(col, &base_addr)?{
-                                sum += val;
-                                break;
-                            }
-                        },
-
-                        // if tail does not exist, then we are at base --> add val of base to sum continue to next RID
-                        None => {
-                            if let Some(val) = self.table.page_ranges.read_single(col, &base_addr)?{
-                                sum += val;
-                                break;
-                            }
-                        },
-
-                        // otherwise, iterate to next tail, increment count, continue in loop
-                        Some(next) => {
-                            curr_rid = next;
-                            count += 1;
-                            continue;
-                        },
-                    }
-                }
+                sum += read_version_single(rid,col,relative_version)?.
+                ok_or(DbError::NullValue(col))?;
             }
             Ok(sum)
         }
-        
         else {
             Err(DbError::KeyNotFound(start_range))
         }
