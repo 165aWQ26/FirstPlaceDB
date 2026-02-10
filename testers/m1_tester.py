@@ -32,7 +32,7 @@ for i in range(0, number_of_records):
     records[key] = [key, randint(0, 20), randint(0, 20), randint(0, 20), randint(0, 20)]
     query.insert(*records[key])
     # print('inserted', records[key])
-print("Insert finished")
+print("Insert finished for m1_tester")
 
 # Check inserted records using select query
 for key in records:
@@ -40,6 +40,7 @@ for key in records:
     # here we are sure that there is only one record in t hat array
     record = query.select(key, 0, [1, 1, 1, 1, 1])[0]
     error = False
+
     for i, column in enumerate(record.columns):
         if column != records[key][i]:
             error = True
@@ -61,6 +62,7 @@ for key in records:
         records[key][i] = value
         query.update(key, *updated_columns)
         record = query.select(key, 0, [1, 1, 1, 1, 1])[0]
+
         error = False
         for j, column in enumerate(record.columns):
             if column != records[key][j]:
@@ -85,3 +87,5 @@ for c in range(0, grades_table.num_columns):
         else:
             pass
             # print('sum on [', keys[r[0]], ',', keys[r[1]], ']: ', column_sum)
+
+print("m1_tester finished")
