@@ -19,6 +19,19 @@ fn insert_and_select() {
 }
 
 #[test]
+fn insert_and_select_version() {
+    let mut q = setup(3);
+    q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
+
+    q.update(10,vec![None, Some(2), Some(3)]).unwrap();
+
+    let mask = [1i64, 1, 1];
+    let result = q.select_version(10, 0, &mask,-1).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], vec![Some(10), Some(20), Some(30)]);
+}
+
+#[test]
 fn insert_duplicate_key_fails() {
     let mut q = setup(3);
     assert!(q.insert(vec![Some(1), Some(2), Some(3)]).unwrap());
