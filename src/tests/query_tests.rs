@@ -131,3 +131,20 @@ fn quick_test_all() {
     let ans_list_three: Vec<Vec<Option<i64>>> = query.select(3, 0, &full_mask).unwrap();
     assert_eq!(ans_list_three[0][0], Some(3));
 }
+
+#[test]
+fn sum_version_test() {
+    let mut q = setup(3);
+    q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
+    q.insert(vec![Some(5), Some(6), Some(7)]).unwrap();
+    q.insert(vec![Some(2), Some(6), Some(8)]).unwrap();
+
+    q.update(2, vec![None, Some(2), Some(3)]).unwrap();
+    q.update(2, vec![None, Some(4), Some(5)]).unwrap();
+    q.update(2, vec![None, Some(4), Some(6)]).unwrap();
+
+    let ans = q.sum_version(1, 5, 2, -1).unwrap();
+    assert_eq!(ans, 15);
+    // q.sum_version(1, 5, 1, -1);
+    // q.sum_version(1, 5, 1, 0);
+}
