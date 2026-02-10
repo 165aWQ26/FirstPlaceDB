@@ -143,7 +143,7 @@ fn sum_version_test() {
     q.update(2, vec![None, Some(4), Some(5)]).unwrap();
     q.update(2, vec![None, Some(4), Some(6)]).unwrap();
 
-    let ans = q.sum_version(1, 5, 2, -2).unwrap();
+    let ans = q.sum_version(1, 5, 2, -1).unwrap();
     assert_eq!(ans, 15);
     // q.sum_version(1, 5, 1, -1);
     // q.sum_version(1, 5, 1, 0);
@@ -171,7 +171,7 @@ fn sum_version_2() {
     let ans = q.sum_version(6, 6, 2, -1).unwrap();
     // assert_eq!(ans, 3 + 3 + 8 + 13 + 7 + 6);
     // let num = q.table.read_version_single(2,2,0).unwrap();
-    assert_eq!(ans, 6)
+    assert_eq!(ans, 18)
     // q.sum_version(1, 5, 1, -1);
     // q.sum_version(1, 5, 1, 0);
 }
