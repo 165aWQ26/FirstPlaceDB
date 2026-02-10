@@ -243,38 +243,64 @@ impl Query {
         if let Some(rids) =
             self.table.indices[self.table.key_index].locate_range(start_range, end_range)
         {
+            // cumulative sum of all columns
             let mut sum: i64 = 0;
 
             for rid in rids {
+
+                // rid to iterate with
                 let mut curr_rid = rid;
+
+                // check against relative_version to ensure proper value
                 let mut count: i64 = 0;
-                let base_addr = self.table.page_directory.get(curr_rid)?;
+
+                // base record address for termination cases
+                let base_addr = self.table.page_directory.get(rid)?;
 
                 loop {
-                    let addr = self.table.page_directory.get(curr_rid)?;
 
+                    // get addr of current base/tail
+                    let addr = self.table.page_directory.get(curr_rid)?;
+                    
+                    // if val is not None
                     if let Some(val) = self.table.page_ranges.read_single(col, &addr)? {
+
+                        // if we have reached relative version
                         if count == relative_version.abs() {
+
+                            // add val to sum and continue to next RID
                             sum += val;
                             break;
                         }
                     }
+                    else{
 
+                        // subtracting 1 from count because val is None
+                        count -= 1;
+                    }
+                    
+                    // iterate to next tail
                     let next_rid = self.table.page_ranges.get_tail_indirection(&addr)?;
                     
                     match next_rid {
+
+                        // if next tail exists and points to base --> add val of base to sum continue to next RID
                         Some(next) if next == rid => {
                             if let Some(val) = self.table.page_ranges.read_single(col, &base_addr)?{
                                 sum += val;
                                 break;
                             }
                         },
+
+                        // if tail does not exist, then we are at base --> add val of base to sum continue to next RID
                         None => {
                             if let Some(val) = self.table.page_ranges.read_single(col, &base_addr)?{
                                 sum += val;
                                 break;
                             }
                         },
+
+                        // otherwise, iterate to next tail, increment count, continue in loop
                         Some(next) => {
                             curr_rid = next;
                             count += 1;
