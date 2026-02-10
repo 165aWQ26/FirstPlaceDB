@@ -54,7 +54,7 @@ impl Query {
                 .read_latest_projected(projected_columns_index, rid)?,
         ])
     }
-
+/* 
     pub fn select_version(&self, key: i64, search_key_index:usize,
             projected_columns_index: &[i64], relative_version:i64) -> Result<Vec<Vec<Option<i64>>>, DbError> {
         let rid = self.table.indices[search_key_index]
@@ -70,6 +70,7 @@ impl Query {
                 .read_version_projected(projected_columns_index, rid,relative_version)?,
         ])
     }
+*/
 //
 
     // TODO m3
