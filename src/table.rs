@@ -183,12 +183,14 @@ impl Table {
             .map(|(col, &flag)| if flag == 1 { full[col] } else { None })
             .collect())
     }
+    /* 
     pub fn read_version_projected(
         &self,
         projected: &[i64],
         rid: i64,
         
     )
+    */
 
     /// Check if a base RID's latest tail has schema_encoding == None (deletion marker).
     pub fn is_deleted(&self, rid: i64) -> Result<bool, DbError> {
