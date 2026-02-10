@@ -138,44 +138,37 @@ impl Table {
         
         let base_addr = self.page_directory.get(rid)?;
         let indirection = self.page_ranges.base.get_indirection(&base_addr)?;
-        let mut tail_addr = self.page_directory.get(rid)?;
-        //Base is 
-        while relative_version < 0{
-            match indirection {
-                Some(ind_rid) if ind_rid == rid => self.page_ranges.read_single(col, &base_addr),
-                None => self.page_ranges.read_single(col, &base_addr),
-                Some(tail_rid) => {
-                    //indirection is set to tail rid
-                    let mut current_tail_rid = tail_rid;
-                    loop {
-                        let mut tail_addr = self.page_directory.get(current_tail_rid)?;
-                        let tail_schema = self
-                            .page_ranges
-                            .get_tail_schema_encoding(&tail_addr)?
-                            .unwrap_or(0); // None = deletion tail, no columns updated
+        match indirection {
+            Some(ind_rid) if ind_rid == rid => self.page_ranges.read_single(col, &base_addr),
+            None => self.page_ranges.read_single(col, &base_addr),
+            Some(tail_rid) => {
+                let mut current_tail_rid = tail_rid;
+                loop {
+                    let tail_addr = self.page_directory.get(current_tail_rid)?;
+                    let tail_schema = self
+                        .page_ranges
+                        .get_tail_schema_encoding(&tail_addr)?
+                        .unwrap_or(0); // None = deletion tail, no columns updated
 
-                        //Case where an update has been found
-                        if (tail_schema >> col) & 1 == 1 {
-                            // Newest tail that updates this column
-                            relative_version += 1;
-                        }
-                        //Set variables to continue search. 
-                        let next_rid = self.page_ranges.get_tail_indirection(&tail_addr)?;
-
-                        
-                        match next_rid {
-                            //Looped back to base
-                            Some(next) if next == rid => break,
-                            Some(next) => current_tail_rid = next,
-                            None => break,
-                        }
+                    //Case where latest update if found
+                    if (tail_schema >> col) & 1 == 1 {
+                        // Newest tail that updates this column
+                        relative_version += 1;
                     }
-                    // Column never updated in any tail
-                    return self.page_ranges.read_single(col, &base_addr);
+                    if relative_version > 0 {
+                        return self.page_ranges.read_tail_single(col, &tail_addr);
+                    }
+                    let next_rid = self.page_ranges.get_tail_indirection(&tail_addr)?;
+                    match next_rid {
+                        Some(next) if next == rid => break,
+                        Some(next) => current_tail_rid = next,
+                        None => break,
+                    }
                 }
+                // Column never updated in any tail
+                return self.page_ranges.read_single(col, &base_addr);
             }
         }
-        return self.page_ranges.read_tail_single(col, &tail_addr);
     }
 
     pub fn read_latest_projected(

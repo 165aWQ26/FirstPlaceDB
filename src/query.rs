@@ -54,7 +54,7 @@ impl Query {
                 .read_latest_projected(projected_columns_index, rid)?,
         ])
     }
-    
+/*
     pub fn select_version(&self, key: i64, search_key_index:usize,
             projected_columns_index: &[i64], relative_version:i64) -> Result<Vec<Vec<Option<i64>>>, DbError> {
                 
@@ -113,7 +113,7 @@ impl Query {
             }
         }
     }
-
+*/
 
     // TODO m3
     // if let Some(indirection_pointer) = self.table.read_single(rid, record.len() + 2) {
@@ -305,7 +305,7 @@ impl Query {
             let mut sum: i64 = 0;
 
             for rid in rids {
-                sum += read_version_single(rid,col,relative_version)?.
+                sum += self.table.read_version_single(rid,col,relative_version)?.
                 ok_or(DbError::NullValue(col))?;
             }
             Ok(sum)
