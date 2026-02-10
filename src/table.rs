@@ -183,14 +183,24 @@ impl Table {
             .map(|(col, &flag)| if flag == 1 { full[col] } else { None })
             .collect())
     }
-    /* 
+
     pub fn read_version_projected(
         &self,
         projected: &[i64],
         rid: i64,
-        
-    )
-    */
+        relative_version: i64
+    )-> Result<Vec<Option<i64>>, DbError>{
+        let mut ans : Vec<Option<i64>> = Vec::new(); 
+        for (col,value) in projected.iter().enumerate(){
+            if *value == 1{
+                ans.push(self.read_version_single(rid,col,relative_version)?);
+            }
+            else {
+                ans.push(None);
+            }
+        }
+        Ok(ans)
+    }
 
     /// Check if a base RID's latest tail has schema_encoding == None (deletion marker).
     pub fn is_deleted(&self, rid: i64) -> Result<bool, DbError> {
