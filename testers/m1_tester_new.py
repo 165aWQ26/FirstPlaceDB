@@ -15,11 +15,6 @@ grades_table = db.create_table('Grades', 5, 0)
 # create a query class for the grades table
 query = Query(grades_table)
 
-print(Query, type(query))
-print("sum_version attr:", query.sum_version)
-print("implemented in:", inspect.getsourcefile(Query))
-
-
 # dictionary for records to test the database: test directory
 records = {}
 
@@ -37,11 +32,11 @@ for i in range(0, number_of_records):
     records[key] = [key, randint(0, 20), randint(0, 20), randint(0, 20), randint(0, 20)]
     query.insert(*records[key])
     # print('inserted', records[key])
-print("Insert finished")
+print("Insert finished for m1_tester_new")
 
 # Check inserted records using select query
-for key in records:
-    print('select on', key, ':', records[key])
+# for key in records:
+#     print('select on', key, ':', records[key])
 
 # # Check inserted records using select query
 for key in records:
@@ -117,21 +112,23 @@ for c in range(0, grades_table.num_columns):
         if column_sum != result:
             print('sum error on [', keys[r[0]], ',', keys[r[1]], ']: ', result, ', correct: ', column_sum)
         else:
-            # pass
-            print('sum on [', keys[r[0]], ',', keys[r[1]], ']: ', column_sum)
+            pass
+            # print('sum on [', keys[r[0]], ',', keys[r[1]], ']: ', column_sum)
         # version -2 sum
         column_sum = sum(map(lambda key: records[key][c], keys[r[0]: r[1] + 1]))
         result = query.sum_version(keys[r[0]], keys[r[1]], c, -2)
         if column_sum != result:
             print('sum error on [', keys[r[0]], ',', keys[r[1]], ']: ', result, ', correct: ', column_sum)
         else:
-            # pass
-            print('sum on [', keys[r[0]], ',', keys[r[1]], ']: ', column_sum)
+            pass
+            # print('sum on [', keys[r[0]], ',', keys[r[1]], ']: ', column_sum)
         # version 0 sum
         updated_column_sum = sum(map(lambda key: updated_records[key][c], keys[r[0]: r[1] + 1]))
         updated_result = query.sum_version(keys[r[0]], keys[r[1]], c, 0)
         if updated_column_sum != updated_result:
             print('sum error on [', keys[r[0]], ',', keys[r[1]], ']: ', updated_result, ', correct: ', updated_column_sum)
         else:
-            # pass
-            print('sum on [', keys[r[0]], ',', keys[r[1]], ']: ', column_sum)
+            pass
+            # print('sum on [', keys[r[0]], ',', keys[r[1]], ']: ', column_sum)
+
+print("m1_tester_new finished")
