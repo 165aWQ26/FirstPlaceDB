@@ -39,20 +39,20 @@ for key in records:
     print('select on', key, ':', records[key])
 
 # # Check inserted records using select query
-# for key in records:
-#     # select function will return array of records 
-#     # here we are sure that there is only one record in t hat array
-#     # check for retreiving version -1. Should retreive version 0 since only one version exists.
-#     record = query.select_version(key, 0, [1, 1, 1, 1, 1], -1)[0]
-#     error = False
-#     for i, column in enumerate(record.columns):
-#         if column != records[key][i]:
-#             error = True
-#     if error:
-#         print('select error on', key, ':', record, ', correct:', records[key])
-#     else:
-#         pass
-#         # print('select on', key, ':', record)
+for key in records:
+    # select function will return array of records 
+    # here we are sure that there is only one record in t hat array
+    # check for retreiving version -1. Should retreive version 0 since only one version exists.
+    record = query.select_version(key, 0, [1, 1, 1, 1, 1], -1)[0]
+    error = False
+    for i, column in enumerate(record.columns):
+        if column != records[key][i]:
+            error = True
+    if error:
+        print('select error on', key, ':', record, ', correct:', records[key])
+    else:
+        pass
+        # print('select on', key, ':', record)
 
 updated_records = {}
 for key in records:
@@ -66,39 +66,39 @@ for key in records:
         updated_records[key][i] = value
     query.update(key, *updated_columns)
 
-    # #check version -1 for record
-    # record = query.select_version(key, 0, [1, 1, 1, 1, 1], -1)[0]
-    # error = False
-    # for j, column in enumerate(record.columns):
-    #     if column != records[key][j]:
-    #         print('column:', column, 'records:', records[key][j])
-    #         error = True
-    # if error:
-    #     print('update error on', records[key], 'and', updated_columns, ':', record, ', correct:', records[key])
-    # else:
-    #     pass
-    #     # print('update on', original, 'and', updated_columns, ':', record)
+    #check version -1 for record
+    record = query.select_version(key, 0, [1, 1, 1, 1, 1], -1)[0]
+    error = False
+    for j, column in enumerate(record.columns):
+        if column != records[key][j]:
+            print('column:', column, 'records:', records[key][j])
+            error = True
+    if error:
+        print('update error on', records[key], 'and', updated_columns, ':', record, ', correct:', records[key])
+    else:
+        pass
+        # print('update on', original, 'and', updated_columns, ':', record)
 
-    # #check version -2 for record
-    # record = query.select_version(key, 0, [1, 1, 1, 1, 1], -2)[0]
-    # error = False
-    # for j, column in enumerate(record.columns):
-    #     if column != records[key][j]:
-    #         error = True
-    # if error:
-    #     print('update error on', records[key], 'and', updated_columns, ':', record, ', correct:', records[key])
-    # else:
-    #     pass
-    #     # print('update on', original, 'and', updated_columns, ':', record)
+    #check version -2 for record
+    record = query.select_version(key, 0, [1, 1, 1, 1, 1], -2)[0]
+    error = False
+    for j, column in enumerate(record.columns):
+        if column != records[key][j]:
+            error = True
+    if error:
+        print('update error on', records[key], 'and', updated_columns, ':', record, ', correct:', records[key])
+    else:
+        pass
+        # print('update on', original, 'and', updated_columns, ':', record)
     
-    # #check version 0 for record
-    # record = query.select_version(key, 0, [1, 1, 1, 1, 1], 0)[0]
-    # error = False
-    # for j, column in enumerate(record.columns):
-    #     if column != updated_records[key][j]:
-    #         error = True
-    # if error:
-    #     print('update error on', records[key], 'and', updated_columns, ':', record, ', correct:', updated_records[key])
+    #check version 0 for record
+    record = query.select_version(key, 0, [1, 1, 1, 1, 1], 0)[0]
+    error = False
+    for j, column in enumerate(record.columns):
+        if column != updated_records[key][j]:
+            error = True
+    if error:
+        print('update error on', records[key], 'and', updated_columns, ':', record, ', correct:', updated_records[key])
 
 keys = sorted(list(records.keys()))
 # aggregate on every column 
