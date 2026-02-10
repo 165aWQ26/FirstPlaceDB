@@ -254,6 +254,43 @@ fn sum_version_3() {
 }
 
 #[test]
+fn select_version_disjoint_column_updates() {
+    // Two updates that touch diffrent columns.
+    // Version -1 should undo only the latest update (col 2),
+    // leaving the earlier update (col 1) intact.
+    // THIS IS WHERE I WAS WRONG. It's not go back N update per col it's skip N tail records. So this is simpler then what I thought about
+    //
+    // This will fails with per-column version counting (read_version_single)
+    // because it independently goes back 1 relevant version for each column,
+    // which for col 1 means going all the way back to base.
+    let mut q = setup(3);
+    q.insert(vec![Some(100), Some(10), Some(20)]).unwrap();
+
+    // Update 1: only col 1 → tail schema 0b010
+    q.update(100, vec![None, Some(11), None]).unwrap();
+    // Update 2: only col 2 → tail schema 0b100
+    q.update(100, vec![None, None, Some(22)]).unwrap();
+
+    let mask = [1i64, 1, 1];
+
+    // Version 0 (latest): both updates merged
+    let latest = q.select_version(100, 0, &mask, 0).unwrap();
+    assert_eq!(latest[0], vec![Some(100), Some(11), Some(22)]);
+
+    // Version -1: undo update 2 only. Col 1 should still be 11.
+    let prev = q.select_version(100, 0, &mask, -1).unwrap();
+    assert_eq!(prev[0], vec![Some(100), Some(11), Some(20)]);
+    //                                   ^^^^^^^^
+    // Per-column counting (read_version_single) returns 10 here (base),
+    // because it goes back 1 col-1-relevant version, skipping past tail 1.
+    // If you guys still wants to do read_version_single, you need to at least check RID
+
+    // Version -2: undo both updates, back to base
+    let base = q.select_version(100, 0, &mask, -2).unwrap();
+    assert_eq!(base[0], vec![Some(100), Some(10), Some(20)]);
+}
+
+#[test]
 fn test_version_single() {
     let mut q = setup(3);
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
