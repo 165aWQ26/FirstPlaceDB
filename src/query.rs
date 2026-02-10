@@ -54,66 +54,24 @@ impl Query {
                 .read_latest_projected(projected_columns_index, rid)?,
         ])
     }
-/*
+/* 
     pub fn select_version(&self, key: i64, search_key_index:usize,
             projected_columns_index: &[i64], relative_version:i64) -> Result<Vec<Vec<Option<i64>>>, DbError> {
-                
-            
-        //Get value of rid
         let rid = self.table.indices[search_key_index]
             .locate(key)
             .ok_or(DbError::KeyNotFound(key))?;
-        
+
         if self.table.is_deleted(rid)? {
             return Err(DbError::KeyNotFound(key));
         }
 
-        // vars for iteration
-        let mut curr_rid = rid;
-        let mut count: i64 = 0;
-        let base_addr = self.table.page_directory.get(curr_rid)?;
-        
-        // return var
-        let mut ret_records: Vec<Vec<Option<i64>>> = Vec::new();
-
-        loop {
-            //Beginning at the base page of the first column.
-            //Will be used to 
-            let addr = self.table.page_directory.get(curr_rid)?;
-            
-            if count == relative_version.abs() {
-                ret_records = vec![self.table.page_ranges.read_projected(projected_columns_index, &addr)?];
-                return Ok(ret_records);
-            }
-            else{
-                count -= 1;
-            }
-
-            let next_rid = self.table.page_ranges.get_tail_indirection(&addr)?;
-            
-            match next_rid {
-                // base page
-                Some(next) if next == rid => {
-                    let ret_records = vec![self.table.page_ranges.read_projected(projected_columns_index, &base_addr)?]{
-                        return Ok(ret_records);
-                    }
-                },
-                // base page
-                None => {
-                    if let ret_records = vec![self.table.page_ranges.read_projected(projected_columns_index, &base_addr)?]{
-                        return Ok(ret_records);
-                    }
-                },
-                // iterate to next tail, continue loop
-                Some(next) => {
-                    curr_rid = next;
-                    count += 1;
-                    continue;
-                },
-            }
-        }
+        Ok(vec![
+            self.table
+                .read_version_projected(projected_columns_index, rid,relative_version)?,
+        ])
     }
 */
+//
 
     // TODO m3
     // if let Some(indirection_pointer) = self.table.read_single(rid, record.len() + 2) {
