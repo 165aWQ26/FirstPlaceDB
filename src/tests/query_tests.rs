@@ -131,3 +131,69 @@ fn quick_test_all() {
     let ans_list_three: Vec<Vec<Option<i64>>> = query.select(3, 0, &full_mask).unwrap();
     assert_eq!(ans_list_three[0][0], Some(3));
 }
+
+#[test]
+fn sum_version_test() {
+    let mut q = setup(3);
+    q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
+    q.insert(vec![Some(5), Some(6), Some(7)]).unwrap();
+    q.insert(vec![Some(2), Some(6), Some(8)]).unwrap();
+
+    q.update(2, vec![None, Some(2), Some(3)]).unwrap();
+    q.update(2, vec![None, Some(4), Some(5)]).unwrap();
+    q.update(2, vec![None, Some(4), Some(6)]).unwrap();
+
+    let ans = q.sum_version(1, 5, 2, -1).unwrap();
+    assert_eq!(ans, 15);
+    // q.sum_version(1, 5, 1, -1);
+    // q.sum_version(1, 5, 1, 0);
+}
+
+#[test]
+fn sum_version_2() {
+    let mut q = setup(3);
+    q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
+    q.insert(vec![Some(2), Some(6), Some(1)]).unwrap();
+    q.insert(vec![Some(3), Some(10), Some(8)]).unwrap();
+    q.insert(vec![Some(4), Some(2), Some(13)]).unwrap();
+    q.insert(vec![Some(5), Some(12), Some(7)]).unwrap();
+    q.insert(vec![Some(6), Some(6), Some(18)]).unwrap();
+
+    q.update(2, vec![None, None, Some(3)]).unwrap();
+    q.update(2, vec![None, None, Some(5)]).unwrap();
+    q.update(2, vec![None, None, Some(6)]).unwrap();
+    q.update(4, vec![None, None, Some(3)]).unwrap();
+    q.update(5, vec![None, None, Some(5)]).unwrap();
+    q.update(6, vec![None, None, Some(6)]).unwrap();
+    q.update(6, vec![None, Some(5), None]).unwrap();
+    q.update(6, vec![None, Some(8), None]).unwrap();
+
+    let ans = q.sum_version(6, 6, 2, -1).unwrap();
+    // assert_eq!(ans, 3 + 3 + 8 + 13 + 7 + 6);
+    // let num = q.table.read_version_single(2,2,0).unwrap();
+    assert_eq!(ans, 18)
+    // q.sum_version(1, 5, 1, -1);
+    // q.sum_version(1, 5, 1, 0);
+}
+
+#[test]
+fn test_version_single() {
+    let mut q = setup(3);
+    q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
+    q.insert(vec![Some(5), Some(6), Some(7)]).unwrap();
+    q.insert(vec![Some(2), Some(6), Some(8)]).unwrap();
+
+    q.update(2, vec![None, Some(2), Some(3)]).unwrap();
+    q.update(2, vec![None, Some(4), Some(5)]).unwrap();
+    q.update(2, vec![None, Some(4), Some(6)]).unwrap();
+
+    let num1 = q.table.read_version_single(0,2,-2).unwrap();
+    let num2 = q.table.read_version_single(1,2,-5).unwrap();
+    let num3 = q.table.read_version_single(2,2,0).unwrap();
+    assert_eq!(num1.unwrap(), 3);
+    assert_eq!(num2.unwrap(), 7);
+    assert_eq!(num3.unwrap(), 6);
+    
+    // q.sum_version(1, 5, 1, -1);
+    // q.sum_version(1, 5, 1, 0);
+}
