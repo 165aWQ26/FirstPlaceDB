@@ -19,7 +19,7 @@ fn insert_and_select() {
 }
 
 #[test]
-fn insert_and_select_version() {
+fn insert_and_select_version_1() {
     let mut q = setup(3);
     q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
 
@@ -31,6 +31,35 @@ fn insert_and_select_version() {
     assert_eq!(result[0], vec![Some(10), Some(20), Some(30)]);
 }
 
+#[test]
+fn insert_and_select_version_2() {
+    let mut q = setup(3);
+    q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
+
+    q.update(1,vec![None, None, Some(6)]).unwrap();
+    q.update(1,vec![None, None, Some(5)]).unwrap();
+    q.update(1,vec![None, Some(10), Some(4)]).unwrap();
+
+    let mask = [1i64, 1, 1];
+    let result = q.select_version(1, 0, &mask,-2).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], vec![Some(1), Some(2), Some(6)]);
+}
+#[test]
+fn remove_and_select_version_error() {
+    //Very important to look at this case.
+    //It's possible other behavior is wanted
+    let mut q = setup(3);
+    q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
+
+    q.update(10,vec![None, None, Some(6)]).unwrap();
+    q.update(10,vec![None, None, Some(5)]).unwrap();
+    q.delete(1).unwrap();
+
+
+    let mask = [1i64, 1, 1];
+    assert_eq!(q.select_version(1, 0, &mask,-1), Err(DbError::KeyNotFound(1)));
+}
 #[test]
 fn insert_duplicate_key_fails() {
     let mut q = setup(3);
@@ -146,7 +175,7 @@ fn quick_test_all() {
 }
 
 #[test]
-fn sum_version_test() {
+fn sum_version_1() {
     let mut q = setup(3);
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
     q.insert(vec![Some(5), Some(6), Some(7)]).unwrap();
@@ -185,6 +214,41 @@ fn sum_version_2() {
     // assert_eq!(ans, 3 + 3 + 8 + 13 + 7 + 6);
     // let num = q.table.read_version_single(2,2,0).unwrap();
     assert_eq!(ans, 18)
+    // q.sum_version(1, 5, 1, -1);
+    // q.sum_version(1, 5, 1, 0);
+}
+
+#[test]
+fn sum_version_3() {
+    //Similar to previous but negatives are used
+    let mut q = setup(3);
+    q.insert(vec![Some(1), Some(52), Some(-3)]).unwrap();
+    q.insert(vec![Some(2), Some(63), Some(-1)]).unwrap();
+    q.insert(vec![Some(3), Some(210), Some(8)]).unwrap();
+    q.insert(vec![Some(4), Some(2), Some(134)]).unwrap();
+    q.insert(vec![Some(5), Some(152), Some(37)]).unwrap();
+    q.insert(vec![Some(6), Some(1), Some(128)]).unwrap();
+
+    q.update(2, vec![None, None, Some(2)]).unwrap();
+    q.update(2, vec![None, Some(5), None]).unwrap();
+    q.update(2, vec![None, Some(8), None]).unwrap();
+    q.update(2, vec![None, None, Some(-5)]).unwrap();
+    q.update(2, vec![None, None, Some(6)]).unwrap();
+
+    q.update(4, vec![None, None, Some(3)]).unwrap();
+
+    q.update(5, vec![None, None, Some(-5)]).unwrap();
+    q.update(6, vec![None, None, Some(-6)]).unwrap();
+    q.update(6, vec![None, None, Some(-3)]).unwrap();
+    q.update(6, vec![None, Some(5), None]).unwrap();
+    q.update(6, vec![None, None, Some(-6)]).unwrap();
+    q.update(6, vec![None, Some(5), None]).unwrap();
+    q.update(6, vec![None, Some(8), None]).unwrap();
+
+    let ans = q.sum_version(2, 6, 2, -2).unwrap();
+    // assert_eq!(ans, 3 + 3 + 8 + 13 + 7 + 6);
+    // let num = q.table.read_version_single(2,2,0).unwrap();
+    assert_eq!(ans, 175)
     // q.sum_version(1, 5, 1, -1);
     // q.sum_version(1, 5, 1, 0);
 }
