@@ -92,7 +92,7 @@ class Query:
     # Returns False if no record exists in the given range
     """
     def sum_version(self, start_range, end_range, aggregate_column_index, relative_version):
-        pass
+        return self._core.sum_version(start_range, end_range, aggregate_column_index, relative_version)
 
     
     """

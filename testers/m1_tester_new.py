@@ -2,7 +2,7 @@ from lstore.db import Database
 from lstore.query import Query
 
 from random import choice, randint, sample, seed
-
+import inspect
 db = Database()
 # Create a table  with 5 columns
 #   Student Id and 4 grades
@@ -14,6 +14,11 @@ grades_table = db.create_table('Grades', 5, 0)
 
 # create a query class for the grades table
 query = Query(grades_table)
+
+print(Query, type(query))
+print("sum_version attr:", query.sum_version)
+print("implemented in:", inspect.getsourcefile(Query))
+
 
 # dictionary for records to test the database: test directory
 records = {}

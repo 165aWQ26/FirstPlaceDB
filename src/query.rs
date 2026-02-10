@@ -263,8 +263,9 @@ impl Query {
             let mut sum: i64 = 0;
 
             for rid in rids {
-                sum += self.table.read_version_single(rid,col,relative_version)?.
-                ok_or(DbError::NullValue(col))?;
+                sum += self.table
+                    .read_version_single(rid,col,relative_version)?
+                    .ok_or(DbError::NullValue(col))?;
             }
             Ok(sum)
         }
