@@ -196,12 +196,10 @@ impl Query {
         // Append deletion tail (schema_encoding = None marks deletion)
         let next_rid = self.table.rid.next().unwrap();
         let tail_record = vec![None; self.table.num_columns];
-        let address = self.table.page_ranges.append_tail(
-            tail_record,
-            next_rid,
-            current_indirection,
-            None,
-        )?;
+        let address =
+            self.table
+                .page_ranges
+                .append_tail(tail_record, next_rid, current_indirection, None)?;
 
         self.table.page_directory.add(next_rid, address);
 
@@ -235,29 +233,63 @@ impl Query {
         }
     }
 
-    
-    pub fn sum_version(&self, start_range: i64, end_range: i64, col: usize, relative_version:i64) -> Result<i64, DbError>{
-        
+    pub fn sum_version(
+        &self,
+        start_range: i64,
+        end_range: i64,
+        col: usize,
+        relative_version: i64,
+    ) -> Result<i64, DbError> {
         if let Some(rids) =
             self.table.indices[self.table.key_index].locate_range(start_range, end_range)
         {
             let mut sum: i64 = 0;
 
             for rid in rids {
-                if self.table.is_deleted(rid)? {
-                    continue;
+                let mut curr_rid = rid;
+                let mut count: i64 = 0;
+                let base_addr = self.table.page_directory.get(curr_rid)?;
+
+                loop {
+                    let addr = self.table.page_directory.get(curr_rid)?;
+
+                    if let Some(val) = self.table.page_ranges.read_single(col, &addr)? {
+                        if count == relative_version.abs() {
+                            sum += val;
+                            break;
+                        }
+                    }
+
+                    let next_rid = self.table.page_ranges.get_tail_indirection(&addr)?;
+                    
+                    match next_rid {
+                        Some(next) if next == rid => {
+                            if let Some(val) = self.table.page_ranges.read_single(col, &base_addr)?{
+                                sum += val;
+                                break;
+                            }
+                        },
+                        None => {
+                            if let Some(val) = self.table.page_ranges.read_single(col, &base_addr)?{
+                                sum += val;
+                                break;
+                            }
+                        },
+                        Some(next) => {
+                            curr_rid = next;
+                            count += 1;
+                            continue;
+                        },
+                    }
                 }
-                sum += self
-                    .table
-                    .read_latest_single(rid, col)?
-                    .ok_or(DbError::NullValue(col))?;
             }
             Ok(sum)
-        } else {
+        }
+        
+        else {
             Err(DbError::KeyNotFound(start_range))
         }
     }
-    
 
     pub fn increment(&mut self, key: i64, col: usize) -> Result<bool, DbError> {
         let rid = self.table.indices[self.table.key_index]
