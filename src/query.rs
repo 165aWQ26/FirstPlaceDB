@@ -125,6 +125,16 @@ impl Query {
     //     false
     // }
     pub fn update(&mut self, key: i64, record: Vec<Option<i64>>) -> Result<bool, DbError> {
+        // Reject wrong-length records (prevents metadata column overwrites)
+        if record.len() != self.table.num_columns {
+            return Ok(false);
+        }
+
+        // Reject primary key column updates
+        if record[self.table.key_index].is_some() {
+            return Ok(false);
+        }
+
         let rid = match self.table.indices[self.table.key_index].locate(key) {
             Some(rid) => rid,
             None => return Ok(false),
@@ -146,29 +156,6 @@ impl Query {
                 schema_encoding |= 1 << i;
             }
         }
-
-        // remove the previous tail from the index
-
-        //// DELETE THIS WHEN MOVING ONTO MILESTONE 2:
-        let current_values = self.table.read_latest(rid)?;
-        let key = record[self.table.key_index];
-        if key.is_some() {
-            if current_values[0].is_some() {
-                self.table.indices[0].remove(current_values[0].unwrap(), rid);
-            }
-            self.table.indices[0].insert(key.ok_or(DbError::NullValue(0))?, rid);
-        }
-        ////
-
-        // let current_values = self.table.read_latest(rid)?;
-        // for (i, val) in record.iter().enumerate() {
-        //     if val.is_some() {
-        //         if let Some(old_val) = current_values[i] {
-        //             self.table.indices[i].remove(old_val, rid);
-        //         }
-        //         self.table.indices[i].insert(val.ok_or(DbError::NullValue(i))?, rid);
-        //     }
-        // }
 
         let next_rid = self.table.rid.next().unwrap();
 
@@ -274,6 +261,11 @@ impl Query {
     }
 
     pub fn increment(&mut self, key: i64, col: usize) -> Result<bool, DbError> {
+        // Reject primary key or metadata column increments
+        if col == self.table.key_index || col >= self.table.num_columns {
+            return Ok(false);
+        }
+
         let rid = self.table.indices[self.table.key_index]
             .locate(key)
             .ok_or(DbError::KeyNotFound(key))?;
