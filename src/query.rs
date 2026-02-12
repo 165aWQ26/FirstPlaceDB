@@ -1,5 +1,6 @@
 use crate::error::DbError;
-use crate::page_collection::INDIRECTION_COL;
+use crate::page_collection::{MetaPage, INDIRECTION_COL};
+use crate::page_range::WhichRange;
 use crate::table::Table;
 
 pub struct Query {
@@ -136,8 +137,9 @@ impl Query {
         let current_indirection = self
             .table
             .page_ranges
-            .get_indirection(&base_addr)?
+            .get_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?
             .unwrap_or(rid);
+
 
         // Build schema encoding for this tail record
         let mut schema_encoding: i64 = 0;
@@ -183,6 +185,7 @@ impl Query {
         self.table.page_directory.add(next_rid, address);
 
         // Update base indirection
+        //Todo: This math should not be done here
         let indirection_col = self.table.num_columns + INDIRECTION_COL;
         self.table
             .page_ranges
@@ -205,7 +208,7 @@ impl Query {
         let current_indirection = self
             .table
             .page_ranges
-            .get_indirection(&base_addr)?
+            .get_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?
             .unwrap_or(rid);
 
         // Append deletion tail (schema_encoding = None marks deletion)
@@ -219,6 +222,7 @@ impl Query {
         self.table.page_directory.add(next_rid, address);
 
         // Update base indirection to point to deletion tail
+        //Todo: see above
         let indirection_col = self.table.num_columns + INDIRECTION_COL;
         self.table
             .page_ranges

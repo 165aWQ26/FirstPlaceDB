@@ -1,10 +1,14 @@
 use crate::page::{Page, PageError};
 use crate::table::Table;
 
-pub const RID_COL: usize = 0;
-pub const INDIRECTION_COL: usize = 1;
-pub const SCHEMA_ENCODING_COL: usize = 2;
-pub const START_TIME_COL: usize = 3;
+#[repr(usize)]
+pub enum MetaPage {
+    RID_COL = 0,
+    INDIRECTION_COL = 1,
+    SCHEMA_ENCODING_COL = 2,
+    START_TIME_COL = 3,
+}
+
 
 //In general this structure will make a lot of assumptions about the data that is passed (not good for modularity but wtv).
 //For now we assume metadata is appended after data
@@ -41,28 +45,13 @@ impl PageCollection {
 
     // Returns a reference to the metadata page at the given column index
     #[inline]
-    fn meta_page(&self, col: usize) -> &Page {
+    fn meta_record(&self, col: MetaPage) -> &Page {
         let meta_start = self.pages.len() - Table::NUM_META_PAGES;
-        &self.pages[meta_start + col]
+        &self.pages[meta_start + col as usize]
     }
 
     #[inline]
-    pub fn get_rid(&self, offset: usize) -> Result<Option<i64>, PageError> {
-        self.meta_page(RID_COL).read(offset)
-    }
-
-    #[inline]
-    pub fn get_indirection(&self, offset: usize) -> Result<Option<i64>, PageError> {
-        self.meta_page(INDIRECTION_COL).read(offset)
-    }
-
-    #[inline]
-    pub fn get_schema_encoding(&self, offset: usize) -> Result<Option<i64>, PageError> {
-        self.meta_page(SCHEMA_ENCODING_COL).read(offset)
-    }
-
-    #[inline]
-    pub fn get_start_time(&self, offset: usize) -> Result<Option<i64>, PageError> {
-        self.meta_page(START_TIME_COL).read(offset)
+    pub fn get_meta_page_page_collection(&self, offset: usize, colType: MetaPage) -> Result<Option<i64>, PageError> {
+        self.meta_record(colType).read(offset)
     }
 }

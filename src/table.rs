@@ -1,7 +1,8 @@
 use crate::error::DbError;
 use crate::index::Index;
+use crate::page_collection::MetaPage;
 use crate::page_directory::PageDirectory;
-use crate::page_range::PageRanges;
+use crate::page_range::{PageRanges, WhichRange};
 
 pub struct Table {
     pub name: String,
@@ -58,7 +59,7 @@ impl Table {
     pub fn read_latest(&self, rid: i64) -> Result<Vec<Option<i64>>, DbError> {
         let base_addr = self.page_directory.get(rid)?;
         let mut result = self.read(rid)?;
-        let indirection = self.page_ranges.get_indirection(&base_addr)?;
+        let indirection = self.page_ranges.get_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?;
 
         // If indirection is None, no updates
         match indirection {
@@ -71,7 +72,7 @@ impl Table {
                     let tail_addr = self.page_directory.get(current_tail_rid)?;
                     let tail_schema = self
                         .page_ranges
-                        .get_tail_schema_encoding(&tail_addr)?
+                        .get_col(&tail_addr, MetaPage::SCHEMA_ENCODING_COL, WhichRange::Tail)?
                         .unwrap_or(0); // None = deletion tail, no columns updated
 
                     // Columns updated in this tail but not yet seen in newer tail
@@ -82,10 +83,11 @@ impl Table {
                             result[col] = self.page_ranges.read_tail_single(col, &tail_addr)?;
                         }
                     }
+                    
                     accumulated_schema |= tail_schema;
 
                     // Follow indirection to next (older tail record)
-                    let next_rid = self.page_ranges.get_tail_indirection(&tail_addr)?;
+                    let next_rid = self.page_ranges.get_col(&tail_addr, MetaPage::INDIRECTION_COL, WhichRange::Tail)?;
                     match next_rid {
                         Some(next) if next == rid => break,
                         Some(next) => current_tail_rid = next,
@@ -99,7 +101,7 @@ impl Table {
 
     pub fn read_latest_single(&self, rid: i64, col: usize) -> Result<Option<i64>, DbError> {
         let base_addr = self.page_directory.get(rid)?;
-        let indirection = self.page_ranges.get_indirection(&base_addr)?;
+        let indirection = self.page_ranges.get_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?;
 
         match indirection {
             Some(ind_rid) if ind_rid == rid => self.page_ranges.read_single(col, &base_addr),
@@ -110,7 +112,7 @@ impl Table {
                     let tail_addr = self.page_directory.get(current_tail_rid)?;
                     let tail_schema = self
                         .page_ranges
-                        .get_tail_schema_encoding(&tail_addr)?
+                        .get_col(&tail_addr, MetaPage::SCHEMA_ENCODING_COL, WhichRange::Tail)?
                         .unwrap_or(0); // None = deletion tail, no columns updated
 
                     //Case where latest update if found
@@ -119,7 +121,7 @@ impl Table {
                         return self.page_ranges.read_tail_single(col, &tail_addr);
                     }
 
-                    let next_rid = self.page_ranges.get_tail_indirection(&tail_addr)?;
+                    let next_rid = self.page_ranges.get_col(&tail_addr, MetaPage::INDIRECTION_COL, WhichRange::Tail)?;
                     match next_rid {
                         Some(next) if next == rid => break,
                         Some(next) => current_tail_rid = next,
@@ -137,7 +139,7 @@ impl Table {
         //Case where the base poin
         
         let base_addr = self.page_directory.get(rid)?;
-        let indirection = self.page_ranges.base.get_indirection(&base_addr)?;
+        let indirection = self.page_ranges.get_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?;
         match indirection {
             Some(ind_rid) if ind_rid == rid => self.page_ranges.read_single(col, &base_addr),
             None => self.page_ranges.read_single(col, &base_addr),
@@ -147,9 +149,9 @@ impl Table {
                     let tail_addr = self.page_directory.get(current_tail_rid)?;
                     let tail_schema = self
                         .page_ranges
-                        .get_tail_schema_encoding(&tail_addr)?
+                        .get_col( &tail_addr, MetaPage::SCHEMA_ENCODING_COL, WhichRange::Tail)?
                         .unwrap_or(0); // None = deletion tail, no columns updated
-
+                    
                     //Case where latest update if found
                     if (tail_schema >> col) & 1 == 1 {
                         // Newest tail that updates this column
@@ -158,7 +160,8 @@ impl Table {
                     if relative_version > 0 {
                         return self.page_ranges.read_tail_single(col, &tail_addr);
                     }
-                    let next_rid = self.page_ranges.get_tail_indirection(&tail_addr)?;
+                    
+                    let next_rid = self.page_ranges.get_col(&tail_addr, MetaPage::INDIRECTION_COL, WhichRange::Tail)?;
                     match next_rid {
                         Some(next) if next == rid => break,
                         Some(next) => current_tail_rid = next,
@@ -205,13 +208,13 @@ impl Table {
     /// Check if a base RID's latest tail has schema_encoding == None (deletion marker).
     pub fn is_deleted(&self, rid: i64) -> Result<bool, DbError> {
         let base_addr = self.page_directory.get(rid)?;
-        let indirection = self.page_ranges.get_indirection(&base_addr)?;
+        let indirection = self.page_ranges.get_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?;
         match indirection {
             None => Ok(false),
             Some(ind_rid) if ind_rid == rid => Ok(false),
             Some(tail_rid) => {
                 let tail_addr = self.page_directory.get(tail_rid)?;
-                let schema = self.page_ranges.get_tail_schema_encoding(&tail_addr)?;
+                let schema = self.page_ranges.get_col( &tail_addr, MetaPage::SCHEMA_ENCODING_COL, WhichRange::Tail)?;
                 Ok(schema.is_none())
             }
         }
