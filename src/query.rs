@@ -205,6 +205,11 @@ impl Query {
     }
 
     pub fn increment(&mut self, key: i64, col: usize) -> Result<bool, DbError> {
+        // Reject primary key or metadata column increments
+        if col == self.table.key_index || col >= self.table.num_columns {
+            return Ok(false);
+        }
+
         let rid = self.table.indices[self.table.key_index]
             .locate(key)
             .ok_or(DbError::KeyNotFound(key))?;
