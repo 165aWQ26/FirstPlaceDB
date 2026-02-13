@@ -3,10 +3,10 @@ use crate::table::Table;
 
 #[repr(usize)]
 pub enum MetaPage {
-    RID_COL = 0,
-    INDIRECTION_COL = 1,
-    SCHEMA_ENCODING_COL = 2,
-    START_TIME_COL = 3,
+    RidCol = 0,
+    IndirectionCol = 1,
+    SchemaEncodingCol = 2,
+    StartTimeCol = 3,
 }
 
 
@@ -41,13 +41,13 @@ impl PageCollection {
         col : MetaPage
     ) -> Result<(), PageError> {
         match col {
-            MetaPage::INDIRECTION_COL =>  {
-                let actualCol = self.pages.len() - Table::NUM_META_PAGES + col as usize;
-                self.pages[actualCol].update(offset, val)
+            MetaPage::IndirectionCol =>  {
+                let actual_col = self.pages.len() - Table::NUM_META_PAGES + col as usize;
+                self.pages[actual_col].update(offset, val)
             },
-            MetaPage::SCHEMA_ENCODING_COL => panic!("Cannot update schema encoding"),
-            MetaPage::START_TIME_COL => panic!("Cannot update start time"),
-            MetaPage::RID_COL => panic!("Cannot update RID"),
+            MetaPage::SchemaEncodingCol => panic!("Cannot update schema encoding"),
+            MetaPage::StartTimeCol => panic!("Cannot update start time"),
+            MetaPage::RidCol => panic!("Cannot update RID"),
         }
     }
 
@@ -59,7 +59,7 @@ impl PageCollection {
     }
 
     #[inline]
-    pub fn read_meta_col(&self, offset: usize, colType: MetaPage) -> Result<Option<i64>, PageError> {
-        self.meta_record(colType).read(offset)
+    pub fn read_meta_col(&self, offset: usize, col_type: MetaPage) -> Result<Option<i64>, PageError> {
+        self.meta_record(col_type).read(offset)
     }
 }

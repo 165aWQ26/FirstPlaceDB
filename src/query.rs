@@ -81,7 +81,7 @@ impl Query {
         let current_indirection = self
             .table
             .page_ranges
-            .read_meta_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?
+            .read_meta_col(&base_addr, MetaPage::IndirectionCol, WhichRange::Base)?
             .ok_or(DbError::NullValue(404))?;
 
 
@@ -137,7 +137,7 @@ impl Query {
         let current_indirection = self
             .table
             .page_ranges
-            .read_meta_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?
+            .read_meta_col(&base_addr, MetaPage::IndirectionCol, WhichRange::Base)?
             .ok_or(DbError::NullValue(404))?;
 
         // Append deletion tail (schema_encoding = None marks deletion)
@@ -249,7 +249,7 @@ impl Query {
 //             } else if self.table.page_ranges.get_indirection(addr)
 
 //         let mut schema_encoding: i64 =
-//             self.table.read_single(rid, record.len() + INDIRECTION_COL).unwrap_or(0);
+//             self.table.read_single(rid, record.len() + IndirectionCol).unwrap_or(0);
 
 //         //Updating index for all value that have been changed
 //         for i in 0..record.len() {
@@ -268,10 +268,10 @@ impl Query {
 //                 .page_ranges
 //                 .append_tail(record, next_rid, indirection, schema_encoding);
 //         self.table.page_directory.add(next_rid, address);
-//         let indirection_col = self.table.num_columns + INDIRECTION_COL;
+//         let indirection_col = self.table.num_columns + IndirectionCol;
 //         self.table
 //             .page_ranges
-//             .write_single_meta_col(indirection_col, &base_addr, Some(next_rid));
+//             .write_meta_col(indirection_col, &base_addr, Some(next_rid));
 //         return true;
 //     };
 //     //let key: Option<i64> = record[self.table.key_index];

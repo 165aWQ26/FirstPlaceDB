@@ -1,4 +1,3 @@
-use std::fs::Metadata;
 use crate::error::DbError;
 use crate::page::{Page, PageError};
 use crate::page_collection::{MetaPage, PageCollection};
@@ -72,7 +71,7 @@ impl PageRange {
     }
 
     #[inline]
-    pub fn write_single_meta_col(
+    pub fn write_meta_col(
         &mut self,
         addr: &PhysicalAddress,
         val: Option<i64>,
@@ -81,8 +80,8 @@ impl PageRange {
         self.range[addr.collection_num].update_meta_col(addr.offset, val, col)
     }
 
-    pub fn read_meta_col(&self, addr: &PhysicalAddress, colType : MetaPage) -> Result<Option<i64>, PageError>{
-        Ok(self.range[addr.collection_num].read_meta_col(addr.offset, colType)?)
+    pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage) -> Result<Option<i64>, PageError>{
+        Ok(self.range[addr.collection_num].read_meta_col(addr.offset, col_type)?)
     }
 
     fn read_projected(
@@ -155,8 +154,12 @@ impl PageRanges {
         &self,
         column: usize,
         addr: &PhysicalAddress,
+        range: WhichRange
     ) -> Result<Option<i64>, DbError> {
-        self.base.read_single(column, addr)
+        match range {
+            WhichRange::Base => self.base.read_single(column, addr),
+            WhichRange::Tail => self.tail.read_single(column, addr),
+        }
     }
 
     #[inline]
@@ -176,7 +179,7 @@ impl PageRanges {
     //     addr: &PhysicalAddress,
     //     val: Option<i64>,
     // ) -> Result<(), PageError> {
-    //     self.base.write_single_meta_col(col, addr, val)
+    //     self.base.write_meta_col(col, addr, val)
     // }
 
     #[inline]
@@ -187,8 +190,8 @@ impl PageRanges {
         range: WhichRange
     ) -> Result<(), PageError> {
         match range {
-            WhichRange::Base => self.base.write_single_meta_col(addr, val, MetaPage::INDIRECTION_COL),
-            WhichRange::Tail => self.tail.write_single_meta_col(addr, val, MetaPage::INDIRECTION_COL),
+            WhichRange::Base => self.base.write_meta_col(addr, val, MetaPage::IndirectionCol),
+            WhichRange::Tail => self.tail.write_meta_col(addr, val, MetaPage::IndirectionCol),
         }
     }
 
@@ -207,10 +210,10 @@ impl PageRanges {
         self.base.read_projected(projected, addr)
     }
 
-    pub fn read_meta_col(&self, addr: &PhysicalAddress, colType : MetaPage, range: WhichRange) -> Result<Option<i64>, PageError>{
+    pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage, range: WhichRange) -> Result<Option<i64>, PageError>{
         match range {
-            WhichRange::Base => self.base.read_meta_col(addr, colType),
-            WhichRange::Tail => self.tail.read_meta_col(addr, colType),
+            WhichRange::Base => self.base.read_meta_col(addr, col_type),
+            WhichRange::Tail => self.tail.read_meta_col(addr, col_type),
         }
     }
 }
