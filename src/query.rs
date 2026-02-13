@@ -1,5 +1,5 @@
 use crate::error::DbError;
-use crate::page_collection::{MetaPage, INDIRECTION_COL};
+use crate::page_collection::{MetaPage};
 use crate::page_range::WhichRange;
 use crate::table::Table;
 
@@ -71,65 +71,9 @@ impl Query {
                 .read_version_projected(projected_columns_index, rid,relative_version)?,
         ])
     }
-//
 
-    // TODO m3
-    // if let Some(indirection_pointer) = self.table.read_single(rid, record.len() + 2) {
-    //             // set to previous tail page
-    //         } else if let Some(indirection_pointer) = self.table.read_single(rid, record.len() + 1) {
-    //             // first update --> set to base page
-    //         } else {
-    //         }
-    //         // TODO: UPDATE INDIRECTION COLUMN
-    //     }
-
-    // pub fn update(&mut self, key: i64, record: Vec<Option<i64>>) -> bool {
-
-    //     if let Some(rids) = self.table.indices[self.table.key_index].locate(key) {
-    //         let rid = rids[0];
-    //         let base_addr = self.table.page_directory.get(rid);
-    //         if let indirection = self
-    //             .table
-    //             .page_ranges
-    //             .get_indirection(&base_addr)
-    //             .unwrap() {
-
-    //             } else if self.table.page_ranges.get_indirection(addr)
-
-    //         let mut schema_encoding: i64 =
-    //             self.table.read_single(rid, record.len() + INDIRECTION_COL).unwrap_or(0);
-
-    //         //Updating index for all value that have been changed
-    //         for i in 0..record.len() {
-    //             if record[i].is_some() {
-    //                 self.table.indices[i].remove(self.table.read_single(rid, i).unwrap(), rid);
-    //                 //Updates schema encoding
-    //                 self.table.indices[i].insert(record[i].unwrap(), rid);
-    //                 schema_encoding |= 1 << i;
-    //             }
-    //         }
-    //         //Appending rid, schema, then the indirection pointer to the end of
-    //         //  it
-    //         let next_rid = self.table.rid.next().unwrap();
-    //         let address =
-    //             self.table
-    //                 .page_ranges
-    //                 .append_tail(record, next_rid, indirection, schema_encoding);
-    //         self.table.page_directory.add(next_rid, address);
-    //         let indirection_col = self.table.num_columns + INDIRECTION_COL;
-    //         self.table
-    //             .page_ranges
-    //             .write_single(indirection_col, &base_addr, Some(next_rid));
-    //         return true;
-    //     };
-    //     //let key: Option<i64> = record[self.table.key_index];
-    //     false
-    // }
     pub fn update(&mut self, key: i64, record: Vec<Option<i64>>) -> Result<bool, DbError> {
-        let rid = match self.table.indices[self.table.key_index].locate(key) {
-            Some(rid) => rid,
-            None => return Ok(false),
-        };
+        let rid = self.table.rid_for_key(key)?;
 
         let base_addr = self.table.page_directory.get(rid)?;
 
@@ -137,8 +81,8 @@ impl Query {
         let current_indirection = self
             .table
             .page_ranges
-            .get_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?
-            .unwrap_or(rid);
+            .read_meta_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?
+            .ok_or(DbError::NullValue(404))?;
 
 
         // Build schema encoding for this tail record
@@ -160,45 +104,30 @@ impl Query {
             }
             self.table.indices[0].insert(key.ok_or(DbError::NullValue(0))?, rid);
         }
-        ////
 
-        // let current_values = self.table.read_latest(rid)?;
-        // for (i, val) in record.iter().enumerate() {
-        //     if val.is_some() {
-        //         if let Some(old_val) = current_values[i] {
-        //             self.table.indices[i].remove(old_val, rid);
-        //         }
-        //         self.table.indices[i].insert(val.ok_or(DbError::NullValue(i))?, rid);
-        //     }
-        // }
 
-        let next_rid = self.table.rid.next().unwrap();
+        let next_rid = self.table.rid.next();
 
         // Append tail record
         let address = self.table.page_ranges.append_tail(
             record,
-            next_rid,
+            next_rid.unwrap(),
             current_indirection,
             Some(schema_encoding),
         )?;
 
-        self.table.page_directory.add(next_rid, address);
+        self.table.page_directory.add(next_rid.unwrap(), address);
 
         // Update base indirection
-        //Todo: This math should not be done here
-        let indirection_col = self.table.num_columns + INDIRECTION_COL;
         self.table
             .page_ranges
-            .write_single(indirection_col, &base_addr, Some(next_rid))?;
+            .write_indirection(&base_addr, next_rid, WhichRange::Base)?;
 
         Ok(true)
     }
 
     pub fn delete(&mut self, key: i64) -> Result<bool, DbError> {
-        let rid = match self.table.indices[self.table.key_index].locate(key) {
-            Some(rid) => rid,
-            None => return Err(DbError::KeyNotFound(key)),
-        };
+        let rid = self.table.rid_for_key(key)?;
 
         // Only remove from primary key index; secondary indices are filtered lazily
         self.table.indices[self.table.key_index].remove(key, rid);
@@ -208,8 +137,8 @@ impl Query {
         let current_indirection = self
             .table
             .page_ranges
-            .get_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?
-            .unwrap_or(rid);
+            .read_meta_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?
+            .ok_or(DbError::NullValue(404))?;
 
         // Append deletion tail (schema_encoding = None marks deletion)
         let next_rid = self.table.rid.next().unwrap();
@@ -222,11 +151,9 @@ impl Query {
         self.table.page_directory.add(next_rid, address);
 
         // Update base indirection to point to deletion tail
-        //Todo: see above
-        let indirection_col = self.table.num_columns + INDIRECTION_COL;
         self.table
             .page_ranges
-            .write_single(indirection_col, &base_addr, Some(next_rid))?;
+            .write_indirection(&base_addr, Some(next_rid), WhichRange::Base)?;
 
         Ok(true)
     }
@@ -294,3 +221,72 @@ impl Query {
         self.update(key, record)
     }
 }
+
+
+//
+
+// TODO m3
+// if let Some(indirection_pointer) = self.table.read_single(rid, record.len() + 2) {
+//             // set to previous tail page
+//         } else if let Some(indirection_pointer) = self.table.read_single(rid, record.len() + 1) {
+//             // first update --> set to base page
+//         } else {
+//         }
+//         // TODO: UPDATE INDIRECTION COLUMN
+//     }
+
+// pub fn update(&mut self, key: i64, record: Vec<Option<i64>>) -> bool {
+
+//     if let Some(rids) = self.table.indices[self.table.key_index].locate(key) {
+//         let rid = rids[0];
+//         let base_addr = self.table.page_directory.get(rid);
+//         if let indirection = self
+//             .table
+//             .page_ranges
+//             .get_indirection(&base_addr)
+//             .unwrap() {
+
+//             } else if self.table.page_ranges.get_indirection(addr)
+
+//         let mut schema_encoding: i64 =
+//             self.table.read_single(rid, record.len() + INDIRECTION_COL).unwrap_or(0);
+
+//         //Updating index for all value that have been changed
+//         for i in 0..record.len() {
+//             if record[i].is_some() {
+//                 self.table.indices[i].remove(self.table.read_single(rid, i).unwrap(), rid);
+//                 //Updates schema encoding
+//                 self.table.indices[i].insert(record[i].unwrap(), rid);
+//                 schema_encoding |= 1 << i;
+//             }
+//         }
+//         //Appending rid, schema, then the indirection pointer to the end of
+//         //  it
+//         let next_rid = self.table.rid.next().unwrap();
+//         let address =
+//             self.table
+//                 .page_ranges
+//                 .append_tail(record, next_rid, indirection, schema_encoding);
+//         self.table.page_directory.add(next_rid, address);
+//         let indirection_col = self.table.num_columns + INDIRECTION_COL;
+//         self.table
+//             .page_ranges
+//             .write_single_meta_col(indirection_col, &base_addr, Some(next_rid));
+//         return true;
+//     };
+//     //let key: Option<i64> = record[self.table.key_index];
+//     false
+// }
+
+
+//WAS IN UPDATE:         ////
+//
+//         // let current_values = self.table.read_latest(rid)?;
+//         // for (i, val) in record.iter().enumerate() {
+//         //     if val.is_some() {
+//         //         if let Some(old_val) = current_values[i] {
+//         //             self.table.indices[i].remove(old_val, rid);
+//         //         }
+//         //         self.table.indices[i].insert(val.ok_or(DbError::NullValue(i))?, rid);
+//         //     }
+//         // }

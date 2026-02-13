@@ -18,6 +18,7 @@ pub struct Table {
     pub key_index: usize,
 
     pub indices: Vec<Index>,
+
 }
 
 impl Table {
@@ -50,6 +51,13 @@ impl Table {
         let addr = self.page_directory.get(rid)?;
         self.page_ranges.read_single(column, &addr)
     }
+    
+    //Use index to find the rid 
+    pub fn rid_for_key(&self, key: i64) -> Result<i64, DbError> {
+        self.indices[self.key_index]
+            .locate(key)
+            .ok_or(DbError::KeyNotFound(key))
+    }
 
     pub fn read_projected(&self, projected: &[i64], rid: i64) -> Result<Vec<Option<i64>>, DbError> {
         let addr = self.page_directory.get(rid)?;
@@ -59,7 +67,7 @@ impl Table {
     pub fn read_latest(&self, rid: i64) -> Result<Vec<Option<i64>>, DbError> {
         let base_addr = self.page_directory.get(rid)?;
         let mut result = self.read(rid)?;
-        let indirection = self.page_ranges.get_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?;
+        let indirection = self.page_ranges.read_meta_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?;
 
         // If indirection is None, no updates
         match indirection {
@@ -72,7 +80,7 @@ impl Table {
                     let tail_addr = self.page_directory.get(current_tail_rid)?;
                     let tail_schema = self
                         .page_ranges
-                        .get_col(&tail_addr, MetaPage::SCHEMA_ENCODING_COL, WhichRange::Tail)?
+                        .read_meta_col(&tail_addr, MetaPage::SCHEMA_ENCODING_COL, WhichRange::Tail)?
                         .unwrap_or(0); // None = deletion tail, no columns updated
 
                     // Columns updated in this tail but not yet seen in newer tail
@@ -87,7 +95,7 @@ impl Table {
                     accumulated_schema |= tail_schema;
 
                     // Follow indirection to next (older tail record)
-                    let next_rid = self.page_ranges.get_col(&tail_addr, MetaPage::INDIRECTION_COL, WhichRange::Tail)?;
+                    let next_rid = self.page_ranges.read_meta_col(&tail_addr, MetaPage::INDIRECTION_COL, WhichRange::Tail)?;
                     match next_rid {
                         Some(next) if next == rid => break,
                         Some(next) => current_tail_rid = next,
@@ -101,7 +109,7 @@ impl Table {
 
     pub fn read_latest_single(&self, rid: i64, col: usize) -> Result<Option<i64>, DbError> {
         let base_addr = self.page_directory.get(rid)?;
-        let indirection = self.page_ranges.get_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?;
+        let indirection = self.page_ranges.read_meta_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?;
 
         match indirection {
             Some(ind_rid) if ind_rid == rid => self.page_ranges.read_single(col, &base_addr),
@@ -112,7 +120,7 @@ impl Table {
                     let tail_addr = self.page_directory.get(current_tail_rid)?;
                     let tail_schema = self
                         .page_ranges
-                        .get_col(&tail_addr, MetaPage::SCHEMA_ENCODING_COL, WhichRange::Tail)?
+                        .read_meta_col(&tail_addr, MetaPage::SCHEMA_ENCODING_COL, WhichRange::Tail)?
                         .unwrap_or(0); // None = deletion tail, no columns updated
 
                     //Case where latest update if found
@@ -121,7 +129,7 @@ impl Table {
                         return self.page_ranges.read_tail_single(col, &tail_addr);
                     }
 
-                    let next_rid = self.page_ranges.get_col(&tail_addr, MetaPage::INDIRECTION_COL, WhichRange::Tail)?;
+                    let next_rid = self.page_ranges.read_meta_col(&tail_addr, MetaPage::INDIRECTION_COL, WhichRange::Tail)?;
                     match next_rid {
                         Some(next) if next == rid => break,
                         Some(next) => current_tail_rid = next,
@@ -136,10 +144,9 @@ impl Table {
 
     
     pub fn read_version_single(&self, rid: i64, col: usize, mut relative_version: i64) -> Result<Option<i64>, DbError> {
-        //Case where the base poin
-        
+
         let base_addr = self.page_directory.get(rid)?;
-        let indirection = self.page_ranges.get_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?;
+        let indirection = self.page_ranges.read_meta_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?;
         match indirection {
             Some(ind_rid) if ind_rid == rid => self.page_ranges.read_single(col, &base_addr),
             None => self.page_ranges.read_single(col, &base_addr),
@@ -149,9 +156,9 @@ impl Table {
                     let tail_addr = self.page_directory.get(current_tail_rid)?;
                     let tail_schema = self
                         .page_ranges
-                        .get_col( &tail_addr, MetaPage::SCHEMA_ENCODING_COL, WhichRange::Tail)?
+                        .read_meta_col(&tail_addr, MetaPage::SCHEMA_ENCODING_COL, WhichRange::Tail)?
                         .unwrap_or(0); // None = deletion tail, no columns updated
-                    
+
                     //Case where latest update if found
                     if (tail_schema >> col) & 1 == 1 {
                         // Newest tail that updates this column
@@ -160,8 +167,8 @@ impl Table {
                     if relative_version > 0 {
                         return self.page_ranges.read_tail_single(col, &tail_addr);
                     }
-                    
-                    let next_rid = self.page_ranges.get_col(&tail_addr, MetaPage::INDIRECTION_COL, WhichRange::Tail)?;
+
+                    let next_rid = self.page_ranges.read_meta_col(&tail_addr, MetaPage::INDIRECTION_COL, WhichRange::Tail)?;
                     match next_rid {
                         Some(next) if next == rid => break,
                         Some(next) => current_tail_rid = next,
@@ -208,13 +215,13 @@ impl Table {
     /// Check if a base RID's latest tail has schema_encoding == None (deletion marker).
     pub fn is_deleted(&self, rid: i64) -> Result<bool, DbError> {
         let base_addr = self.page_directory.get(rid)?;
-        let indirection = self.page_ranges.get_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?;
+        let indirection = self.page_ranges.read_meta_col(&base_addr, MetaPage::INDIRECTION_COL, WhichRange::Base)?;
         match indirection {
             None => Ok(false),
             Some(ind_rid) if ind_rid == rid => Ok(false),
             Some(tail_rid) => {
                 let tail_addr = self.page_directory.get(tail_rid)?;
-                let schema = self.page_ranges.get_col( &tail_addr, MetaPage::SCHEMA_ENCODING_COL, WhichRange::Tail)?;
+                let schema = self.page_ranges.read_meta_col(&tail_addr, MetaPage::SCHEMA_ENCODING_COL, WhichRange::Tail)?;
                 Ok(schema.is_none())
             }
         }

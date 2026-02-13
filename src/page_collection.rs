@@ -24,23 +24,31 @@ impl PageCollection {
     }
 
     #[inline]
-    pub fn write_column(&mut self, col: usize, val: Option<i64>) -> Result<(), PageError> {
+    pub fn write_col(&mut self, col: usize, val: Option<i64>) -> Result<(), PageError> {
         self.pages[col].write(val)
     }
 
     #[inline]
-    pub fn read_column(&self, col: usize, offset: usize) -> Result<Option<i64>, PageError> {
+    pub fn read_col(&self, col: usize, offset: usize) -> Result<Option<i64>, PageError> {
         self.pages[col].read(offset)
     }
 
     #[inline]
-    pub fn update_column(
+    pub fn update_meta_col(
         &mut self,
-        col: usize,
         offset: usize,
         val: Option<i64>,
+        col : MetaPage
     ) -> Result<(), PageError> {
-        self.pages[col].update(offset, val)
+        match col {
+            MetaPage::INDIRECTION_COL =>  {
+                let actualCol = self.pages.len() - Table::NUM_META_PAGES + col as usize;
+                self.pages[actualCol].update(offset, val)
+            },
+            MetaPage::SCHEMA_ENCODING_COL => panic!("Cannot update schema encoding"),
+            MetaPage::START_TIME_COL => panic!("Cannot update start time"),
+            MetaPage::RID_COL => panic!("Cannot update RID"),
+        }
     }
 
     // Returns a reference to the metadata page at the given column index
@@ -51,7 +59,7 @@ impl PageCollection {
     }
 
     #[inline]
-    pub fn get_meta_page_page_collection(&self, offset: usize, colType: MetaPage) -> Result<Option<i64>, PageError> {
+    pub fn read_meta_col(&self, offset: usize, colType: MetaPage) -> Result<Option<i64>, PageError> {
         self.meta_record(colType).read(offset)
     }
 }

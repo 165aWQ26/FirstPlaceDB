@@ -41,7 +41,7 @@ impl PageRange {
 
         let collection = &mut self.range[addr.collection_num];
         for (i, data) in all_data.iter().enumerate() {
-            collection.write_column(i, *data)?;
+            collection.write_col(i, *data)?;
         }
 
         Ok(addr) //return addr (from here add this addr to a page_dir)
@@ -68,21 +68,21 @@ impl PageRange {
     #[inline]
     fn read_single(&self, column: usize, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
         //given single column, return value in row x column
-        Ok(self.range[addr.collection_num].read_column(column, addr.offset)?)
+        Ok(self.range[addr.collection_num].read_col(column, addr.offset)?)
     }
 
     #[inline]
-    pub fn write_single(
+    pub fn write_single_meta_col(
         &mut self,
-        col: usize,
         addr: &PhysicalAddress,
         val: Option<i64>,
+        col: MetaPage,
     ) -> Result<(), PageError> {
-        self.range[addr.collection_num].update_column(col, addr.offset, val)
+        self.range[addr.collection_num].update_meta_col(addr.offset, val, col)
     }
 
-    pub fn get_meta_page_page_range(&self, addr: &PhysicalAddress, colType : MetaPage) -> Result<Option<i64>, PageError>{
-        Ok(self.range[addr.collection_num].get_meta_page_page_collection(addr.offset, colType)?)
+    pub fn read_meta_col(&self, addr: &PhysicalAddress, colType : MetaPage) -> Result<Option<i64>, PageError>{
+        Ok(self.range[addr.collection_num].read_meta_col(addr.offset, colType)?)
     }
 
     fn read_projected(
@@ -168,16 +168,31 @@ impl PageRanges {
         self.tail.read_single(column, addr)
     }
 
+    //
+    // #[inline]
+    // pub fn write_single(
+    //     &mut self,
+    //     col: usize,
+    //     addr: &PhysicalAddress,
+    //     val: Option<i64>,
+    // ) -> Result<(), PageError> {
+    //     self.base.write_single_meta_col(col, addr, val)
+    // }
+
     #[inline]
-    pub fn write_single(
+    pub fn write_indirection(
         &mut self,
-        col: usize,
         addr: &PhysicalAddress,
         val: Option<i64>,
+        range: WhichRange
     ) -> Result<(), PageError> {
-        self.base.write_single(col, addr, val)
+        match range {
+            WhichRange::Base => self.base.write_single_meta_col(addr, val, MetaPage::INDIRECTION_COL),
+            WhichRange::Tail => self.tail.write_single_meta_col(addr, val, MetaPage::INDIRECTION_COL),
+        }
     }
-
+    
+    
     #[inline]
     pub fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
         self.base.read(addr)
@@ -192,10 +207,10 @@ impl PageRanges {
         self.base.read_projected(projected, addr)
     }
 
-    pub fn get_col(&self, addr: &PhysicalAddress, colType : MetaPage, range: WhichRange) -> Result<Option<i64>, PageError>{
+    pub fn read_meta_col(&self, addr: &PhysicalAddress, colType : MetaPage, range: WhichRange) -> Result<Option<i64>, PageError>{
         match range {
-            WhichRange::Base => self.base.get_meta_page_page_range(addr, colType),
-            WhichRange::Tail => self.tail.get_meta_page_page_range(addr, colType),
+            WhichRange::Base => self.base.read_meta_col(addr, colType),
+            WhichRange::Tail => self.tail.read_meta_col(addr, colType),
         }
     }
 }
