@@ -106,22 +106,22 @@ impl Query {
         }
 
 
-        let next_rid = self.table.rid.next();
+        let next_rid = self.table.rid.next().unwrap();
 
         // Append tail record
         let address = self.table.page_ranges.append_tail(
             record,
-            next_rid.unwrap(),
+            next_rid,
             current_indirection,
             Some(schema_encoding),
         )?;
 
-        self.table.page_directory.add(next_rid.unwrap(), address);
+        self.table.page_directory.add(next_rid, address);
 
         // Update base indirection
         self.table
             .page_ranges
-            .write_indirection(&base_addr, next_rid, WhichRange::Base)?;
+            .write_indirection(&base_addr, Some(next_rid), WhichRange::Base)?;
 
         Ok(true)
     }

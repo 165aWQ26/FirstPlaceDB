@@ -191,8 +191,8 @@ impl PageRanges {
             WhichRange::Tail => self.tail.write_single_meta_col(addr, val, MetaPage::INDIRECTION_COL),
         }
     }
-    
-    
+
+
     #[inline]
     pub fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
         self.base.read(addr)
