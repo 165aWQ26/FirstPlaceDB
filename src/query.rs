@@ -56,11 +56,10 @@ impl Query {
         ])
     }
 
-    pub fn select_version(&self, key: i64, search_key_index:usize,
+    pub fn select_version(&self, key: i64, _search_key_index:usize,
             projected_columns_index: &[i64], relative_version:i64) -> Result<Vec<Vec<Option<i64>>>, DbError> {
-        let rid = self.table.indices[search_key_index]
-            .locate(key)
-            .ok_or(DbError::KeyNotFound(key))?;
+
+        let rid = self.table.rid_for_key(key)?;
 
         if self.table.is_deleted(rid)? {
             return Err(DbError::KeyNotFound(key));
@@ -73,7 +72,10 @@ impl Query {
     }
 
     pub fn update(&mut self, key: i64, record: Vec<Option<i64>>) -> Result<bool, DbError> {
-        let rid = self.table.rid_for_key(key)?;
+        let rid = match self.table.rid_for_key(key) {
+            Ok(rid) => rid,
+            _ => return Ok(false),
+        };
 
         let base_addr = self.table.page_directory.get(rid)?;
 
