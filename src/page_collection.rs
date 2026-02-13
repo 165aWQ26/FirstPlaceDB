@@ -1,10 +1,14 @@
 use crate::page::{Page, PageError};
 use crate::table::Table;
 
-pub const RID_COL: usize = 0;
-pub const INDIRECTION_COL: usize = 1;
-pub const SCHEMA_ENCODING_COL: usize = 2;
-pub const START_TIME_COL: usize = 3;
+#[repr(usize)]
+pub enum MetaPage {
+    RidCol = 0,
+    IndirectionCol = 1,
+    SchemaEncodingCol = 2,
+    StartTimeCol = 3,
+}
+
 
 //In general this structure will make a lot of assumptions about the data that is passed (not good for modularity but wtv).
 //For now we assume metadata is appended after data
@@ -20,49 +24,42 @@ impl PageCollection {
     }
 
     #[inline]
-    pub fn write_column(&mut self, col: usize, val: Option<i64>) -> Result<(), PageError> {
+    pub fn write_col(&mut self, col: usize, val: Option<i64>) -> Result<(), PageError> {
         self.pages[col].write(val)
     }
 
     #[inline]
-    pub fn read_column(&self, col: usize, offset: usize) -> Result<Option<i64>, PageError> {
+    pub fn read_col(&self, col: usize, offset: usize) -> Result<Option<i64>, PageError> {
         self.pages[col].read(offset)
     }
 
     #[inline]
-    pub fn update_column(
+    pub fn update_meta_col(
         &mut self,
-        col: usize,
         offset: usize,
         val: Option<i64>,
+        col : MetaPage
     ) -> Result<(), PageError> {
-        self.pages[col].update(offset, val)
+        match col {
+            MetaPage::IndirectionCol =>  {
+                let actual_col = self.pages.len() - Table::NUM_META_PAGES + col as usize;
+                self.pages[actual_col].update(offset, val)
+            },
+            MetaPage::SchemaEncodingCol => panic!("Cannot update schema encoding"),
+            MetaPage::StartTimeCol => panic!("Cannot update start time"),
+            MetaPage::RidCol => panic!("Cannot update RID"),
+        }
     }
 
     // Returns a reference to the metadata page at the given column index
     #[inline]
-    fn meta_page(&self, col: usize) -> &Page {
+    fn meta_record(&self, col: MetaPage) -> &Page {
         let meta_start = self.pages.len() - Table::NUM_META_PAGES;
-        &self.pages[meta_start + col]
+        &self.pages[meta_start + col as usize]
     }
 
     #[inline]
-    pub fn get_rid(&self, offset: usize) -> Result<Option<i64>, PageError> {
-        self.meta_page(RID_COL).read(offset)
-    }
-
-    #[inline]
-    pub fn get_indirection(&self, offset: usize) -> Result<Option<i64>, PageError> {
-        self.meta_page(INDIRECTION_COL).read(offset)
-    }
-
-    #[inline]
-    pub fn get_schema_encoding(&self, offset: usize) -> Result<Option<i64>, PageError> {
-        self.meta_page(SCHEMA_ENCODING_COL).read(offset)
-    }
-
-    #[inline]
-    pub fn get_start_time(&self, offset: usize) -> Result<Option<i64>, PageError> {
-        self.meta_page(START_TIME_COL).read(offset)
+    pub fn read_meta_col(&self, offset: usize, col_type: MetaPage) -> Result<Option<i64>, PageError> {
+        self.meta_record(col_type).read(offset)
     }
 }

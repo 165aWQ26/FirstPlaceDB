@@ -1,6 +1,6 @@
 use crate::error::DbError;
 use crate::page::{Page, PageError};
-use crate::page_collection::PageCollection;
+use crate::page_collection::{MetaPage, PageCollection};
 use crate::table::Table;
 
 pub struct PageRange {
@@ -40,7 +40,7 @@ impl PageRange {
 
         let collection = &mut self.range[addr.collection_num];
         for (i, data) in all_data.iter().enumerate() {
-            collection.write_column(i, *data)?;
+            collection.write_col(i, *data)?;
         }
 
         Ok(addr) //return addr (from here add this addr to a page_dir)
@@ -67,37 +67,21 @@ impl PageRange {
     #[inline]
     fn read_single(&self, column: usize, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
         //given single column, return value in row x column
-        Ok(self.range[addr.collection_num].read_column(column, addr.offset)?)
+        Ok(self.range[addr.collection_num].read_col(column, addr.offset)?)
     }
 
     #[inline]
-    pub fn write_single(
+    pub fn write_meta_col(
         &mut self,
-        col: usize,
         addr: &PhysicalAddress,
         val: Option<i64>,
+        col: MetaPage,
     ) -> Result<(), PageError> {
-        self.range[addr.collection_num].update_column(col, addr.offset, val)
+        self.range[addr.collection_num].update_meta_col(addr.offset, val, col)
     }
 
-    #[inline]
-    pub fn get_rid(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
-        Ok(self.range[addr.collection_num].get_rid(addr.offset)?)
-    }
-
-    #[inline]
-    pub fn get_indirection(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
-        Ok(self.range[addr.collection_num].get_indirection(addr.offset)?)
-    }
-
-    #[inline]
-    pub fn get_schema_encoding(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
-        Ok(self.range[addr.collection_num].get_schema_encoding(addr.offset)?)
-    }
-
-    #[inline]
-    pub fn get_start_time(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
-        Ok(self.range[addr.collection_num].get_start_time(addr.offset)?)
+    pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage) -> Result<Option<i64>, PageError>{
+        Ok(self.range[addr.collection_num].read_meta_col(addr.offset, col_type)?)
     }
 
     fn read_projected(
@@ -119,9 +103,14 @@ impl PageRange {
     }
 }
 
+pub enum WhichRange {
+    Base,
+    Tail,
+}
+
 pub struct PageRanges {
-    pub tail: PageRange,
-    pub base: PageRange,
+    tail: PageRange,
+    base: PageRange,
 }
 
 impl PageRanges {
@@ -145,29 +134,6 @@ impl PageRanges {
         self.base.append(data_cols)
     }
 
-    pub fn read_tail(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
-        self.tail.read(addr)
-    }
-
-    #[inline]
-    pub fn read_tail_single(
-        &self,
-        col: usize,
-        addr: &PhysicalAddress,
-    ) -> Result<Option<i64>, DbError> {
-        self.tail.read_single(col, addr)
-    }
-
-    #[inline]
-    pub fn get_tail_indirection(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
-        self.tail.get_indirection(addr)
-    }
-
-    #[inline]
-    pub fn get_tail_schema_encoding(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
-        self.tail.get_schema_encoding(addr)
-    }
-
     // For updates: caller provides indirection (previous version) and schema_encoding (which cols updated)
     pub fn append_tail(
         &mut self,
@@ -188,19 +154,47 @@ impl PageRanges {
         &self,
         column: usize,
         addr: &PhysicalAddress,
+        range: WhichRange
     ) -> Result<Option<i64>, DbError> {
-        self.base.read_single(column, addr)
+        match range {
+            WhichRange::Base => self.base.read_single(column, addr),
+            WhichRange::Tail => self.tail.read_single(column, addr),
+        }
     }
 
     #[inline]
-    pub fn write_single(
+    pub fn read_tail_single(
+        &self,
+        column: usize,
+        addr: &PhysicalAddress,
+    ) -> Result<Option<i64>, DbError> {
+        self.tail.read_single(column, addr)
+    }
+
+    //
+    // #[inline]
+    // pub fn write_single(
+    //     &mut self,
+    //     col: usize,
+    //     addr: &PhysicalAddress,
+    //     val: Option<i64>,
+    // ) -> Result<(), PageError> {
+    //     self.base.write_meta_col(col, addr, val)
+    // }
+
+    #[inline]
+    pub fn write_indirection(
         &mut self,
-        col: usize,
         addr: &PhysicalAddress,
         val: Option<i64>,
+        range: WhichRange
     ) -> Result<(), PageError> {
-        self.base.write_single(col, addr, val)
+        match range {
+            WhichRange::Base => self.base.write_meta_col(addr, val, MetaPage::IndirectionCol),
+            WhichRange::Tail => self.tail.write_meta_col(addr, val, MetaPage::IndirectionCol),
+        }
     }
+
 
     #[inline]
     pub fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
@@ -216,24 +210,11 @@ impl PageRanges {
         self.base.read_projected(projected, addr)
     }
 
-    #[inline]
-    pub fn get_rid(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
-        self.base.get_rid(addr)
-    }
-
-    #[inline]
-    pub fn get_indirection(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
-        self.base.get_indirection(addr)
-    }
-
-    #[inline]
-    pub fn get_schema_encoding(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
-        self.base.get_schema_encoding(addr)
-    }
-
-    #[inline]
-    pub fn get_start_time(&self, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
-        self.base.get_start_time(addr)
+    pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage, range: WhichRange) -> Result<Option<i64>, PageError>{
+        match range {
+            WhichRange::Base => self.base.read_meta_col(addr, col_type),
+            WhichRange::Tail => self.tail.read_meta_col(addr, col_type),
+        }
     }
 }
 
