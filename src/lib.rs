@@ -4,7 +4,7 @@ pub mod db;
 pub mod error;
 pub mod index;
 mod page;
-mod page_collection;
+mod bufferpool;
 mod page_directory;
 mod page_range;
 pub mod query;

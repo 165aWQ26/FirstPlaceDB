@@ -1,13 +1,15 @@
+use core::num;
+
+use crate::bufferpool::{BufferPool, MetaPage};
 use crate::error::DbError;
 use crate::index::Index;
-use crate::page_collection::MetaPage;
 use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
 
-pub struct Table {
+pub struct Table<'a>{
     pub name: String,
 
-    pub page_ranges: PageRanges,
+    pub page_ranges: PageRanges <'a>,
 
     pub page_directory: PageDirectory,
 
@@ -21,7 +23,7 @@ pub struct Table {
 
 }
 
-impl Table {
+impl <'a> Table <'a>{
     pub const PROJECTED_NUM_RECORDS: usize = 10001;
     pub const NUM_META_PAGES: usize = 4;
     //data_pages_per_collection is the total number of pages in a PageDirectory
@@ -29,10 +31,15 @@ impl Table {
         table_name: String,
         num_columns: usize,
         key_index: usize,
-    ) -> Table {
-        Self {
+        bufferpool: & 'a BufferPool
+    ) -> Table <'a>{
+        Self{
+            //
             name: table_name,
-            page_ranges: PageRanges::new(num_columns),
+            //remove number of columns
+
+            //bufferpool: BufferPool::new(),
+            page_ranges: PageRanges::new(num_columns, bufferpool),
             page_directory: PageDirectory::default(),
             rid: 0..,
             key_index,
@@ -144,7 +151,6 @@ impl Table {
 
     
     pub fn read_version_single(&self, rid: i64, col: usize, mut relative_version: i64) -> Result<Option<i64>, DbError> {
-
         let base_addr = self.page_directory.get(rid)?;
         let indirection = self.page_ranges.read_meta_col(&base_addr, MetaPage::IndirectionCol, WhichRange::Base)?;
         if let Some(tail_rid) = indirection && tail_rid != rid {

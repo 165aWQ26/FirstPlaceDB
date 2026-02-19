@@ -1,5 +1,4 @@
 use crate::error::DbError;
-use crate::page_collection::{MetaPage};
 use crate::page_range::WhichRange;
 use crate::table::Table;
 
@@ -42,14 +41,17 @@ impl Query {
         search_key_index: usize,
         projected_columns_index: &[i64],
     ) -> Result<Vec<Vec<Option<i64>>>, DbError> {
+
+
         let rid = self.table.indices[search_key_index]
             .locate(key)
             .ok_or(DbError::KeyNotFound(key))?;
 
+        
+        //for rid in Rids
         if self.table.is_deleted(rid)? {
             return Err(DbError::KeyNotFound(key));
         }
-
         Ok(vec![
             self.table
                 .read_latest_projected(projected_columns_index, rid)?,
@@ -99,12 +101,16 @@ impl Query {
 
         //// DELETE THIS WHEN MOVING ONTO MILESTONE 2:
         let current_values = self.table.read_latest(rid)?;
-        let key = record[self.table.key_index];
-        if key.is_some() {
-            if current_values[0].is_some() {
-                self.table.indices[0].remove(current_values[0].unwrap(), rid);
+        for index in 0..self.table.num_columns{
+            if record[index].is_some() {
+                let key = record[index];
+                if key.is_some() {
+                    if current_values[index].is_some() {
+                        self.table.indices[index].remove(current_values[index].unwrap(), rid);
+                    }
+                    self.table.indices[index].insert(key.ok_or(DbError::NullValue(0))?, rid);
+                }
             }
-            self.table.indices[0].insert(key.ok_or(DbError::NullValue(0))?, rid);
         }
 
 
