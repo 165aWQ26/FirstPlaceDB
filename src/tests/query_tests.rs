@@ -369,3 +369,23 @@ fn test_secondaries_version_update_old() {
     let result = q.select_version(6, 1, &mask, -1).unwrap();
     assert_eq!(result, vec![vec![Some(10), Some(6), Some(3)]]);
 }
+
+// This is how I implemented deletion with select_version.
+// We'll know if its correct thinking when extended testcases come on.
+// Based on our discussion TA saying we should return error when
+// -- using selection version on delected records; could also return None but this is what he'd say
+#[test]
+fn test_secondaries_version_error() {
+    let mut q = setup(3, 2);
+    q.insert(vec![Some(10), Some(6), Some(3)]).unwrap();
+    q.insert(vec![Some(3), Some(8), Some(7)]).unwrap();
+    q.insert(vec![Some(2), Some(6), Some(8)]).unwrap();
+
+    q.delete(3).unwrap();
+    q.delete(7).unwrap();
+    q.delete(8).unwrap();
+
+    let mask: [i64; 3] = [1, 1, 1];
+    let result = q.select_version(6, 1, &mask, -1);
+    assert_eq!(result, Err(DbError::KeyNotFound(6)));
+}
