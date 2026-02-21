@@ -50,7 +50,7 @@ impl PageRange{
 
         
 
-        self.lazy_create_page_collection(addr.collection_num);
+        // self.lazy_create_page_collection(addr.collection_num);
 
         // let collection = &mut self.range[addr.collection_num];
         // for (i, data) in all_data.iter().enumerate() {
@@ -63,12 +63,12 @@ impl PageRange{
 
     // Will be maintained in the bufferpool rather than pagerange
     // iterators make this so cleannnnn
-    fn lazy_create_page_collection(&mut self, page: usize) {
-        while self.range.len() <= page {
-            self.range
-                .push(PageCollection::new(self.pages_per_collection));
-        }
-    }
+    // fn lazy_create_page_collection(&mut self, page: usize) {
+    //     while self.range.len() <= page {
+    //         self.range
+    //             .push(PageCollection::new(self.pages_per_collection));
+    //     }
+    // }
 
     fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
         // given an array (project_columns) of 0's and 1's, return all requested columns (1's), ignore non-required(0's)
