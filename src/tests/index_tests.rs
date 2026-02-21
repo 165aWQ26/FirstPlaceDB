@@ -4,7 +4,7 @@ use crate::index::Index;
 fn insert_one() {
     let mut my_index = Index::new();
     my_index.insert(5, 1);
-    assert_eq!(my_index.locate(5), Some(1));
+    assert_eq!(my_index.locate(5), Some(vec![1].as_ref()));
 }
 
 #[test]
@@ -12,8 +12,8 @@ fn insert_two() {
     let mut my_index = Index::new();
     my_index.insert(5, 1);
     my_index.insert(4, 2);
-    assert_eq!(my_index.locate(5), Some(1));
-    assert_eq!(my_index.locate(4), Some(2));
+    assert_eq!(my_index.locate(5), Some(vec![1].as_ref()));
+    assert_eq!(my_index.locate(4), Some(vec![2].as_ref()));
 }
 
 #[test]
@@ -22,7 +22,7 @@ fn insert_overwrites() {
     my_index.insert(5, 1);
     my_index.insert(5, 2);
     // BTreeMap overwrites: last insert wins
-    assert_eq!(my_index.locate(5), Some(2));
+    assert_eq!(my_index.locate(5), Some(vec![2].as_ref()));
 }
 
 #[test]
@@ -68,5 +68,5 @@ fn insert_unique_prevents_duplicates() {
     let mut my_index = Index::new();
     assert!(my_index.insert_unique(5, 1));
     assert!(!my_index.insert_unique(5, 2));
-    assert_eq!(my_index.locate(5), Some(1));
+    assert_eq!(my_index.locate(5), Some(vec![1].as_ref()));
 }

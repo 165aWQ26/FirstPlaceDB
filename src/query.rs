@@ -21,6 +21,7 @@ impl Query {
     // for (i, val) in record.iter().enumerate() {
     //     self.table.indices[i].insert(val.unwrap(), rid);
     // }
+
     pub fn insert(&mut self, record: Vec<Option<i64>>) -> Result<bool, DbError> {
         let rid = self.table.rid.next().unwrap();
         let key = record[self.table.key_index].ok_or(DbError::NullValue(self.table.key_index))?;
@@ -42,37 +43,43 @@ impl Query {
         search_key_index: usize,
         projected_columns_index: &[i64],
     ) -> Result<Vec<Vec<Option<i64>>>, DbError> {
-        let rid = self.table.indices[search_key_index]
-            .locate(key)
-            .ok_or(DbError::KeyNotFound(key))?;
-
-        if self.table.is_deleted(rid)? {
-            return Err(DbError::KeyNotFound(key));
+        let rids = self.table.rids_for_key(key, search_key_index);
+        let mut result = vec![];
+        
+        for rid in rids {
+            // TODO: What behavior should happen when user tries selecting deleted RID?
+            // for m1, we returned an error when trying to select 
+            // oh we could never have dup primary.
+            // wait wtf? why couldnt we insert a new primary key after old one was deleted?
+            // lets assume we cant bc that's weird -- selecting now will ignore deleted records
+            if !self.table.is_deleted(*rid)? {
+                result
+                    .push(self.table
+                        .read_latest_projected(projected_columns_index, *rid)?);
+            }
         }
-
-        Ok(vec![
-            self.table
-                .read_latest_projected(projected_columns_index, rid)?,
-        ])
+        Ok(result)
     }
 
-    pub fn select_version(&self, key: i64, _search_key_index:usize,
+    pub fn select_version(&self, key: i64, search_key_index:usize,
             projected_columns_index: &[i64], relative_version:i64) -> Result<Vec<Vec<Option<i64>>>, DbError> {
 
-        let rid = self.table.rid_for_key(key)?;
+        let rids = self.table.rids_for_key(key, search_key_index);
+        let mut result = vec![];
 
-        if self.table.is_deleted(rid)? {
-            return Err(DbError::KeyNotFound(key));
+        for rid in rids {
+            if !self.table.is_deleted(*rid)? {
+                result
+                    .push(self.table
+                        .read_version_projected(projected_columns_index, *rid, relative_version)?);
+            }
         }
-
-        Ok(vec![
-            self.table
-                .read_version_projected(projected_columns_index, rid,relative_version)?,
-        ])
+        Ok(result)
     }
 
+    // unique key only
     pub fn update(&mut self, key: i64, record: Vec<Option<i64>>) -> Result<bool, DbError> {
-        let rid = match self.table.rid_for_key(key) {
+        let rid = match self.table.rid_for_unique_key(key) {
             Ok(rid) => rid,
             _ => return Ok(false),
         };
@@ -128,8 +135,9 @@ impl Query {
         Ok(true)
     }
 
+    // unique key only
     pub fn delete(&mut self, key: i64) -> Result<bool, DbError> {
-        let rid = self.table.rid_for_key(key)?;
+        let rid = self.table.rid_for_unique_key(key)?;
 
         // Only remove from primary key index; secondary indices are filtered lazily
         self.table.indices[self.table.key_index].remove(key, rid);
@@ -160,6 +168,7 @@ impl Query {
         Ok(true)
     }
 
+    // unique key only
     pub fn sum(&self, start_range: i64, end_range: i64, col: usize) -> Result<i64, DbError> {
         if let Some(rids) =
             self.table.indices[self.table.key_index].locate_range(start_range, end_range)
@@ -181,6 +190,7 @@ impl Query {
         }
     }
 
+    // unique key only
     pub fn sum_version(
         &self,
         start_range: i64,
@@ -206,15 +216,14 @@ impl Query {
         }
     }
 
+    // rid from unique key
     pub fn increment(&mut self, key: i64, col: usize) -> Result<bool, DbError> {
         // Reject primary key or metadata column increments
         if col == self.table.key_index || col >= self.table.num_columns {
             return Ok(false);
         }
 
-        let rid = self.table.indices[self.table.key_index]
-            .locate(key)
-            .ok_or(DbError::KeyNotFound(key))?;
+        let rid = self.table.rid_for_unique_key(key)?;
 
         let mut record: Vec<Option<i64>> = vec![None; self.table.num_columns];
 

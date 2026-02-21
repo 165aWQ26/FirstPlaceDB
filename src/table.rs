@@ -52,11 +52,19 @@ impl Table {
         self.page_ranges.read_single(column, &addr, range)
     }
 
-    //Use index to find the rid
-    pub fn rid_for_key(&self, key: i64) -> Result<i64, DbError> {
-        self.indices[self.key_index]
+    // Use primary index to find the rid
+    pub fn rid_for_unique_key(&self, key: i64) -> Result<i64, DbError> {
+        Some(self.indices[self.key_index]
             .locate(key)
+            .unwrap()[0])
             .ok_or(DbError::KeyNotFound(key))
+    }
+
+    // get all rids for a key
+    pub fn rids_for_key(&self, key: i64, search_key_index: usize) -> &Vec<i64> {
+        self.indices[search_key_index]
+            .locate(key)
+            .unwrap()
     }
 
     pub fn read_projected(&self, projected: &[i64], rid: i64) -> Result<Vec<Option<i64>>, DbError> {
