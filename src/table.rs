@@ -3,6 +3,7 @@ use crate::index::Index;
 use crate::page_collection::MetaPage;
 use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
+use std::collections::HashSet;
 
 pub struct Table {
     pub name: String,
@@ -23,7 +24,7 @@ pub struct Table {
 
 impl Table {
     pub const PROJECTED_NUM_RECORDS: usize = 10001;
-    pub const NUM_META_PAGES: usize = 4;
+    pub const NUM_META_PAGES: usize = 5;
     //data_pages_per_collection is the total number of pages in a PageDirectory
     pub fn new(
         table_name: String,
@@ -82,6 +83,11 @@ impl Table {
             Some(ind_rid) if ind_rid == rid => Ok(result),
             None => Ok(result),
             Some(tail_rid) => {
+                //if alr. merged skip tail chain
+                if tail_rid <= self.page_ranges.base.tps[base_addr.collection_num] {
+                    return Ok(result);
+                }
+
                 let mut current_tail_rid = tail_rid;
                 let mut accumulated_schema: i64 = 0;
                 loop {
@@ -123,6 +129,11 @@ impl Table {
             Some(ind_rid) if ind_rid == rid => self.page_ranges.read_single(col, &base_addr, WhichRange::Base),
             None => self.page_ranges.read_single(col, &base_addr, WhichRange::Base),
             Some(tail_rid) => {
+                //if alr. merged skip tail chain
+                if tail_rid <= self.page_ranges.base.tps[base_addr.collection_num] {
+                    return self.page_ranges.read_single(col, &base_addr, WhichRange::Base);
+                }
+
                 let mut current_tail_rid = tail_rid;
                 loop {
                     let tail_addr = self.page_directory.get(current_tail_rid)?;
@@ -221,6 +232,14 @@ impl Table {
     /// Check if a base RID's latest tail has schema_encoding == None (deletion marker).
     pub fn is_deleted(&self, rid: i64) -> Result<bool, DbError> {
         let base_addr = self.page_directory.get(rid)?;
+
+        //check if alr marked deleted via merge
+        let base_schema = self.page_ranges.read_meta_col(&base_addr, MetaPage::SchemaEncodingCol, WhichRange::Base)?;
+        // TODO: add sentinel val to track if page is deleted
+        if base_schema == Some(-1){
+            return Ok(true);
+        }
+
         let indirection = self.page_ranges.read_meta_col(&base_addr, MetaPage::IndirectionCol, WhichRange::Base)?;
         match indirection {
             None => Ok(false),
@@ -241,4 +260,79 @@ impl Table {
     // pub fn drop_index() {
 
     // }
+
+    pub fn merge(&mut self) {
+        //clone curr base page collections
+        //reverse iter thru tail records --> newest first, skip seen base_rids
+        //apply to clone
+        //update page_dir to point to new addr in base clone
+        //update tps
+        let mut seen : HashSet<i64> = HashSet::new();
+        //for each tail record:
+        //  read base_rid
+        //  if alr. processed skip
+        //  read schema enc --> if None then = deletion --> mark base as deleted
+        //  apply update cols to base page clone
+        //  add to processed --> processed_base_rids.insert(base_rid)
+        //  update TPS for base collection to this tail's RID  (TPS vec in PageRange struct)
+        //after looped swap new base pages --> update page dir
+
+        let max_rid = self.rid.start - 1;
+        
+        //reverse iterate
+        for tail_rid in (0..=max_rid).rev() {
+            let tail_addr = 
+            match self.page_directory.get(tail_rid){
+                Ok(addr) => addr,
+                Err(_) => continue, //invalid RID, who cares what the error is
+            };
+
+            let base_rid = 
+            match self.page_ranges.read_meta_col(&tail_addr, MetaPage::BaseRidCol, WhichRange::Tail){
+                Ok(Some(base)) => base,
+                _ => continue,
+            };
+
+            if seen.contains(&base_rid){
+                continue; //alr proccessed
+            }
+            seen.insert(base_rid);
+
+            let base_addr = 
+            match self.page_directory.get(base_rid){
+                Ok(addr) => addr,
+                Err(_) => continue,
+            };
+
+            let schema = self.page_ranges
+            .read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)
+            .unwrap_or(None);
+            
+            if schema.is_none(){
+                // deletion tail --> mark base as deleted
+                // write -1 to base schema col
+                // need to fix panic on writing to schema enc col
+                self.page_ranges.write_base_col(
+                    self.num_columns + MetaPage::SchemaEncodingCol as usize,
+                    &base_addr,
+                    Some(-1),
+                ).unwrap()
+            }
+            else{
+                let schema_bits = schema.unwrap();
+                for col in 0..self.num_columns {
+                    if (schema_bits >> col) & 1 == 1{
+                        let val = self.page_ranges
+                        .read_single(col, &tail_addr, WhichRange::Tail)
+                        .unwrap();
+                        //write val to base at base_addr col
+                        self.page_ranges.write_base_col(col, &base_addr, val).unwrap()
+                    }
+                }
+            }
+            //update tps
+            self.page_ranges.base.tps[base_addr.collection_num] = tail_rid
+        }
+        
+    }
 }

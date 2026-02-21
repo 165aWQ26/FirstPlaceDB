@@ -5,6 +5,7 @@ use crate::table::Table;
 
 pub struct PageRange {
     range: Vec<PageCollection>,
+    pub tps: Vec<i64>,
     next_addr: PhysicalAddressIterator,
     pages_per_collection: usize,
 }
@@ -25,6 +26,7 @@ impl PageRange {
             range: init_range,
             next_addr: PhysicalAddressIterator::default(),
             pages_per_collection,
+            tps: vec![0; PageRange::PROJECTED_NUM_PAGE_COLLECTIONS],
         }
     }
 
@@ -110,7 +112,7 @@ pub enum WhichRange {
 
 pub struct PageRanges {
     tail: PageRange,
-    base: PageRange,
+    pub(crate) base: PageRange,
 }
 
 impl PageRanges {
@@ -119,6 +121,11 @@ impl PageRanges {
             tail: PageRange::new(pages_per_collection),
             base: PageRange::new(pages_per_collection),
         }
+    }
+
+
+    pub fn write_base_col(&mut self, col:usize, addr: &PhysicalAddress, val: Option<i64>) -> Result<(), PageError>{
+        self.base.range[addr.collection_num].pages[col].update(addr.offset, val)
     }
 
     // For inserts: stages metadata (rid, indirection=rid, schema=0) then appends to base
@@ -141,11 +148,13 @@ impl PageRanges {
         rid: i64,
         indirection: i64,
         schema_encoding: Option<i64>,
+        base_rid:i64,
     ) -> Result<PhysicalAddress, DbError> {
         data_cols.push(Some(rid)); // RID
         data_cols.push(Some(indirection)); // indirection (points to prev version)
         data_cols.push(schema_encoding); // schema_encoding: None = deletion, Some(bitmask) = update
         data_cols.push(None);
+        data_cols.push(Some(base_rid));
         self.tail.append(data_cols)
     }
 

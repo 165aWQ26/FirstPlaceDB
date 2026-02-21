@@ -2,8 +2,10 @@ use crate::error::DbError;
 use crate::page_collection::{MetaPage};
 use crate::page_range::WhichRange;
 use crate::table::Table;
+use std::sync::{Arc, Mutex};
 
 pub struct Query {
+    // TODO: make this wrapped in Arc<Mutex<Table>>
     pub table: Table,
 }
 
@@ -149,6 +151,7 @@ impl Query {
             next_rid,
             current_indirection,
             Some(schema_encoding),
+            rid,
         )?;
 
         self.table.page_directory.add(next_rid, address);
@@ -186,7 +189,7 @@ impl Query {
         let address =
             self.table
                 .page_ranges
-                .append_tail(tail_record, next_rid, current_indirection, None)?;
+                .append_tail(tail_record, next_rid, current_indirection, None, rid)?;
 
         self.table.page_directory.add(next_rid, address);
 

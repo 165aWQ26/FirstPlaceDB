@@ -7,6 +7,7 @@ pub enum MetaPage {
     IndirectionCol = 1,
     SchemaEncodingCol = 2,
     StartTimeCol = 3,
+    BaseRidCol = 4
 }
 
 
@@ -14,7 +15,7 @@ pub enum MetaPage {
 //For now we assume metadata is appended after data
 //When writing getters and setters we will have to assume a position of each meta_col.
 pub struct PageCollection {
-    pages: Vec<Page>,
+    pub(crate) pages: Vec<Page>,
 }
 impl PageCollection {
     pub fn new(pages_per_collection: usize) -> PageCollection {
@@ -48,6 +49,7 @@ impl PageCollection {
             MetaPage::SchemaEncodingCol => panic!("Cannot update schema encoding"),
             MetaPage::StartTimeCol => panic!("Cannot update start time"),
             MetaPage::RidCol => panic!("Cannot update RID"),
+            MetaPage::BaseRidCol => panic!("Cannot update BaseRID")
         }
     }
 
