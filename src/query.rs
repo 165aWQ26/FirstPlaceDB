@@ -1,4 +1,5 @@
 use crate::error::DbError;
+use crate::error::DbError::KeyNotFound;
 use crate::page_collection::{MetaPage};
 use crate::page_range::WhichRange;
 use crate::table::Table;
@@ -68,7 +69,13 @@ impl Query {
         let mut result = vec![];
 
         for rid in rids {
-            if !self.table.is_deleted(*rid)? {
+            let deleted = self.table.is_deleted(*rid)?;
+
+            if deleted && relative_version < 0 {
+                return Err(DbError::KeyNotFound(key));
+            }
+
+            if !deleted {
                 result
                     .push(self.table
                         .read_version_projected(projected_columns_index, *rid, relative_version)?);
@@ -106,6 +113,7 @@ impl Query {
 
         //// DELETE THIS WHEN MOVING ONTO MILESTONE 2:
         let current_values = self.table.read_latest(rid)?;
+        for (val, i) in
         let key = record[self.table.key_index];
         if key.is_some() {
             if current_values[0].is_some() {
