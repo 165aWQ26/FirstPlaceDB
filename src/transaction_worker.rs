@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
-use crate::table::Table
+use crate::table::Table;
 
 pub fn create_merge_worker(table: Arc<Mutex<Table>>){
     //TODO: WRAP TABLE IN Arc<Mutex<Table>> AT QUERY/DB LEVEL
