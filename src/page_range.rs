@@ -52,10 +52,10 @@ impl PageRange{
 
         self.lazy_create_page_collection(addr.collection_num);
 
-        let collection = &mut self.range[addr.collection_num];
-        for (i, data) in all_data.iter().enumerate() {
-            collection.write_col(i, *data)?;
-        }
+        // let collection = &mut self.range[addr.collection_num];
+        // for (i, data) in all_data.iter().enumerate() {
+        //     collection.write_col(i, *data)?;
+        // }
 
 
         Ok(addr) //return addr (from here add this addr to a page_dir)
@@ -91,7 +91,7 @@ impl PageRange{
         val: Option<i64>,
         col: MetaPage,
     ) -> Result<(), PageError> {
-        self.bufferpool.borrow().update_meta_col(addr, val, col)
+        self.bufferpool.borrow_mut().update_meta_col(addr.offset, val, col)
     }
 
     pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage) -> Result<Option<i64>, PageError>{
