@@ -95,7 +95,7 @@ impl PageRange{
     }
 
     pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage) -> Result<Option<i64>, PageError>{
-        Ok(self.bufferpool.borrow().read_meta_col(addr, col_type)?)
+        Ok(self.bufferpool.borrow().read_meta_col(addr.offset, col_type)?)
     }
 
     //todo
