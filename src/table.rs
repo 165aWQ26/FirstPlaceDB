@@ -37,7 +37,7 @@ impl Table {
             rid: 0..,
             key_index,
             num_columns,
-            indices: (0..1).map(|_| Index::new()).collect(),
+            indices: (0..num_columns).map(|_| Index::new()).collect(),
         }
     }
     /// Returns all the columns of the record
@@ -52,9 +52,17 @@ impl Table {
         self.page_ranges.read_single(column, &addr, range)
     }
 
-    //Use index to find the rid
-    pub fn rid_for_key(&self, key: i64) -> Result<i64, DbError> {
-        self.indices[self.key_index]
+    // Use primary index to find the rid
+    pub fn rid_for_unique_key(&self, key: i64) -> Result<i64, DbError> {
+        Some(self.indices[self.key_index]
+            .locate(key)
+            .unwrap()[0])
+            .ok_or(DbError::KeyNotFound(key))
+    }
+
+    // get all rids for a key
+    pub fn rids_for_key(&self, key: i64, search_key_index: usize) -> Result<&Vec<i64>, DbError> {
+        self.indices[search_key_index]
             .locate(key)
             .ok_or(DbError::KeyNotFound(key))
     }

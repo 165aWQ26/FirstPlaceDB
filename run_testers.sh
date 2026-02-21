@@ -5,7 +5,7 @@ SUPPRESS_WARNINGS=false
 RUN_COUNT=1
 
 # scripts --> runs main a bunch of times
-PYTHON_SCRIPTS=("testers/__main__.py" "testers/m1_tester.py" "testers/m1_tester_new.py")
+PYTHON_SCRIPTS=("testers/__main__.py" "testers/m1_tester.py" "testers/m1_tester_new.py" "testers/m2_tester_part1.py")
 
 
 # Default values

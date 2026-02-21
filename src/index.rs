@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 pub struct Index {
-    index: BTreeMap<i64, i64>,
+    index: BTreeMap<i64, Vec<i64>>,
 }
 
 impl Default for Index {
@@ -21,26 +21,14 @@ impl Index {
         }
     }
 
-    /// Single-traversal insert that checks uniqueness. Returns true if inserted, false if key exists.
     #[inline]
-    pub fn insert_unique(&mut self, key: i64, rid: i64) -> bool {
-        use std::collections::btree_map::Entry;
-        match self.index.entry(key) {
-            Entry::Vacant(e) => {
-                e.insert(rid);
-                true
-            }
-            Entry::Occupied(_) => false,
-        }
-    }
-
-    #[inline]
-    pub fn locate(&self, value: i64) -> Option<i64> {
-        self.index.get(&value).copied()
+    pub fn locate(&self, value: i64) -> Option<&Vec<i64>> {
+        self.index.get(&value)
     }
 
     pub fn locate_range(&self, begin: i64, end: i64) -> Option<Vec<i64>> {
-        let result: Vec<i64> = self.index.range(begin..=end).map(|(_, &rid)| rid).collect();
+        let result: Vec<i64> = self.index.range(begin..=end).flat_map(|(_, rids)| rids.iter().copied()).collect();
+
         if result.is_empty() {
             None
         } else {
@@ -50,12 +38,46 @@ impl Index {
 
     #[inline]
     pub fn insert(&mut self, key: i64, rid: i64) {
-        self.index.insert(key, rid);
+        // if key is not in index, make new vector
+        // else -- add to vector that exists
+        if self.index.contains_key(&key) {
+            self.index.get_mut(&key).unwrap().push(rid);
+        } else {
+            self.index.insert(key, vec![rid]);
+        }
+    }
+    
+    // when inserting, we can't have duplicate primary keys.
+    #[inline]
+    pub fn insert_unique(&mut self, key: i64, rid: i64) -> bool {
+        if !self.index.contains_key(&key) {
+            self.index.insert(key, vec![rid]);
+            true
+        } else {
+            false
+        }
     }
 
+    // /// Single-traversal insert that checks uniqueness. Returns true if inserted, false if key exists.
+    // #[inline]
+    // pub fn insert_unique(&mut self, key: i64, rid: i64) -> bool {
+    //     use std::collections::btree_map::Entry;
+    //     match self.index.entry(key) {
+    //         Entry::Vacant(e) => {
+    //             e.insert(rid);
+    //             true
+    //         }
+    //         Entry::Occupied(_) => false,
+    //     }
+    // }
+
     #[inline]
-    pub fn remove(&mut self, key: i64, _rid: i64) {
-        self.index.remove(&key);
+    pub fn remove(&mut self, key: i64, rid: i64) {
+        self.index.get_mut(&key).unwrap().retain(|&x| x != rid);
+
+        if self.index.get(&key).unwrap().len() == 0 {
+            self.index.remove(&key);
+        }
     }
 
     // drop_index and create_index is left to the Table
