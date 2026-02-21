@@ -1,3 +1,6 @@
+use std::rc::Rc;
+use std::cell::RefCell;
+
 use std::usize;
 
 use crate::error::DbError;
@@ -5,19 +8,19 @@ use crate::page::{Page, PageError};
 use crate::bufferpool::{self, BufferPool, MetaPage};
 use crate::table::Table;
 
-pub struct PageRange <'a>{
-    bufferpool: &'a BufferPool,
+pub struct PageRange {
+    bufferpool: Rc<RefCell<BufferPool>>,
     next_addr: PhysicalAddressIterator,
     pages_per_collection: usize,
 }
 
-impl <'a> PageRange<'a> {
+impl PageRange{
     //Assumes equal base page and tail page num collections which is suboptimal. Better to over alloc
     //These optimizations are more for fun than anything.
     pub const PROJECTED_NUM_PAGE_COLLECTIONS: usize =
         (Table::PROJECTED_NUM_RECORDS + Page::PAGE_SIZE - 1) / Page::PAGE_SIZE;
 
-    pub fn new(data_pages_per_collection: usize, bufferpool_reference: &'a BufferPool) -> Self {
+    pub fn new(data_pages_per_collection: usize, bufferpool: Rc<RefCell<BufferPool>>) -> Self {
         let pages_per_collection = data_pages_per_collection + Table::NUM_META_PAGES;
         // let mut init_range: Vec<PageCollection> =
         //     Vec::with_capacity(PageRange::PROJECTED_NUM_PAGE_COLLECTIONS);
@@ -26,7 +29,7 @@ impl <'a> PageRange<'a> {
         Self{
             // range: init_range,
             //initialize reference for bufferpool
-            bufferpool: bufferpool_reference,
+            bufferpool,
             next_addr: PhysicalAddressIterator::default(),
             pages_per_collection,
         }
@@ -40,32 +43,32 @@ impl <'a> PageRange<'a> {
         let addr = self.next_addr.next().unwrap();
 
         //because table does not 
-        self.bufferpool.append(addr,all_data);
+        //self.bufferpool.borrow().append(addr,all_data);
 
 
         //Lazily create page collection and associated pages
 
         
 
-        // self.lazy_create_page_collection(addr.collection_num);
+        self.lazy_create_page_collection(addr.collection_num);
 
-        // let collection = &mut self.range[addr.collection_num];
-        // for (i, data) in all_data.iter().enumerate() {
-        //     collection.write_col(i, *data)?;
-        // }
+        let collection = &mut self.range[addr.collection_num];
+        for (i, data) in all_data.iter().enumerate() {
+            collection.write_col(i, *data)?;
+        }
 
 
         Ok(addr) //return addr (from here add this addr to a page_dir)
     }
 
-    //Will be maintained in the bufferpool rather than pagerange
-    //iterators make this so cleannnnn
-    // fn lazy_create_page_collection(&mut self, page: usize) {
-    //     while self.range.len() <= page {
-    //         self.range
-    //             .push(PageCollection::new(self.pages_per_collection));
-    //     }
-    // }
+    // Will be maintained in the bufferpool rather than pagerange
+    // iterators make this so cleannnnn
+    fn lazy_create_page_collection(&mut self, page: usize) {
+        while self.range.len() <= page {
+            self.range
+                .push(PageCollection::new(self.pages_per_collection));
+        }
+    }
 
     fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
         // given an array (project_columns) of 0's and 1's, return all requested columns (1's), ignore non-required(0's)
@@ -78,7 +81,7 @@ impl <'a> PageRange<'a> {
     #[inline]
     fn read_single(&self, column: usize, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
         //given single column, return value in row x column
-        Ok(self.bufferpool.read_col(column, addr)?)
+        Ok(self.bufferpool.borrow().read_col(column, addr)?)
     }
 
     #[inline]
@@ -88,11 +91,11 @@ impl <'a> PageRange<'a> {
         val: Option<i64>,
         col: MetaPage,
     ) -> Result<(), PageError> {
-        self.bufferpool.update_meta_col(addr, val, col)
+        self.bufferpool.borrow().update_meta_col(addr, val, col)
     }
 
     pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage) -> Result<Option<i64>, PageError>{
-        Ok(self.bufferpool.read_meta_col(addr, col_type)?)
+        Ok(self.bufferpool.borrow().read_meta_col(addr, col_type)?)
     }
 
     //todo
@@ -120,16 +123,16 @@ pub enum WhichRange {
     Tail,
 }
 
-pub struct PageRanges <'a>{
-    tail: PageRange <'a>,
-    base: PageRange <'a>,
+pub struct PageRanges{
+    tail: PageRange,
+    base: PageRange,
 }
 
-impl <'a> PageRanges <'a>{
-    pub fn new(pages_per_collection: usize,bufferpool: & 'a BufferPool) -> Self {
+impl PageRanges{
+    pub fn new(pages_per_collection: usize,bufferpool: Rc<RefCell<BufferPool>>) -> Self {
         Self {
-            tail: PageRange::new(pages_per_collection,bufferpool),
-            base: PageRange::new(pages_per_collection,bufferpool),
+            tail: PageRange::new(pages_per_collection,Rc::clone(&bufferpool)),
+            base: PageRange::new(pages_per_collection,Rc::clone(&bufferpool)),
         }
     }
 

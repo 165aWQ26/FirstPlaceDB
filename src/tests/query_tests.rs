@@ -52,8 +52,8 @@ fn remove_and_select_version_error() {
     let mut q = setup(3);
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
 
-    q.update(10,vec![None, None, Some(6)]).unwrap();
-    q.update(10,vec![None, None, Some(5)]).unwrap();
+    q.update(1,vec![None, None, Some(6)]).unwrap();
+    q.update(1,vec![None, None, Some(5)]).unwrap();
     q.delete(1).unwrap();
 
 

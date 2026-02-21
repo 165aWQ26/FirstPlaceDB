@@ -1,4 +1,5 @@
-use core::num;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 use crate::bufferpool::{BufferPool, MetaPage};
 use crate::error::DbError;
@@ -6,10 +7,12 @@ use crate::index::Index;
 use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
 
-pub struct Table<'a>{
+pub struct Table{
     pub name: String,
 
-    pub page_ranges: PageRanges <'a>,
+    pub page_ranges: PageRanges,
+
+    bufferpool: Rc<RefCell<BufferPool>>,
 
     pub page_directory: PageDirectory,
 
@@ -23,7 +26,7 @@ pub struct Table<'a>{
 
 }
 
-impl <'a> Table <'a>{
+impl Table {
     pub const PROJECTED_NUM_RECORDS: usize = 10001;
     pub const NUM_META_PAGES: usize = 4;
     //data_pages_per_collection is the total number of pages in a PageDirectory
@@ -31,15 +34,17 @@ impl <'a> Table <'a>{
         table_name: String,
         num_columns: usize,
         key_index: usize,
-        bufferpool: & 'a BufferPool
-    ) -> Table <'a>{
-        Self{
-            //
-            name: table_name,
-            //remove number of columns
+        bufferpool: Rc<RefCell<BufferPool>>
 
-            //bufferpool: BufferPool::new(),
-            page_ranges: PageRanges::new(num_columns, bufferpool),
+    ) -> Table {
+        Self {
+            name: table_name,
+            // Make new copy for pageranges to use
+            page_ranges: PageRanges::new(num_columns, Rc::clone(&bufferpool)),
+            
+            // orignal copy hear
+            bufferpool, 
+            
             page_directory: PageDirectory::default(),
             rid: 0..,
             key_index,
