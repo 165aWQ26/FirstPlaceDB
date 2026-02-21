@@ -4,7 +4,7 @@ from lstore.query import Query
 from random import choice, randint, sample, seed
 
 db = Database()
-db.open('./ECS165')
+# db.open('./ECS165')
 # Create a table  with 5 columns
 #   Student Id and 4 grades
 #   The first argument is name of the table
@@ -82,4 +82,4 @@ for i in range(0, number_of_aggregates):
         pass
         # print('sum on [', keys[r[0]], ',', keys[r[1]], ']: ', column_sum)
 print("Aggregate finished")
-db.close()
+# db.close()
