@@ -17,12 +17,12 @@ fn insert_two() {
 }
 
 #[test]
-fn insert_overwrites() {
+fn insert_secondary() {
     let mut my_index = Index::new();
     my_index.insert(5, 1);
     my_index.insert(5, 2);
     // BTreeMap overwrites: last insert wins
-    assert_eq!(my_index.locate(5), Some(vec![2].as_ref()));
+    assert_eq!(my_index.locate(5), Some(vec![1, 2].as_ref()));
 }
 
 #[test]

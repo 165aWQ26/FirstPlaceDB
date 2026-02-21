@@ -73,9 +73,9 @@ impl Index {
 
     #[inline]
     pub fn remove(&mut self, key: i64, rid: i64) {
-        self.index.get_mut(&key).map(|vec| vec.remove(rid as usize));
+        self.index.get_mut(&key).unwrap().retain(|&x| x != rid);
 
-        if self.index.get(&key).unwrap().len() > 0 {
+        if self.index.get(&key).unwrap().len() == 0 {
             self.index.remove(&key);
         }
     }

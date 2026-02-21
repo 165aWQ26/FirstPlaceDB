@@ -1,5 +1,4 @@
 use crate::error::DbError;
-use crate::error::DbError::KeyNotFound;
 use crate::page_collection::{MetaPage};
 use crate::page_range::WhichRange;
 use crate::table::Table;
@@ -25,11 +24,18 @@ impl Query {
 
     pub fn insert(&mut self, record: Vec<Option<i64>>) -> Result<bool, DbError> {
         let rid = self.table.rid.next().unwrap();
-        let key = record[self.table.key_index].ok_or(DbError::NullValue(self.table.key_index))?;
+        //let key = record[self.table.key_index].ok_or(DbError::NullValue(self.table.key_index))?;
 
-        // Single-traversal uniqueness check + insert
-        if !self.table.indices[self.table.key_index].insert_unique(key, rid) {
-            return Ok(false);
+        for (i, key) in record.iter().enumerate() {
+            if i == self.table.key_index {
+                // very smart lil d
+                // Single-traversal uniqueness check + insert
+                if !self.table.indices[i].insert_unique(key.unwrap(), rid) {
+                    return Ok(false);
+                }
+            } else {
+                self.table.indices[i].insert(key.unwrap(), rid);
+            }
         }
 
         // Write record (append_base handles all 4 metadata columns)
@@ -44,7 +50,11 @@ impl Query {
         search_key_index: usize,
         projected_columns_index: &[i64],
     ) -> Result<Vec<Vec<Option<i64>>>, DbError> {
-        let rids = self.table.rids_for_key(key, search_key_index);
+        let rids = match self.table.rids_for_key(key, search_key_index) {
+            Ok(rids) => rids,
+            Err(e) => return Err(e),
+        };
+
         let mut result = vec![];
         
         for rid in rids {
@@ -65,7 +75,11 @@ impl Query {
     pub fn select_version(&self, key: i64, search_key_index:usize,
             projected_columns_index: &[i64], relative_version:i64) -> Result<Vec<Vec<Option<i64>>>, DbError> {
 
-        let rids = self.table.rids_for_key(key, search_key_index);
+        let rids = match self.table.rids_for_key(key, search_key_index) {
+            Ok(rids) => rids,
+            Err(e) => return Err(e),
+        };
+
         let mut result = vec![];
 
         for rid in rids {
@@ -109,19 +123,23 @@ impl Query {
             }
         }
 
+        // when updating,
+        // if key == primary key, return error
+        // otherwise, remove from index and add new one
+
         // remove the previous tail from the index
-
-        //// DELETE THIS WHEN MOVING ONTO MILESTONE 2:
         let current_values = self.table.read_latest(rid)?;
-        for (val, i) in
-        let key = record[self.table.key_index];
-        if key.is_some() {
-            if current_values[0].is_some() {
-                self.table.indices[0].remove(current_values[0].unwrap(), rid);
+        for (i, key) in record.iter().enumerate() {
+            if i == self.table.key_index && record[i] != None {
+                return Err(DbError::DuplicateKey(key.unwrap()));
             }
-            self.table.indices[0].insert(key.ok_or(DbError::NullValue(0))?, rid);
+            if key.is_some() {
+                if current_values[i].is_some() {
+                    self.table.indices[i].remove(current_values[i].unwrap(), rid);
+                }
+                self.table.indices[i].insert(key.ok_or(DbError::NullValue(0))?, rid);
+            }
         }
-
 
         let next_rid = self.table.rid.next().unwrap();
 
@@ -147,8 +165,12 @@ impl Query {
     pub fn delete(&mut self, key: i64) -> Result<bool, DbError> {
         let rid = self.table.rid_for_unique_key(key)?;
 
-        // Only remove from primary key index; secondary indices are filtered lazily
-        self.table.indices[self.table.key_index].remove(key, rid);
+        // Remove primary + secondaries from index
+        let current_values = self.table.read_latest(rid)?;
+
+        for (i, key) in current_values.iter().enumerate() {
+            self.table.indices[i].remove(key.unwrap(), rid);
+        }
 
         let base_addr = self.table.page_directory.get(rid)?;
 
