@@ -9,9 +9,6 @@ name = "lstore_python"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# "extension-module" tells pyo3 we want to build an extension module (skips linking against libpython.so)
-# "abi3-py39" tells pyo3 (and maturin) to build using the stable ABI with minimum Python version 3.9
-bplustree = { git = "https://github.com/KentBeck/BPlusTree3" }
 lru = "0.16.3"
 parking_lot = "0.12.5"
 pyo3 = { version = "0.28.0", features = ["extension-module", "abi3-py39"] }

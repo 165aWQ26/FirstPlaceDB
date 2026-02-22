@@ -15,14 +15,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "843867be96c8daad0d758b57df9392b6d8d271134fce549de6ce169ff98a92af"
 
 [[package]]
-name = "bplustree"
-version = "0.9.0"
-source = "git+https://github.com/KentBeck/BPlusTree3#ca80e4d85a99cd0af2effe717f709d43e80403bc"
-dependencies = [
- "paste",
-]
-
-[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -85,7 +77,6 @@ dependencies = [
 name = "lstore-python"
 version = "0.1.0"
 dependencies = [
- "bplustree",
  "lru",
  "parking_lot",
  "pyo3",
@@ -121,12 +112,6 @@ dependencies = [
  "smallvec",
  "windows-link",
 ]
-
-[[package]]
-name = "paste"
-version = "1.0.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "portable-atomic"
