@@ -2,11 +2,13 @@
 pub enum PageError {
     Full,
     IndexOutOfBounds(usize),
+    UpdateNotAllowed,
 }
 
 #[derive(Clone, Debug)]
 pub struct Page {
     data: Vec<Option<i64>>,
+    dirty: bool,
 }
 
 impl Page {
@@ -17,12 +19,23 @@ impl Page {
         self.data.len() < Page::PAGE_SIZE
     }
 
+    // dirty -> update; write
+    // not dirty -> read; blank pg
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    pub fn set_dirty(&mut self, bit: bool) {
+        self.dirty = bit
+    }
+
     #[inline]
     pub fn write(&mut self, val: Option<i64>) -> Result<(), PageError> {
         if !self.has_capacity() {
             return Err(PageError::Full);
         }
 
+        self.dirty = true;
         self.data.push(val);
         Ok(())
     }
@@ -33,6 +46,10 @@ impl Page {
             .get(index)
             .copied()
             .ok_or(PageError::IndexOutOfBounds(index))
+    }
+
+    pub(crate) fn iter(&self) -> std::slice::Iter<'_, Option<i64>> {
+        self.data.iter()
     }
 
     #[cfg(debug_assertions)]
@@ -47,6 +64,7 @@ impl Page {
         if index >= self.data.len() {
             return Err(PageError::IndexOutOfBounds(index));
         }
+        self.dirty = true;
         self.data[index] = val;
         Ok(())
     }
@@ -56,6 +74,16 @@ impl Default for Page {
     fn default() -> Self {
         Self {
             data: Vec::with_capacity(Page::PAGE_SIZE),
+            dirty: false,
         }
+    }
+}
+
+impl<'a> IntoIterator for &'a Page {
+    type Item = &'a Option<i64>;
+    type IntoIter = std::slice::Iter<'a, Option<i64>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }

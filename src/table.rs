@@ -1,18 +1,15 @@
-use std::rc::Rc;
-use std::cell::RefCell;
-
+use std::sync::Arc;
 use crate::bufferpool::{BufferPool, MetaPage};
 use crate::error::DbError;
 use crate::index::Index;
 use crate::page_directory::PageDirectory;
+use parking_lot::RwLock;
 use crate::page_range::{PageRanges, WhichRange};
 
 pub struct Table{
     pub name: String,
 
     pub page_ranges: PageRanges,
-
-    bufferpool: Rc<RefCell<BufferPool>>,
 
     pub page_directory: PageDirectory,
 
@@ -33,17 +30,16 @@ impl Table {
     pub fn new(
         table_name: String,
         num_columns: usize,
-        key_index: usize,
-        bufferpool: Rc<RefCell<BufferPool>>
+        key_index: usize
 
     ) -> Table {
+        let bufferpool = Arc::new(RwLock::new(BufferPool::default()));
         Self {
             name: table_name,
-            // Make new copy for pageranges to use
-            page_ranges: PageRanges::new(num_columns, Rc::clone(&bufferpool)),
+            // Make new copy for PageRanges to use
+            page_ranges: PageRanges::new(num_columns, bufferpool),
             
-            // orignal copy hear
-            bufferpool, 
+            // original copy here
             
             page_directory: PageDirectory::default(),
             rid: 0..,
@@ -71,10 +67,10 @@ impl Table {
             .ok_or(DbError::KeyNotFound(key))
     }
 
-    pub fn read_projected(&self, projected: &[i64], rid: i64) -> Result<Vec<Option<i64>>, DbError> {
-        let addr = self.page_directory.get(rid)?;
-        self.page_ranges.read_projected(projected, &addr)
-    }
+    // pub fn read_projected(&self, projected: &[i64], rid: i64) -> Result<Vec<Option<i64>>, DbError> {
+    //     let addr = self.page_directory.get(rid)?;
+    //     self.page_ranges.read_projected(projected, &addr)
+    // }
 
     pub fn read_latest(&self, rid: i64) -> Result<Vec<Option<i64>>, DbError> {
         let base_addr = self.page_directory.get(rid)?;
@@ -187,7 +183,7 @@ impl Table {
                 }
             }
         }
-        return self.page_ranges.read_single(col, &base_addr, WhichRange::Base);
+        self.page_ranges.read_single(col, &base_addr, WhichRange::Base)
     }
 
     pub fn read_latest_projected(

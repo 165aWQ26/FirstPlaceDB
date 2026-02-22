@@ -13,7 +13,7 @@ pub struct CoreQuery {
 impl CoreQuery {
     #[new]
     fn new(name: String, num_columns: usize, key_index: usize) -> Self {
-        let table = Table::new(name, num_columns, key_index);
+        let table = Table::new(name, num_columns, key_index, );
         Self {
             inner: Query::new(table),
         }
