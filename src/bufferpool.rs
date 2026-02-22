@@ -42,6 +42,7 @@ impl BufferPool {
         self.total_cols = Table::NUM_META_PAGES + cols;
     }
 
+
     //done
     pub fn set_path(&mut self, path: String) {
         self.path = path;
@@ -144,7 +145,7 @@ impl BufferPool {
         }
         path.push_str(addr.collection_num.to_string().as_str());
         path.push_str(
-            ((pid_val.abs() - 1) % self.total_cols as i64)
+            ((pid_val.abs() - 1) % (self.total_cols as i64))
                 .to_string()
                 .as_str(),
         );
@@ -229,7 +230,7 @@ impl BufferPool {
             let mut addr: PhysicalAddress = PhysicalAddress::default();
             //offset no
             //addr.offset = self.frames.get(&pid).unwrap().len() - 1;
-            addr.collection_num = (pid.abs() - 1) as usize % self.total_cols;
+            addr.collection_num = ((pid.abs() - 1) as usize ) % self.total_cols;
     
             let pid = Pid { pid };
             if page.is_dirty() {

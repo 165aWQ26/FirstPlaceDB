@@ -2,11 +2,11 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
 
-use crate::bufferpool::{BufferPool};
+use crate::bufferpool::{self, BufferPool};
 use crate::table::Table;
 
 
-struct Database{
+pub struct Database{
     tables: FxHashMap<String, Table>,
     //Will want to add functionality to work with other tables
     bufferpool: Arc<RwLock<BufferPool>>,
@@ -33,6 +33,7 @@ impl Database{
             name.clone(),
             num_columns + Table::NUM_META_PAGES,
             key_index,
+            self.bufferpool.clone()
         );
         self.tables.insert(name, table);
     }

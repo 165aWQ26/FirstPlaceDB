@@ -4,6 +4,7 @@
 // M2: restore secondary indices — switch back to BTreeMap<i64, Vec<i64>> or similar
 use std::collections::BTreeMap;
 
+#[derive(Clone)]
 pub struct Index {
     index: BTreeMap<i64, i64>,
 }

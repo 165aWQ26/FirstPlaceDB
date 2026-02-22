@@ -1,11 +1,12 @@
 use std::sync::Arc;
-use crate::bufferpool::{BufferPool, MetaPage};
+use crate::bufferpool::{self, BufferPool, MetaPage};
 use crate::error::DbError;
 use crate::index::Index;
 use crate::page_directory::PageDirectory;
 use parking_lot::RwLock;
 use crate::page_range::{PageRanges, WhichRange};
 
+#[derive(Clone)]
 pub struct Table{
     pub name: String,
 
@@ -30,10 +31,10 @@ impl Table {
     pub fn new(
         table_name: String,
         num_columns: usize,
-        key_index: usize
-
+        key_index: usize,
+        bufferpool: Arc<RwLock<BufferPool>>
     ) -> Table {
-        let bufferpool = Arc::new(RwLock::new(BufferPool::default()));
+        //let bufferpool = Arc::new(RwLock::new(BufferPool::default()));
         Self {
             name: table_name,
             // Make new copy for PageRanges to use

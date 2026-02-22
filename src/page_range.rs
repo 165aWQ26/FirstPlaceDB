@@ -6,7 +6,7 @@ use crate::page::{Page, PageError};
 use crate::bufferpool::{BufferPool, MetaPage};
 use crate::table::Table;
 
-
+#[derive(Clone)]
 pub struct PageRange {
     bufferpool: Arc<RwLock<BufferPool>>,
     next_addr: PhysicalAddressIterator,
@@ -120,6 +120,7 @@ pub enum WhichRange {
     Tail,
 }
 
+#[derive(Clone)]
 pub struct PageRanges{
     tail: PageRange,
     base: PageRange,
@@ -238,7 +239,7 @@ pub struct PhysicalAddress {
     pub(crate) collection_num: usize,
 }
 
-#[derive(Default)]
+#[derive(Default,Clone)]
 pub struct PhysicalAddressIterator {
     current: PhysicalAddress,
 }

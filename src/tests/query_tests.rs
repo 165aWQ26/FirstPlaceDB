@@ -1,10 +1,16 @@
 use crate::error::DbError;
 use crate::query::Query;
 use crate::table::Table;
+use crate::db::Database;
 
 fn setup(num_columns: usize) -> Query {
-    let table = Table::new(String::from("test"), num_columns, 0);
-    Query::new(table)
+    let mut db = Database::new();
+    db.create_table(String::from("test"), num_columns, 0);
+    // let table = Table::new(String::from("test"), num_columns, 0);
+    Query::new(db.get_table(&String::from("test")).unwrap().clone())
+
+    // let table = Table::new(String::from("test"), num_columns, 0);
+    // Query::new(table)
 }
 
 #[test]
@@ -130,8 +136,9 @@ fn increment() {
 // Keep the original integration test
 #[test]
 fn quick_test_all() {
-    let table: Table = Table::new(String::from("test"), 5, 0);
-    let mut query: Query = Query::new(table);
+
+    //let table: Table = Table::new(String::from("test"), 5, 0);
+    let mut query: Query = setup(5);
 
     let rec_one: Vec<Option<i64>> = vec![Some(1); 5];
     let rec_two: Vec<Option<i64>> = vec![Some(2); 5];

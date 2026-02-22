@@ -1,9 +1,12 @@
 use crate::query::Query;
-use crate::table::Table;
+//use crate::table::Table;
+use crate::db::Database;
 
 fn setup(num_columns: usize) -> Query {
-    let table = Table::new(String::from("test"), num_columns, 0);
-    Query::new(table)
+    let mut db = Database::new();
+    db.create_table(String::from("test"), num_columns, 0);
+    // let table = Table::new(String::from("test"), num_columns, 0);
+    Query::new(db.get_table(&String::from("test")).unwrap().clone())
 }
 
 #[test]

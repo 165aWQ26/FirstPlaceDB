@@ -2,6 +2,7 @@ use crate::error::DbError;
 use crate::page_range::PhysicalAddress;
 use crate::table::Table;
 
+#[derive(Clone)]
 pub struct PageDirectory {
     /// RID -> Address
     directory: Vec<Option<PhysicalAddress>>,
