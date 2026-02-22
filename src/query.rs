@@ -97,21 +97,25 @@ impl Query {
             }
         }
 
+        // TODO fix secondary indices
         // remove the previous tail from the index
-
+    if let Some(new_key) = record[self.table.key_index] {
+        self.table.indices[self.table.key_index].remove(key, rid);
+        self.table.indices[self.table.key_index].insert_unique(new_key, rid);
+    }
         //// DELETE THIS WHEN MOVING ONTO MILESTONE 2:
-        let current_values = self.table.read_latest(rid)?;
-        for index in 0..self.table.num_columns {
-            if record[index].is_some() {
-                let key = record[index];
-                if key.is_some() {
-                    if current_values[index].is_some() {
-                        self.table.indices[index].remove(current_values[index].unwrap(), rid);
-                    }
-                    self.table.indices[index].insert(key.ok_or(DbError::NullValue(0))?, rid);
-                }
-            }
-        }
+        // let current_values = self.table.read_latest(rid)?;
+        // for index in 0..self.table.num_columns {
+        //     if record[index].is_some() {
+        //         let key = record[index];
+        //         if key.is_some() {
+        //             if current_values[index].is_some() {
+        //                 self.table.indices[index].remove(current_values[index].unwrap(), rid);
+        //             }
+        //             self.table.indices[index].insert(key.ok_or(DbError::NullValue(0))?, rid);
+        //         }
+        //     }
+        // }
 
 
         let next_rid = self.table.rid.next().unwrap();

@@ -63,10 +63,14 @@ impl BufferPool {
     pub fn read_col(
         &mut self,
         col: usize,
-        addr: PhysicalAddress,
+        addr: &PhysicalAddress,
         range: WhichRange,
     ) -> Result<Option<i64>, PageError> {
-        let pid = Pid::new(col, self.total_cols, addr.collection_num, range);
+        let pid = Pid::new(col, self.total_cols, addr.collection_num, &range);
+        // If page is not in cache, unwrap can crash the entire progem.
+        // The lazy_guarentee_page() nsure the page is in bufferpool before acesss.
+        self.lazy_guarantee_page(addr, pid)
+            .map_err(|_| PageError::IndexOutOfBounds(addr.offset))?;
         // self.frames.get(pid).unwrap().read(offset);
         self.frames.get(&pid.get()).unwrap().read(addr.offset)
     }
@@ -94,7 +98,10 @@ impl BufferPool {
         // }
         if let MetaPage::IndirectionCol = col_type {
             let col: usize = self.total_cols - Table::NUM_META_PAGES + col_type as usize;
-            let pid = Pid::new(col, self.total_cols, addr.collection_num, range);
+            let pid = Pid::new(col, self.total_cols, addr.collection_num, &range);
+            // See read_col
+            self.lazy_guarantee_page(addr, pid)
+                .map_err(|_| PageError::IndexOutOfBounds(addr.offset))?;
             let page = self.frames.get_mut(&pid.get()).unwrap();
 
             page.set_dirty(true);
@@ -121,7 +128,7 @@ impl BufferPool {
         range: WhichRange,
     ) -> Result<Option<i64>, PageError> {
         let col: usize = self.total_cols - Table::NUM_META_PAGES + col_type as usize;
-        let pid = Pid::new(col, self.total_cols, addr.collection_num, range);
+        let pid = Pid::new(col, self.total_cols, addr.collection_num, &range);
         self.meta_record(pid.get()).read(addr.offset)
     }
 
@@ -186,7 +193,7 @@ impl BufferPool {
         pid: Pid,
     ) -> Result<(), BufferPoolError> {
         if self.is_full() {
-            self.evict(address, pid)?;
+            self.evict()?;
         }
         let file_path = self.make_path(address, pid)?;
         let file = File::open(&file_path).map_err(|_| BufferPoolError::DiskReadFail)?;
@@ -214,11 +221,22 @@ impl BufferPool {
     // when does a page become dirty?
     // it is dirty when the content in the bufferpool does not match the content in the disk
     // if we just append stuff to the bufferpool, that's still dirty bc it's never added to the disk.
-    pub fn evict(&mut self, addr: &PhysicalAddress, pid: Pid) -> Result<(), BufferPoolError> {
+    /// Kicks last page from the cache out of the bufferpool and onto disk
+    /// If the file path is not set, the db is assumed to be in memory only.
+    /// evict() will not write to disk but instead do only the removal step.
+    pub fn evict(&mut self) -> Result<(), BufferPoolError> {
         // We only want to write to disk if the page is dirty.
-        let page = self.frames.pop_lru().unwrap().1;
-        if page.is_dirty() {
-            self.write_to_disk(&page, addr, pid)?;
+        let (evicted_pid_val, page) = self.frames.pop_lru().unwrap();
+        if page.is_dirty() && !self.path.is_empty() {
+            let evicted_pid = Pid {
+                pid: evicted_pid_val,
+            };
+            let collection_num = { evicted_pid_val.unsigned_abs() as usize - 1 } / self.total_cols;
+            let addr = PhysicalAddress {
+                offset: 0,
+                collection_num,
+            };
+            self.write_to_disk(&page, &addr, evicted_pid)?;
         }
         self.size -= 1;
         Ok(())
@@ -247,48 +265,85 @@ impl BufferPool {
         Path::new(&path.unwrap()).exists()
     }
 
-    pub fn create_blank_page(
+    /// Creates a new blank page at the NEXT pid (incremented by total_cols).
+    ///
+    /// This is used when a page exists in the cache but is full — we need
+    /// to advance to the next page in the column's page chain without
+    /// clobbering the existing full page.
+    ///
+    /// Previously, this function pushed at the current pid THEN incremented,
+    /// which overwrote the existing cached page with a blank one, losing
+    /// any dirty writes. The increment was also local (mut pid by value),
+    /// so the caller never saw the new pid.
+    ///
+    /// Fix: increment FIRST, push at the new pid, and return it so the
+    /// caller knows where the new page lives.
+    pub fn create_blank_page (
         &mut self,
-        addr: &PhysicalAddress,
-        mut pid: Pid,
-    ) -> Result<(), BufferPoolError> {
+        pid: Pid,
+    ) -> Result<Pid, BufferPoolError> {
         if self.is_full() {
-            self.evict(addr, pid)?
+            self.evict()?
         }
+        let mut new_pid = pid;
+        new_pid.increment(self.total_cols as i64)?;
         self.frames.push(pid.get(), Page::default());
-        pid.increment(self.total_cols as i64)?;
-        Ok(self.size += 1)
+        self.size += 1;
+        Ok(new_pid)
     }
 
-    /// If page exists in bufferpool,
-    ///     If page does not have capacity and LRU is full
-    ///         evict, make new page
-    ///     else
-    ///         write to page lol -- ok we don't need this since its lazy
-    /// Else // Page not in bufferpool:
-    ///     If on disk
-    ///         Pull from disk
-    ///     else
-    ///         if LRU is full
-    ///              evict
-    ///         Push blank page
+    /// Ensures a usable page exists in the buffer pool for the given pid.
+    ///
+    /// Four cases:
+    ///   1. Page in cache + has capacity → return it, nothing to do
+    ///   2. Page in cache + full → create a NEW page at the next pid
+    ///      (don't clobber the full page)
+    ///   3. Page not in cache + exists on disk → load it
+    ///   4. Page not in cache + not on disk → create blank at current pid
+    ///
+    /// Previous bugs this addresses:
+    ///   - Old code returned early ONLY when the page was full (inverted
+    ///     condition), so pages with capacity fell through to read_from_disk
+    ///     or create_blank_page, which overwrote the cached page via
+    ///     LruCache::push with the same key.
+    ///   - create_blank_page pushed at the current pid before incrementing,
+    ///     so the "full page" branch also clobbered the existing page.
+    ///   - Pages not in the buffer pool were never loaded, causing panics
+    ///     on reads.
     #[inline]
     pub fn lazy_guarantee_page(
         &mut self,
         addr: &PhysicalAddress,
         pid: Pid,
     ) -> Result<Pid, BufferPoolError> {
-        if self.frames.contains(&pid.get()) && !self.frames.get(&pid.get()).unwrap().has_capacity()
-        {
-            self.create_blank_page(addr, pid)?;
-        } else {
-            if self.on_disk(addr, pid) {
-                self.read_from_disk(addr, pid)?;
-            } else {
-                self.create_blank_page(addr, pid)?;
+        // if self.frames.contains(&pid.get()) && !self.frames.get(&pid.get()).unwrap().has_capacity()
+        // {
+        //     self.create_blank_page(addr, pid)?;
+        // } else {
+        //     if self.on_disk(addr, pid) {
+        //         self.read_from_disk(addr, pid)?;
+        //     } else {
+        //         self.create_blank_page(addr, pid)?;
+        //     }
+        // }
+        if self.frames.contains(&pid.get()) {
+            if !self.frames.get(&pid.get()).unwrap().has_capacity() {
+                return Ok(pid);
             }
+            // Page exist but full, evict and make new page and return new pid
+            return self.create_blank_page(pid);
         }
 
+        if self.on_disk(addr, pid) {
+            self.read_from_disk(addr, pid)?;
+            return Ok(pid);
+        } else {
+            if self.is_full() {
+                self.evict()?;
+            }
+            self.frames.push(pid.get(), Page::default());
+            self.size += 1;
+        }
         Ok(pid)
     }
 
@@ -297,13 +352,13 @@ impl BufferPool {
         &mut self,
         all_data: Vec<Option<i64>>,
         addr: &PhysicalAddress,
-        range: WhichRange,
+        range: &WhichRange,
     ) -> Result<PhysicalAddress, BufferPoolError> {
-        let mut first_pid = Pid::new(0, self.total_cols, addr.collection_num, range);
         for (i, val) in all_data.into_iter().enumerate() {
-            first_pid.increment(i as i64)?;
-            let pid = self.lazy_guarantee_page(addr, first_pid)?;
-            self.write_col(pid.get(), val).map_err(|_| BufferPoolError::BufferPoolWriteFail)?;
+            let pid = Pid::new(i, self.total_cols, addr.collection_num, range);
+            let pid = self.lazy_guarantee_page(addr, pid)?;
+            self.write_col(pid.get(), val)
+                .map_err(|_| BufferPoolError::BufferPoolWriteFail)?;
         }
         Ok(*addr)
     }
@@ -327,7 +382,7 @@ pub struct Pid {
 }
 
 impl Pid {
-    pub fn new(col: usize, total_cols: usize, collection_num: usize, range: WhichRange) -> Self {
+    pub fn new(col: usize, total_cols: usize, collection_num: usize, range: &WhichRange) -> Self {
         let pid_unsigned = (col + total_cols * collection_num) + 1;
         let mut pid = pid_unsigned as i64;
         if matches![range, WhichRange::Tail] {

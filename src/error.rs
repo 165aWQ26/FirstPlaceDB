@@ -3,7 +3,7 @@ use crate::page::PageError;
 
 use std::fmt;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub enum DbError {
     BufferPool(BufferPoolError),
     Page(PageError),

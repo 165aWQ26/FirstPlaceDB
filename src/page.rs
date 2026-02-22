@@ -1,8 +1,11 @@
-#[derive(Debug, Clone, PartialEq)]
+use std::io;
+
+#[derive(Debug)]
 pub enum PageError {
     Full,
     IndexOutOfBounds(usize),
     UpdateNotAllowed,
+    IOError(io::Error),
 }
 
 #[derive(Clone, Debug)]

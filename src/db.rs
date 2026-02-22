@@ -31,14 +31,15 @@ impl Database {
         self.bufferpool.write().set_path(self.path.clone());
         let table = Table::new(
             name.clone(),
-            num_columns + Table::NUM_META_PAGES,
+            num_columns,
             key_index,
+            Arc::clone(&self.bufferpool),
         );
         self.tables.insert(name, table);
     }
 
     pub fn open(&mut self, path: String) {
-        //create_indexes  
+        //create_indexes
         self.path.push_str(&path);
     }
 

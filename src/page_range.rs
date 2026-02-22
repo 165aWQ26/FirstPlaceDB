@@ -39,7 +39,7 @@ impl PageRange {
         let addr = self.next_addr.next().unwrap();
 
         // PageRange management of collections is handed over to bufferpool 
-        self.bufferpool.write().append(all_data, &addr, range)?;
+        self.bufferpool.write().append(all_data, &addr, &range)?;
 
 
         //Lazily create page collection and associated pages
@@ -76,7 +76,7 @@ impl PageRange {
     #[inline]
     fn read_single(&self, column: usize, addr: &PhysicalAddress, range: WhichRange) -> Result<Option<i64>, DbError> {
         //given single column, return value in row x column
-        Ok(self.bufferpool.write().read_col(column, *addr, range)?)
+        Ok(self.bufferpool.write().read_col(column, addr, range)?)
     }
 
     #[inline]
