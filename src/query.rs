@@ -2,7 +2,7 @@ use crate::error::DbError;
 use crate::page_range::WhichRange;
 use crate::table::Table;
 
-//May want to put metapage somewhere that isn't the bufferpool
+//May want to put MetaPage somewhere that isn't the bufferpool
 use crate::bufferpool::MetaPage;
 
 pub struct Query {
@@ -44,13 +44,11 @@ impl Query {
         search_key_index: usize,
         projected_columns_index: &[i64],
     ) -> Result<Vec<Vec<Option<i64>>>, DbError> {
-
-
         let rid = self.table.indices[search_key_index]
             .locate(key)
             .ok_or(DbError::KeyNotFound(key))?;
 
-        
+
         //for rid in Rids
         if self.table.is_deleted(rid)? {
             return Err(DbError::KeyNotFound(key));
@@ -61,9 +59,8 @@ impl Query {
         ])
     }
 
-    pub fn select_version(&self, key: i64, _search_key_index:usize,
-            projected_columns_index: &[i64], relative_version:i64) -> Result<Vec<Vec<Option<i64>>>, DbError> {
-
+    pub fn select_version(&self, key: i64, _search_key_index: usize,
+                          projected_columns_index: &[i64], relative_version: i64) -> Result<Vec<Vec<Option<i64>>>, DbError> {
         let rid = self.table.rid_for_key(key)?;
 
         if self.table.is_deleted(rid)? {
@@ -72,7 +69,7 @@ impl Query {
 
         Ok(vec![
             self.table
-                .read_version_projected(projected_columns_index, rid,relative_version)?,
+                .read_version_projected(projected_columns_index, rid, relative_version)?,
         ])
     }
 
@@ -104,7 +101,7 @@ impl Query {
 
         //// DELETE THIS WHEN MOVING ONTO MILESTONE 2:
         let current_values = self.table.read_latest(rid)?;
-        for index in 0..self.table.num_columns{
+        for index in 0..self.table.num_columns {
             if record[index].is_some() {
                 let key = record[index];
                 if key.is_some() {
@@ -205,12 +202,11 @@ impl Query {
 
             for rid in rids {
                 sum += self.table
-                    .read_version_single(rid,col,relative_version)?
+                    .read_version_single(rid, col, relative_version)?
                     .ok_or(DbError::NullValue(col))?;
             }
             Ok(sum)
-        }
-        else {
+        } else {
             Err(DbError::KeyNotFound(start_range))
         }
     }
@@ -292,7 +288,7 @@ impl Query {
 //     };
 //     //let key: Option<i64> = record[self.table.key_index];
 //     false
-// }
+//
 
 
 //WAS IN UPDATE:         ////

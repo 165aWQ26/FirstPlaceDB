@@ -29,10 +29,10 @@ fn insert_and_select_version_1() {
     let mut q = setup(3);
     q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
 
-    q.update(10,vec![None, Some(2), Some(3)]).unwrap();
+    q.update(10, vec![None, Some(2), Some(3)]).unwrap();
 
     let mask = [1i64, 1, 1];
-    let result = q.select_version(10, 0, &mask,-1).unwrap();
+    let result = q.select_version(10, 0, &mask, -1).unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], vec![Some(10), Some(20), Some(30)]);
 }
@@ -42,12 +42,12 @@ fn insert_and_select_version_2() {
     let mut q = setup(3);
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
 
-    q.update(1,vec![None, None, Some(6)]).unwrap();
-    q.update(1,vec![None, None, Some(5)]).unwrap();
-    q.update(1,vec![None, Some(10), Some(4)]).unwrap();
+    q.update(1, vec![None, None, Some(6)]).unwrap();
+    q.update(1, vec![None, None, Some(5)]).unwrap();
+    q.update(1, vec![None, Some(10), Some(4)]).unwrap();
 
     let mask = [1i64, 1, 1];
-    let result = q.select_version(1, 0, &mask,-2).unwrap();
+    let result = q.select_version(1, 0, &mask, -2).unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], vec![Some(1), Some(2), Some(6)]);
 }
@@ -58,13 +58,13 @@ fn remove_and_select_version_error() {
     let mut q = setup(3);
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
 
-    q.update(1,vec![None, None, Some(6)]).unwrap();
-    q.update(1,vec![None, None, Some(5)]).unwrap();
+    q.update(1, vec![None, None, Some(6)]).unwrap();
+    q.update(1, vec![None, None, Some(5)]).unwrap();
     q.delete(1).unwrap();
 
 
     let mask = [1i64, 1, 1];
-    assert_eq!(q.select_version(1, 0, &mask,-1), Err(DbError::KeyNotFound(1)));
+    assert_eq!(q.select_version(1, 0, &mask, -1), Err(DbError::KeyNotFound(1)));
 }
 #[test]
 fn insert_duplicate_key_fails() {
@@ -262,12 +262,12 @@ fn sum_version_3() {
 
 #[test]
 fn select_version_disjoint_column_updates() {
-    // Two updates that touch diffrent columns.
+    // Two updates that touch different columns.
     // Version -1 should undo only the latest update (col 2),
     // leaving the earlier update (col 1) intact.
     // THIS IS WHERE I WAS WRONG. It's not go back N update per col it's skip N tail records. So this is simpler then what I thought about
     //
-    // This will fails with per-column version counting (read_version_single)
+    // This will fail with per-column version counting (read_version_single)
     // because it independently goes back 1 relevant version for each column,
     // which for col 1 means going all the way back to base.
     let mut q = setup(3);
@@ -308,13 +308,13 @@ fn test_version_single() {
     q.update(2, vec![None, Some(4), Some(5)]).unwrap();
     q.update(2, vec![None, Some(4), Some(6)]).unwrap();
 
-    let num1 = q.table.read_version_single(0,2,-2).unwrap();
-    let num2 = q.table.read_version_single(1,2,-5).unwrap();
-    let num3 = q.table.read_version_single(2,2,0).unwrap();
+    let num1 = q.table.read_version_single(0, 2, -2).unwrap();
+    let num2 = q.table.read_version_single(1, 2, -5).unwrap();
+    let num3 = q.table.read_version_single(2, 2, 0).unwrap();
     assert_eq!(num1.unwrap(), 3);
     assert_eq!(num2.unwrap(), 7);
     assert_eq!(num3.unwrap(), 6);
-    
+
     // q.sum_version(1, 5, 1, -1);
     // q.sum_version(1, 5, 1, 0);
 }

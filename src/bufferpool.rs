@@ -53,7 +53,7 @@ impl BufferPool {
     pub fn write_col(&mut self, pid: i64, val: Option<i64>) -> Result<(), PageError> {
         //col: usize, total_cols: usize, collection_num: usize, range : WhichRange
         let page = self.frames.get_mut(&pid).unwrap();
-        
+
         page.set_dirty(true);
         page.write(val)
     }
@@ -96,7 +96,7 @@ impl BufferPool {
             let col: usize = self.total_cols - Table::NUM_META_PAGES + col_type as usize;
             let pid = Pid::new(col, self.total_cols, addr.collection_num, range);
             let page = self.frames.get_mut(&pid.get()).unwrap();
-            
+
             page.set_dirty(true);
             page.update(addr.offset, val)?;
             Ok(())
@@ -201,7 +201,7 @@ impl BufferPool {
             page.write(Some(value))
                 .map_err(|_e| BufferPoolError::DiskReadFail)?;
         }
-        
+
         self.frames.push(pid.get(), page);
         self.size += 1;
 
@@ -230,8 +230,8 @@ impl BufferPool {
             let mut addr: PhysicalAddress = PhysicalAddress::default();
             //offset no
             //addr.offset = self.frames.get(&pid).unwrap().len() - 1;
-            addr.collection_num = ((pid.abs() - 1) as usize ) % self.total_cols;
-    
+            addr.collection_num = (pid.abs() - 1) as usize % self.total_cols;
+
             let pid = Pid { pid };
             if page.is_dirty() {
                 self.write_to_disk(&page, &addr, pid)?;
@@ -264,7 +264,7 @@ impl BufferPool {
     ///     If page does not have capacity and LRU is full
     ///         evict, make new page
     ///     else
-    ///         write to page lol -- ok we dont need this since its lazy
+    ///         write to page lol -- ok we don't need this since its lazy
     /// Else // Page not in bufferpool:
     ///     If on disk
     ///         Pull from disk

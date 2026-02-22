@@ -1,19 +1,19 @@
-use std::sync::Arc;
-use std::usize;
-use parking_lot::RwLock;
+use crate::bufferpool::{BufferPool, MetaPage};
 use crate::error::DbError;
 use crate::page::{Page, PageError};
-use crate::bufferpool::{BufferPool, MetaPage};
 use crate::table::Table;
+use parking_lot::RwLock;
+use std::sync::Arc;
 
-#[derive(Clone)]
+
 pub struct PageRange {
     bufferpool: Arc<RwLock<BufferPool>>,
     next_addr: PhysicalAddressIterator,
     pages_per_collection: usize,
 }
 
-impl PageRange{
+//noinspection SpellCheckingInspection
+impl PageRange {
     //Assumes equal base page and tail page num collections which is suboptimal. Better to over alloc
     //These optimizations are more for fun than anything.
     pub fn new(data_pages_per_collection: usize, bufferpool: Arc<RwLock<BufferPool>>) -> Self {
@@ -22,7 +22,7 @@ impl PageRange{
         //     Vec::with_capacity(PageRange::PROJECTED_NUM_PAGE_COLLECTIONS);
         // init_range.push(PageCollection::new(pages_per_collection));
 
-        Self{
+        Self {
             // range: init_range,
             //initialize reference for bufferpool
             bufferpool,
@@ -44,7 +44,6 @@ impl PageRange{
 
         //Lazily create page collection and associated pages
 
-        
 
         // self.lazy_create_page_collection(addr.collection_num);
 
@@ -88,10 +87,10 @@ impl PageRange{
         col: MetaPage,
         range: WhichRange,
     ) -> Result<(), PageError> {
-        self.bufferpool.write().update_meta_col(addr, val, col,range)
+        self.bufferpool.write().update_meta_col(addr, val, col, range)
     }
 
-    pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage, range: WhichRange) -> Result<Option<i64>, PageError>{
+    pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type: MetaPage, range: WhichRange) -> Result<Option<i64>, PageError> {
         Ok(self.bufferpool.write().read_meta_col(addr, col_type, range)?)
     }
 
@@ -120,17 +119,16 @@ pub enum WhichRange {
     Tail,
 }
 
-#[derive(Clone)]
-pub struct PageRanges{
+pub struct PageRanges {
     tail: PageRange,
     base: PageRange,
 }
 
-impl PageRanges{
-    pub fn new(pages_per_collection: usize,bufferpool: Arc<RwLock<BufferPool>>) -> Self {
+impl PageRanges {
+    pub fn new(pages_per_collection: usize, bufferpool: Arc<RwLock<BufferPool>>) -> Self {
         Self {
-            tail: PageRange::new(pages_per_collection,Arc::clone(&bufferpool)),
-            base: PageRange::new(pages_per_collection,Arc::clone(&bufferpool)),
+            tail: PageRange::new(pages_per_collection, Arc::clone(&bufferpool)),
+            base: PageRange::new(pages_per_collection, Arc::clone(&bufferpool)),
         }
     }
 
@@ -167,11 +165,11 @@ impl PageRanges{
         &self,
         column: usize,
         addr: &PhysicalAddress,
-        range: WhichRange
+        range: WhichRange,
     ) -> Result<Option<i64>, DbError> {
         match range {
-            WhichRange::Base => self.base.read_single(column, addr,range),
-            WhichRange::Tail => self.tail.read_single(column, addr,range),
+            WhichRange::Base => self.base.read_single(column, addr, range),
+            WhichRange::Tail => self.tail.read_single(column, addr, range),
         }
     }
 
@@ -200,11 +198,11 @@ impl PageRanges{
         &mut self,
         addr: &PhysicalAddress,
         val: Option<i64>,
-        range: WhichRange
+        range: WhichRange,
     ) -> Result<(), PageError> {
         match range {
-            WhichRange::Base => self.base.write_meta_col(addr, val, MetaPage::IndirectionCol,WhichRange::Base),
-            WhichRange::Tail => self.tail.write_meta_col(addr, val, MetaPage::IndirectionCol,WhichRange::Tail),
+            WhichRange::Base => self.base.write_meta_col(addr, val, MetaPage::IndirectionCol, WhichRange::Base),
+            WhichRange::Tail => self.tail.write_meta_col(addr, val, MetaPage::IndirectionCol, WhichRange::Tail),
         }
     }
 
@@ -223,7 +221,7 @@ impl PageRanges{
     //     self.base.read_projected(projected, addr)
     // }
 
-    pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage, range: WhichRange) -> Result<Option<i64>, PageError>{
+    pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type: MetaPage, range: WhichRange) -> Result<Option<i64>, PageError> {
         match range {
             WhichRange::Base => self.base.read_meta_col(addr, col_type, range),
             WhichRange::Tail => self.tail.read_meta_col(addr, col_type, range),
@@ -239,7 +237,7 @@ pub struct PhysicalAddress {
     pub(crate) collection_num: usize,
 }
 
-#[derive(Default,Clone)]
+#[derive(Default)]
 pub struct PhysicalAddressIterator {
     current: PhysicalAddress,
 }

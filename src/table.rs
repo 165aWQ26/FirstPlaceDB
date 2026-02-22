@@ -1,13 +1,12 @@
-use std::sync::Arc;
-use crate::bufferpool::{self, BufferPool, MetaPage};
+use crate::bufferpool::{BufferPool, MetaPage};
 use crate::error::DbError;
 use crate::index::Index;
 use crate::page_directory::PageDirectory;
-use parking_lot::RwLock;
 use crate::page_range::{PageRanges, WhichRange};
+use parking_lot::RwLock;
+use std::sync::Arc;
 
-#[derive(Clone)]
-pub struct Table{
+pub struct Table {
     pub name: String,
 
     pub page_ranges: PageRanges,
@@ -32,6 +31,7 @@ impl Table {
         table_name: String,
         num_columns: usize,
         key_index: usize,
+        key_index: usize,
         bufferpool: Arc<RwLock<BufferPool>>
     ) -> Table {
         //let bufferpool = Arc::new(RwLock::new(BufferPool::default()));
@@ -39,9 +39,9 @@ impl Table {
             name: table_name,
             // Make new copy for PageRanges to use
             page_ranges: PageRanges::new(num_columns, bufferpool),
-            
+
             // original copy here
-            
+
             page_directory: PageDirectory::default(),
             rid: 0..,
             key_index,
@@ -100,7 +100,7 @@ impl Table {
                             result[col] = self.page_ranges.read_single(col, &tail_addr, WhichRange::Tail)?;
                         }
                     }
-                    
+
                     accumulated_schema |= tail_schema;
 
                     // Follow indirection to next (older tail record)
@@ -151,7 +151,7 @@ impl Table {
         }
     }
 
-    
+
     pub fn read_version_single(&self, rid: i64, col: usize, mut relative_version: i64) -> Result<Option<i64>, DbError> {
         let base_addr = self.page_directory.get(rid)?;
         let indirection = self.page_ranges.read_meta_col(&base_addr, MetaPage::IndirectionCol, WhichRange::Base)?;
@@ -204,14 +204,13 @@ impl Table {
         &self,
         projected: &[i64],
         rid: i64,
-        relative_version: i64
-    )-> Result<Vec<Option<i64>>, DbError>{
-        let mut ans : Vec<Option<i64>> = Vec::new(); 
-        for (col,value) in projected.iter().enumerate(){
-            if *value == 1{
-                ans.push(self.read_version_single(rid,col,relative_version)?);
-            }
-            else {
+        relative_version: i64,
+    ) -> Result<Vec<Option<i64>>, DbError> {
+        let mut ans: Vec<Option<i64>> = Vec::new();
+        for (col, value) in projected.iter().enumerate() {
+            if *value == 1 {
+                ans.push(self.read_version_single(rid, col, relative_version)?);
+            } else {
                 ans.push(None);
             }
         }

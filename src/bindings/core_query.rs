@@ -72,5 +72,5 @@
 //             .select_version(search_key, search_key_index, &projected_columns_index,relative_version)
 //             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
 //     }
-    
+
 // }

@@ -8,7 +8,7 @@ pub struct PageDirectory {
     directory: Vec<Option<PhysicalAddress>>,
 }
 /* We do not need a hashmap here. There is No benefit...
-Instead just use a vec and the rid as the index directly.
+Instead, just use a vec and the rid as the index directly.
 Everything is None by default.
 Don't know if we every need to delete, RID isn't reused
 */
@@ -32,6 +32,7 @@ impl PageDirectory {
         Ok(())
     }
 
+    //noinspection SpellCheckingInspection
     //When this throws a panic it means you are either accessing a record that
     //DNE or has been deleted... Too lazy to write real exception handling DAANNNYYY Fix me
     #[inline]

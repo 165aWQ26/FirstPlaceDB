@@ -1,12 +1,12 @@
-use std::sync::Arc;
 use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
+use std::sync::Arc;
 
-use crate::bufferpool::{self, BufferPool};
+use crate::bufferpool::BufferPool;
 use crate::table::Table;
 
 
-pub struct Database{
+struct Database {
     tables: FxHashMap<String, Table>,
     //Will want to add functionality to work with other tables
     bufferpool: Arc<RwLock<BufferPool>>,
@@ -15,12 +15,12 @@ pub struct Database{
 
 
 #[allow(dead_code)]
-impl Database{
-    pub fn new() -> Self{
+impl Database {
+    pub fn new() -> Self {
         Self {
             tables: FxHashMap::default(),
             bufferpool: Arc::new(RwLock::new(BufferPool::default())),
-            path : String::new()
+            path: String::new(),
         }
     }
 
@@ -33,18 +33,17 @@ impl Database{
             name.clone(),
             num_columns + Table::NUM_META_PAGES,
             key_index,
-            self.bufferpool.clone()
         );
         self.tables.insert(name, table);
     }
 
-    pub fn open(&mut self, path:String){
+    pub fn open(&mut self, path: String) {
         //create_indexes  
         self.path.push_str(&path);
     }
 
 
-    pub fn close(& self){
+    pub fn close(&self) {
         //Need to implement indexes stuff
         //  Drop index function
         self.bufferpool.write().evict_all().unwrap();

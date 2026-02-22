@@ -1,5 +1,5 @@
-use crate::page::PageError;
 use crate::bufferpool::BufferPoolError;
+use crate::page::PageError;
 
 use std::fmt;
 
@@ -16,7 +16,7 @@ pub enum DbError {
 impl fmt::Display for DbError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DbError::BufferPool(e) => write!(f,"bufferpool error: {:?}",e),
+            DbError::BufferPool(e) => write!(f, "bufferpool error: {:?}", e),
             DbError::Page(e) => write!(f, "page error: {:?}", e),
             DbError::RecordNotFound(rid) => write!(f, "record not found: RID {}", rid),
             DbError::KeyNotFound(key) => write!(f, "key not found: {}", key),
