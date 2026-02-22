@@ -2,6 +2,9 @@ use crate::error::DbError;
 use crate::page_range::WhichRange;
 use crate::table::Table;
 
+//May want to put metapage somewhere that isn't the bufferpool
+use crate::bufferpool::MetaPage;
+
 pub struct Query {
     pub table: Table,
 }

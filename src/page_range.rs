@@ -5,8 +5,9 @@ use std::usize;
 
 use crate::error::DbError;
 use crate::page::{Page, PageError};
-use crate::bufferpool::{self, BufferPool, MetaPage};
+use crate::bufferpool::{BufferPool, MetaPage};
 use crate::table::Table;
+
 
 pub struct PageRange {
     bufferpool: Rc<RefCell<BufferPool>>,
@@ -42,8 +43,8 @@ impl PageRange{
         //get next addr
         let addr = self.next_addr.next().unwrap();
 
-        //because table does not 
-        //self.bufferpool.borrow().append(addr,all_data);
+        // PageRange management of collections is handed over to bufferpool 
+        self.bufferpool.borrow().append(addr,all_data);
 
 
         //Lazily create page collection and associated pages
@@ -63,12 +64,12 @@ impl PageRange{
 
     // Will be maintained in the bufferpool rather than pagerange
     // iterators make this so cleannnnn
-    // fn lazy_create_page_collection(&mut self, page: usize) {
-    //     while self.range.len() <= page {
-    //         self.range
-    //             .push(PageCollection::new(self.pages_per_collection));
-    //     }
-    // }
+    fn lazy_create_page_collection(&mut self, page: usize) {
+        while self.range.len() <= page {
+            self.range
+                .push(PageCollection::new(self.pages_per_collection));
+        }
+    }
 
     fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
         // given an array (project_columns) of 0's and 1's, return all requested columns (1's), ignore non-required(0's)
@@ -91,7 +92,7 @@ impl PageRange{
         val: Option<i64>,
         col: MetaPage,
     ) -> Result<(), PageError> {
-        self.bufferpool.borrow_mut().update_meta_col(addr.offset, val, col)
+        self.bufferpool.borrow_mut().update_meta_col(addr, val, col)
     }
 
     pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage) -> Result<Option<i64>, PageError>{
