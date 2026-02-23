@@ -6,7 +6,7 @@ use crate::bufferpool::BufferPool;
 use crate::table::Table;
 
 
-struct Database {
+pub struct Database {
     tables: FxHashMap<String, Table>,
     //Will want to add functionality to work with other tables
     bufferpool: Arc<RwLock<BufferPool>>,
@@ -23,8 +23,7 @@ impl Database {
             path: String::new(),
         }
     }
-
-    pub const NUMBER_OF_FRAMES: usize = 20;
+    
     pub fn create_table(&mut self, name: String, num_columns: usize, key_index: usize) {
         //once again this assumes single table functionality
         self.bufferpool.write().set_total_cols(num_columns);

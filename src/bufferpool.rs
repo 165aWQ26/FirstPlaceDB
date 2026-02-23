@@ -326,8 +326,8 @@ impl BufferPool {
         //         self.create_blank_page(addr, pid)?;
         //     }
         // }
-        if self.frames.contains(&pid.get()) {
-            if !self.frames.get(&pid.get()).unwrap().has_capacity() {
+        if self.frames.contains(&pid.get()) { // in bufferpool
+            if self.frames.get(&pid.get()).unwrap().has_capacity() {
                 return Ok(pid);
             }
             // Page exist but full, evict and make new page and return new pid
@@ -337,7 +337,7 @@ impl BufferPool {
         if self.on_disk(addr, pid) {
             self.read_from_disk(addr, pid)?;
             return Ok(pid);
-        } else {
+        } else { // Not on disk
             if self.is_full() {
                 self.evict()?;
             }
