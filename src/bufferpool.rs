@@ -321,7 +321,7 @@ impl BufferPool {
         if self.on_disk(addr, pid) {
             self.read_from_disk(addr, pid)?;
             return Ok(pid_val);
-        } else {
+        } else { // Not on disk
             if self.is_full() {
                 self.evict()?;
             }
