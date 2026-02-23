@@ -26,9 +26,16 @@ impl PageRange {
             range: init_range,
             next_addr: PhysicalAddressIterator::default(),
             pages_per_collection,
-            tps: vec![0; PageRange::PROJECTED_NUM_PAGE_COLLECTIONS],
+            tps: vec![i64::MAX; PageRange::PROJECTED_NUM_PAGE_COLLECTIONS],
         }
     }
+
+    // for merge use
+    pub fn clone_range(&self) -> Vec<PageCollection> {
+        self.range.clone()
+    }
+    pub fn swap_range(&mut self, new_range: Vec<PageCollection>) { self.range = new_range; }
+    pub fn range_len(&self) -> usize { self.range.len() }
 
     //Append assumes metadata has been pre-calculated (allData)
     //All it does is write to the current offset
@@ -55,6 +62,8 @@ impl PageRange {
         while self.range.len() <= page {
             self.range
                 .push(PageCollection::new(self.pages_per_collection));
+            // grow tps as well
+            self.tps.push(i64::MAX);
         }
     }
 
@@ -83,6 +92,9 @@ impl PageRange {
     }
 
     pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage) -> Result<Option<i64>, PageError>{
+        if addr.collection_num >= self.range.len() {
+            return Err(PageError::IndexOutOfBounds(addr.collection_num));
+        }
         Ok(self.range[addr.collection_num].read_meta_col(addr.offset, col_type)?)
     }
 
@@ -138,6 +150,7 @@ impl PageRanges {
         data_cols.push(Some(rid)); // indirection (self for new base record)
         data_cols.push(Some(0)); // schema_encoding (no updates)
         data_cols.push(None);
+        data_cols.push(None); // for BaseRID NA
         self.base.append(data_cols)
     }
 

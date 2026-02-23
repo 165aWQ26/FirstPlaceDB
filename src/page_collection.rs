@@ -14,6 +14,8 @@ pub enum MetaPage {
 //In general this structure will make a lot of assumptions about the data that is passed (not good for modularity but wtv).
 //For now we assume metadata is appended after data
 //When writing getters and setters we will have to assume a position of each meta_col.
+//Derives clone for use in merge
+#[derive(Clone)]
 pub struct PageCollection {
     pub(crate) pages: Vec<Page>,
 }

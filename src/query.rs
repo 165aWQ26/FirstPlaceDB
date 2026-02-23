@@ -2,7 +2,7 @@ use crate::error::DbError;
 use crate::page_collection::{MetaPage};
 use crate::page_range::WhichRange;
 use crate::table::Table;
-use std::sync::{Arc, Mutex};
+// use std::sync::{Arc, Mutex};
 
 pub struct Query {
     // TODO: make this wrapped in Arc<Mutex<Table>>
@@ -161,6 +161,12 @@ impl Query {
             .page_ranges
             .write_indirection(&base_addr, Some(next_rid), WhichRange::Base)?;
 
+        // Check for Merge
+        self.table.tail_count += 1;
+        if self.table.tail_count % 10 == 0 {
+            //self.table.merge();
+        }
+
         Ok(true)
     }
 
@@ -197,6 +203,12 @@ impl Query {
         self.table
             .page_ranges
             .write_indirection(&base_addr, Some(next_rid), WhichRange::Base)?;
+
+        // Check for Merge
+        self.table.tail_count += 1;
+        if self.table.tail_count % 10 == 0 {
+            //self.table.merge();
+        }
 
         Ok(true)
     }
