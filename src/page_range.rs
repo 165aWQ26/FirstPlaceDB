@@ -41,18 +41,6 @@ impl PageRange {
         // PageRange management of collections is handed over to bufferpool 
         self.bufferpool.write().append(all_data, &addr, &range)?;
 
-
-        //Lazily create page collection and associated pages
-
-
-        // self.lazy_create_page_collection(addr.collection_num);
-
-        // let collection = &mut self.range[addr.collection_num];
-        // for (i, data) in all_data.iter().enumerate() {
-        //     collection.write_col(i, *data)?;
-        // }
-
-
         Ok(addr) //return addr (from here add this addr to a page_dir)
     }
 
@@ -113,7 +101,7 @@ impl PageRange {
     //         .collect()
     // }
 }
-
+#[derive(PartialEq, Eq)]
 pub enum WhichRange {
     Base,
     Tail,
