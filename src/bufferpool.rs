@@ -28,7 +28,7 @@ pub enum BufferPoolError {
 //For now, we assume metadata is appended after data
 //When writing getters and setters we will have to assume a position of each meta_col.
 pub struct BufferPool {
-    frames: LruCache<i64, Page>,
+    cache: LruCache<i64, Page>,
     size: usize,
     total_cols: usize,
     path: String,
@@ -52,7 +52,7 @@ impl BufferPool {
     #[inline]
     pub fn write_col(&mut self, pid: i64, val: Option<i64>) -> Result<(), PageError> {
         //col: usize, total_cols: usize, collection_num: usize, range : WhichRange
-        let page = self.frames.get_mut(&pid).unwrap();
+        let page = self.cache.get_mut(&pid).unwrap();
 
         page.set_dirty(true);
         page.write(val)
@@ -67,12 +67,12 @@ impl BufferPool {
         range: WhichRange,
     ) -> Result<Option<i64>, PageError> {
         let pid = Pid::new(col, self.total_cols, addr.collection_num, &range);
-        // If page is not in cache, unwrap can crash the entire progem.
-        // The lazy_guarentee_page() nsure the page is in bufferpool before acesss.
+        // If page is not in cache, unwrap can crash the entire program.
+        // The lazy_guarentee_page() nsure the page is in the bufferpool before access.
         self.lazy_guarantee_page(addr, pid)
             .map_err(|_| PageError::IndexOutOfBounds(addr.offset))?;
-        // self.frames.get(pid).unwrap().read(offset);
-        self.frames.get(&pid.get()).unwrap().read(addr.offset)
+        // self.cache.get(pid).unwrap().read(offset);
+        self.cache.get(&pid.get()).unwrap().read(addr.offset)
     }
 
     //done
@@ -84,31 +84,22 @@ impl BufferPool {
         col_type: MetaPage,
         range: WhichRange,
     ) -> Result<(), PageError> {
-        // match col {
-        //     MetaPage::IndirectionCol => {
-        //         // let pid: i64 = ((self.total_cols * Table::NUM_META_PAGES) + col as i64) as i64;
-        //         let pid: i64 = (self.total_cols * Table::NUM_META_PAGES + col as usize) as i64;
-        //         // let actual_col = self.pages.len() - Table::NUM_META_PAGES + col as usize;
-        //         self.frames.get_mut(&(pid)).unwrap().update(address.offset, val)?;
-        //         Ok(())
-        //     }
-        //     MetaPage::SchemaEncodingCol => panic!("Cannot update schema encoding"),
-        //     MetaPage::StartTimeCol => panic!("Cannot update start time"),
-        //     MetaPage::RidCol => panic!("Cannot update RID"),
-        // }
-        if let MetaPage::IndirectionCol = col_type {
-            let col: usize = self.total_cols - Table::NUM_META_PAGES + col_type as usize;
-            let pid = Pid::new(col, self.total_cols, addr.collection_num, &range);
-            // See read_col
-            self.lazy_guarantee_page(addr, pid)
-                .map_err(|_| PageError::IndexOutOfBounds(addr.offset))?;
-            let page = self.frames.get_mut(&pid.get()).unwrap();
+        match(col_type) {
+            MetaPage::IndirectionCol => {
+                let col: usize = self.total_cols - Table::NUM_META_PAGES + col_type as usize;
+                let pid = Pid::new(col, self.total_cols, addr.collection_num, &range);
+                // See read_col
+                self.lazy_guarantee_page(addr, pid)
+                    .map_err(|_| PageError::IndexOutOfBounds(addr.offset))?;
+                let page = self.cache.get_mut(&pid.get()).unwrap();
 
-            page.set_dirty(true);
-            page.update(addr.offset, val)?;
-            Ok(())
-        } else {
-            Err(PageError::UpdateNotAllowed)
+                page.set_dirty(true);
+                page.update(addr.offset, val)?;
+                Ok(())
+            }
+            _ => {
+                Err(PageError::UpdateNotAllowed)
+            }
         }
     }
 
@@ -116,7 +107,7 @@ impl BufferPool {
     // done
     #[inline]
     fn meta_record(&mut self, pid: i64) -> &Page {
-        self.frames.get(&pid).unwrap()
+        self.cache.get(&pid).unwrap()
     }
 
     //done
@@ -209,7 +200,7 @@ impl BufferPool {
                 .map_err(|_e| BufferPoolError::DiskReadFail)?;
         }
 
-        self.frames.push(pid.get(), page);
+        self.cache.push(pid.get(), page);
         self.size += 1;
 
         Ok(())
@@ -226,7 +217,7 @@ impl BufferPool {
     /// evict() will not write to disk but instead do only the removal step.
     pub fn evict(&mut self) -> Result<(), BufferPoolError> {
         // We only want to write to disk if the page is dirty.
-        let (evicted_pid_val, page) = self.frames.pop_lru().unwrap();
+        let (evicted_pid_val, page) = self.cache.pop_lru().unwrap();
         if page.is_dirty() && !self.path.is_empty() {
             let evicted_pid = Pid {
                 pid: evicted_pid_val,
@@ -244,10 +235,10 @@ impl BufferPool {
     #[inline]
     pub fn evict_all(&mut self) -> Result<(), BufferPoolError> {
         while self.size != 0 {
-            let (pid, page) = self.frames.pop_lru().unwrap();
+            let (pid, page) = self.cache.pop_lru().unwrap();
             let mut addr: PhysicalAddress = PhysicalAddress::default();
             //offset no
-            //addr.offset = self.frames.get(&pid).unwrap().len() - 1;
+            //addr.offset = self.cache.get(&pid).unwrap().len() - 1;
             addr.collection_num = (pid.abs() - 1) as usize % self.total_cols;
 
             let pid = Pid { pid };
@@ -287,7 +278,7 @@ impl BufferPool {
         }
         let mut new_pid = pid;
         new_pid.increment(self.total_cols as i64)?;
-        self.frames.push(pid.get(), Page::default());
+        self.cache.push(pid.get(), Page::default());
         self.size += 1;
         Ok(new_pid)
     }
@@ -316,18 +307,9 @@ impl BufferPool {
         addr: &PhysicalAddress,
         pid: Pid,
     ) -> Result<Pid, BufferPoolError> {
-        // if self.frames.contains(&pid.get()) && !self.frames.get(&pid.get()).unwrap().has_capacity()
-        // {
-        //     self.create_blank_page(addr, pid)?;
-        // } else {
-        //     if self.on_disk(addr, pid) {
-        //         self.read_from_disk(addr, pid)?;
-        //     } else {
-        //         self.create_blank_page(addr, pid)?;
-        //     }
-        // }
-        if self.frames.contains(&pid.get()) {
-            if !self.frames.get(&pid.get()).unwrap().has_capacity() {
+
+        if self.cache.contains(&pid.get()) {
+            if !self.cache.get(&pid.get()).unwrap().has_capacity() {
                 return Ok(pid);
             }
             // Page exist but full, evict and make new page and return new pid
@@ -341,7 +323,7 @@ impl BufferPool {
             if self.is_full() {
                 self.evict()?;
             }
-            self.frames.push(pid.get(), Page::default());
+            self.cache.push(pid.get(), Page::default());
             self.size += 1;
         }
         Ok(pid)
@@ -367,7 +349,7 @@ impl BufferPool {
 impl Default for BufferPool {
     fn default() -> Self {
         Self {
-            frames: LruCache::new(NonZeroUsize::new(BufferPool::NUMBER_OF_FRAMES).unwrap()),
+            cache: LruCache::new(NonZeroUsize::new(BufferPool::NUMBER_OF_FRAMES).unwrap()),
             size: 0,
             total_cols: 0,
             path: String::from(""),
@@ -383,9 +365,9 @@ pub struct Pid {
 
 impl Pid {
     pub fn new(col: usize, total_cols: usize, collection_num: usize, range: &WhichRange) -> Self {
-        let pid_unsigned = (col + total_cols * collection_num) + 1;
-        let mut pid = pid_unsigned as i64;
-        if matches![range, WhichRange::Tail] {
+        let mut pid = ((col + total_cols * collection_num) + 1) as i64;
+       
+        if *range == WhichRange::Tail {
             pid = -pid;
         }
         Self { pid }
@@ -396,43 +378,11 @@ impl Pid {
     }
 
     pub fn increment(&mut self, i: i64) -> Result<i64, BufferPoolError> {
-        if self.pid == 0 {
-            return Err(BufferPoolError::ZeroPid);
-        }
-        if self.pid > 0 {
-            self.pid += i;
-        } else {
-            self.pid -= i;
+        match self.pid {
+            pid if pid > 0 => self.pid += i,
+            pid if pid < 0 => self.pid -= i,
+            _ => return Err(BufferPoolError::ZeroPid), // covers all cases, should never happen
         }
         Ok(self.pid)
     }
 }
-
-// pub struct PidIterator {
-//     current: i64,
-// }
-//
-// impl Iterator for PidIterator {
-//     type Item = i64;
-//
-//     fn next(&mut self) -> Option<Self::Item> {
-//         if self.current == 0 {
-//             return None;
-//         }
-//
-//         let result = self.current;
-//
-//         if self.current < 0 {
-//             self.current -= 1;
-//         } else {
-//             self.current += 1;
-//         }
-//         Some(result)
-//     }
-// }
-//
-// impl Pid {
-//     pub fn iter(&self) -> PidIterator {
-//         PidIterator { current: self.pid }
-//     }
-// }
