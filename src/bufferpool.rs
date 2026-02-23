@@ -272,15 +272,15 @@ impl BufferPool {
     pub fn create_blank_page (
         &mut self,
         pid: Pid,
-    ) -> Result<Pid, BufferPoolError> {
+    ) -> Result<i64, BufferPoolError> {
         if self.is_full() {
             self.evict()?
         }
         let mut new_pid = pid;
         new_pid.increment(self.total_cols as i64)?;
-        self.cache.push(pid.get(), Page::default());
+        self.cache.push(new_pid.get(), Page::default());
         self.size += 1;
-        Ok(new_pid)
+        Ok(new_pid.get())
     }
 
     /// Ensures a usable page exists in the buffer pool for the given pid.
@@ -306,11 +306,13 @@ impl BufferPool {
         &mut self,
         addr: &PhysicalAddress,
         pid: Pid,
-    ) -> Result<Pid, BufferPoolError> {
+    ) -> Result<i64, BufferPoolError> {
+
+        let pid_val = pid.get();
 
         if self.cache.contains(&pid.get()) {
-            if !self.cache.get(&pid.get()).unwrap().has_capacity() {
-                return Ok(pid);
+            if !self.cache.get(&pid_val).unwrap().has_capacity() {
+                return Ok(pid_val);
             }
             // Page exist but full, evict and make new page and return new pid
             return self.create_blank_page(pid);
@@ -318,15 +320,15 @@ impl BufferPool {
 
         if self.on_disk(addr, pid) {
             self.read_from_disk(addr, pid)?;
-            return Ok(pid);
+            return Ok(pid_val);
         } else {
             if self.is_full() {
                 self.evict()?;
             }
-            self.cache.push(pid.get(), Page::default());
+            self.cache.push(pid_val, Page::default());
             self.size += 1;
         }
-        Ok(pid)
+        Ok(pid_val)
     }
 
     #[inline]
@@ -339,7 +341,8 @@ impl BufferPool {
         for (i, val) in all_data.into_iter().enumerate() {
             let pid = Pid::new(i, self.total_cols, addr.collection_num, range);
             let pid = self.lazy_guarantee_page(addr, pid)?;
-            self.write_col(pid.get(), val)
+
+            self.write_col(pid, val)
                 .map_err(|_| BufferPoolError::BufferPoolWriteFail)?;
         }
         Ok(*addr)
@@ -366,7 +369,7 @@ pub struct Pid {
 impl Pid {
     pub fn new(col: usize, total_cols: usize, collection_num: usize, range: &WhichRange) -> Self {
         let mut pid = ((col + total_cols * collection_num) + 1) as i64;
-       
+
         if *range == WhichRange::Tail {
             pid = -pid;
         }
