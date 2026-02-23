@@ -5,7 +5,7 @@ use crate::table::Table;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
-
+#[derive(Clone)]
 pub struct PageRange {
     bufferpool: Arc<RwLock<BufferPool>>,
     next_addr: PhysicalAddressIterator,
@@ -30,7 +30,6 @@ impl PageRange {
             pages_per_collection,
         }
     }
-
     //Append assumes metadata has been pre-calculated (allData)
     //All it does is write to the current offset
     //allData cols must be in correct places
@@ -106,7 +105,7 @@ pub enum WhichRange {
     Base,
     Tail,
 }
-
+#[derive(Clone)]
 pub struct PageRanges {
     tail: PageRange,
     base: PageRange,
@@ -225,7 +224,7 @@ pub struct PhysicalAddress {
     pub(crate) collection_num: usize,
 }
 
-#[derive(Default)]
+#[derive(Default,Clone)]
 pub struct PhysicalAddressIterator {
     current: PhysicalAddress,
 }

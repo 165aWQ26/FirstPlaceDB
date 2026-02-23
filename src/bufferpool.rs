@@ -54,9 +54,9 @@ impl BufferPool {
         //col: usize, total_cols: usize, collection_num: usize, range : WhichRange
         let page = self.cache.get_mut(&pid).unwrap();
 
-        page.set_dirty(true);
         page.write(val)
-    }
+
+}
 
     //done
     #[inline]
@@ -68,10 +68,9 @@ impl BufferPool {
     ) -> Result<Option<i64>, PageError> {
         let pid = Pid::new(col, self.total_cols, addr.collection_num, &range);
         // If page is not in cache, unwrap can crash the entire program.
-        // The lazy_guarentee_page() nsure the page is in the bufferpool before access.
+        // lazy_guarentee_page() ensures the page is in the bufferpool before access.
         self.lazy_guarantee_page(addr, pid)
             .map_err(|_| PageError::IndexOutOfBounds(addr.offset))?;
-        // self.cache.get(pid).unwrap().read(offset);
         self.cache.get(&pid.get()).unwrap().read(addr.offset)
     }
 
@@ -108,6 +107,8 @@ impl BufferPool {
     #[inline]
     fn meta_record(&mut self, pid: i64) -> &Page {
         self.cache.get(&pid).unwrap()
+
+
     }
 
     //done
@@ -120,6 +121,9 @@ impl BufferPool {
     ) -> Result<Option<i64>, PageError> {
         let col: usize = self.total_cols - Table::NUM_META_PAGES + col_type as usize;
         let pid = Pid::new(col, self.total_cols, addr.collection_num, &range);
+
+        self.lazy_guarantee_page(addr, pid)
+            .map_err(|_| PageError::IndexOutOfBounds(addr.offset))?;
         self.meta_record(pid.get()).read(addr.offset)
     }
 
@@ -142,6 +146,7 @@ impl BufferPool {
             path.push_str("bp_");
         }
         path.push_str(addr.collection_num.to_string().as_str());
+        path.push_str("_");
         path.push_str(
             ((pid_val.abs() - 1) % (self.total_cols as i64))
                 .to_string()
@@ -150,6 +155,9 @@ impl BufferPool {
 
         Ok(path)
     }
+
+
+
 
     ///
     pub fn write_to_disk(
@@ -167,6 +175,14 @@ impl BufferPool {
         for value in page.iter() {
             if let Some(val) = value {
                 let bytes = val.to_be_bytes();
+                writer
+                    .write_all(&bytes)
+                    .map_err(|_| BufferPoolError::DiskWriteFail)?;
+            } else {
+                //largest positive number
+                let crazy_big_num : i64 = -1 ^ (1 << 63);
+
+                let bytes = crazy_big_num.to_be_bytes();
                 writer
                     .write_all(&bytes)
                     .map_err(|_| BufferPoolError::DiskWriteFail)?;
@@ -239,7 +255,7 @@ impl BufferPool {
             let mut addr: PhysicalAddress = PhysicalAddress::default();
             //offset no
             //addr.offset = self.cache.get(&pid).unwrap().len() - 1;
-            addr.collection_num = (pid.abs() - 1) as usize % self.total_cols;
+            addr.collection_num = (pid.abs() - 1) as usize / self.total_cols;
 
             let pid = Pid { pid };
             if page.is_dirty() {
@@ -311,7 +327,7 @@ impl BufferPool {
         let pid_val = pid.get();
 
         if self.cache.contains(&pid.get()) {
-            if !self.cache.get(&pid_val).unwrap().has_capacity() {
+            if self.cache.get(&pid_val).unwrap().has_capacity() {
                 return Ok(pid_val);
             }
             // Page exist but full, evict and make new page and return new pid
@@ -341,6 +357,8 @@ impl BufferPool {
         for (i, val) in all_data.into_iter().enumerate() {
             let pid = Pid::new(i, self.total_cols, addr.collection_num, range);
             let pid = self.lazy_guarantee_page(addr, pid)?;
+
+
 
             self.write_col(pid, val)
                 .map_err(|_| BufferPoolError::BufferPoolWriteFail)?;

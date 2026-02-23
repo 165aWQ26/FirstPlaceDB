@@ -6,6 +6,7 @@ use crate::page_range::{PageRanges, WhichRange};
 use parking_lot::RwLock;
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct Table {
     pub name: String,
 
