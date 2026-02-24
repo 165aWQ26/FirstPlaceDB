@@ -1,41 +1,25 @@
-use crate::error::DbError;
+use crate::bufferpool::{BufferPool, MetaPage};
+use crate::bufferpool_context::{PageLocation, TableContext};
+use crate::db_error::DbError;
 use crate::page::{Page, PageError};
-use crate::page_collection::{MetaPage, PageCollection};
 use crate::table::Table;
+use parking_lot::Mutex;
+use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct PageRange {
     range: Vec<PageCollection>,
     pub tps: Vec<i64>,
     next_addr: PhysicalAddressIterator,
-    pages_per_collection: usize,
 }
 
 impl PageRange {
-    //Assumes equal base page and tail page num collections which is suboptimal. Better to over alloc
-    //These optimizations are more for fun than anything.
-    pub const PROJECTED_NUM_PAGE_COLLECTIONS: usize =
-        (Table::PROJECTED_NUM_RECORDS + Page::PAGE_SIZE - 1) / Page::PAGE_SIZE;
-
-    pub fn new(data_pages_per_collection: usize) -> Self {
-        let pages_per_collection = data_pages_per_collection + Table::NUM_META_PAGES;
-        let mut init_range: Vec<PageCollection> =
-            Vec::with_capacity(PageRange::PROJECTED_NUM_PAGE_COLLECTIONS);
-        init_range.push(PageCollection::new(pages_per_collection));
-
+    pub fn new() -> Self {
         Self {
-            range: init_range,
             next_addr: PhysicalAddressIterator::default(),
             pages_per_collection,
-            tps: vec![i64::MAX; PageRange::PROJECTED_NUM_PAGE_COLLECTIONS],
         }
     }
-
-    // for merge use
-    pub fn clone_range(&self) -> Vec<PageCollection> {
-        self.range.clone()
-    }
-    pub fn swap_range(&mut self, new_range: Vec<PageCollection>) { self.range = new_range; }
-    pub fn range_len(&self) -> usize { self.range.len() }
 
     //Append assumes metadata has been pre-calculated (allData)
     //All it does is write to the current offset
@@ -62,82 +46,45 @@ impl PageRange {
         while self.range.len() <= page {
             self.range
                 .push(PageCollection::new(self.pages_per_collection));
-            // grow tps as well
-            self.tps.push(i64::MAX);
         }
     }
 
-    fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
-        // given an array (project_columns) of 0's and 1's, return all requested columns (1's), ignore non-required(0's)
-        let num_data_cols = self.pages_per_collection - Table::NUM_META_PAGES;
-        (0..num_data_cols)
-            .map(|col| self.read_single(col, addr))
-            .collect()
+    pub fn next_addr(&mut self) -> PhysicalAddress {
+        self.next_addr.next().unwrap()
     }
 
-    #[inline]
-    fn read_single(&self, column: usize, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
-        //given single column, return value in row x column
-        Ok(self.range[addr.collection_num].read_col(column, addr.offset)?)
+    pub fn position(&self) -> (usize, usize) {
+        (
+            self.next_addr.current.offset,
+            self.next_addr.current.collection_num,
+        )
     }
 
-    #[inline]
-    pub fn write_meta_col(
-        &mut self,
-        addr: &PhysicalAddress,
-        val: Option<i64>,
-        col: MetaPage,
-    ) -> Result<(), PageError> {
-        self.range[addr.collection_num].update_meta_col(addr.offset, val, col)
-    }
-
-    pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage) -> Result<Option<i64>, PageError>{
-        if addr.collection_num >= self.range.len() {
-            return Err(PageError::IndexOutOfBounds(addr.collection_num));
-        }
-        Ok(self.range[addr.collection_num].read_meta_col(addr.offset, col_type)?)
-    }
-
-    fn read_projected(
-        &self,
-        projected: &[i64],
-        addr: &PhysicalAddress,
-    ) -> Result<Vec<Option<i64>>, DbError> {
-        projected
-            .iter()
-            .enumerate()
-            .map(|(col, &flag)| {
-                if flag == 1 {
-                    self.read_single(col, addr)
-                } else {
-                    Ok(None)
-                }
-            })
-            .collect()
+    pub fn set_position(&mut self, offset: usize, collection_num: usize) {
+        self.next_addr.current.offset = offset;
+        self.next_addr.current.collection_num = collection_num;
     }
 }
 
+#[derive(PartialEq, Eq)]
 pub enum WhichRange {
     Base,
     Tail,
 }
-
+#[derive(Clone)]
 pub struct PageRanges {
-    tail: PageRange,
+    pub(crate) tail: PageRange,
     pub(crate) base: PageRange,
+    bufferpool: Arc<Mutex<BufferPool>>,
 }
 
 impl PageRanges {
-    pub fn new(pages_per_collection: usize) -> Self {
+    pub fn new(bufferpool: Arc<Mutex<BufferPool>>) -> Self {
         Self {
-            tail: PageRange::new(pages_per_collection),
-            base: PageRange::new(pages_per_collection),
+            tail: PageRange::new(),
+            base: PageRange::new(),
+            bufferpool,
         }
-    }
-
-
-    pub fn write_base_col(&mut self, col:usize, addr: &PhysicalAddress, val: Option<i64>) -> Result<(), PageError>{
-        self.base.range[addr.collection_num].pages[col].update(addr.offset, val)
     }
 
     // For inserts: stages metadata (rid, indirection=rid, schema=0) then appends to base
@@ -145,12 +92,13 @@ impl PageRanges {
         &mut self,
         mut data_cols: Vec<Option<i64>>,
         rid: i64,
+        table_ctx: &TableContext,
     ) -> Result<PhysicalAddress, DbError> {
         data_cols.push(Some(rid)); // RID
         data_cols.push(Some(rid)); // indirection (self for new base record)
         data_cols.push(Some(0)); // schema_encoding (no updates)
         data_cols.push(None);
-        data_cols.push(None); // for BaseRID NA
+        self.append(data_cols, WhichRange::Base, &table_ctx);
         self.base.append(data_cols)
     }
 
@@ -161,82 +109,87 @@ impl PageRanges {
         rid: i64,
         indirection: i64,
         schema_encoding: Option<i64>,
+        table_ctx: &TableContext,
         base_rid:i64,
     ) -> Result<PhysicalAddress, DbError> {
         data_cols.push(Some(rid)); // RID
         data_cols.push(Some(indirection)); // indirection (points to prev version)
         data_cols.push(schema_encoding); // schema_encoding: None = deletion, Some(bitmask) = update
         data_cols.push(None);
+        self.append(data_cols, WhichRange::Tail, table_ctx)
         data_cols.push(Some(base_rid));
         self.tail.append(data_cols)
     }
 
     #[inline]
     pub fn read_single(
-        &self,
+        &mut self,
         column: usize,
-        addr: &PhysicalAddress,
-        range: WhichRange
+        page_location: &PageLocation,
+        table_ctx: &TableContext,
     ) -> Result<Option<i64>, DbError> {
-        match range {
-            WhichRange::Base => self.base.read_single(column, addr),
-            WhichRange::Tail => self.tail.read_single(column, addr),
-        }
+        Ok(self
+            .bufferpool
+            .lock()
+            .read_col(column, &page_location, table_ctx)?)
     }
 
-    #[inline]
-    pub fn read_tail_single(
-        &self,
-        column: usize,
-        addr: &PhysicalAddress,
-    ) -> Result<Option<i64>, DbError> {
-        self.tail.read_single(column, addr)
-    }
+    fn append(
+        &mut self,
+        all_data: Vec<Option<i64>>,
+        range: WhichRange,
+        table_ctx: &TableContext,
+    ) -> Result<PhysicalAddress, DbError> {
+        let addr = match range {
+            WhichRange::Base => self.base.next_addr(),
+            WhichRange::Tail => self.tail.next_addr(),
+        };
 
-    //
-    // #[inline]
-    // pub fn write_single(
-    //     &mut self,
-    //     col: usize,
-    //     addr: &PhysicalAddress,
-    //     val: Option<i64>,
-    // ) -> Result<(), PageError> {
-    //     self.base.write_meta_col(col, addr, val)
-    // }
+        let page_location = PageLocation::new(addr, range);
+        self.bufferpool
+            .lock()
+            .append(all_data, &page_location, table_ctx)?;
+        Ok(addr)
+    }
 
     #[inline]
     pub fn write_indirection(
         &mut self,
-        addr: &PhysicalAddress,
         val: Option<i64>,
-        range: WhichRange
+        page_location: &PageLocation,
+        table_ctx: &TableContext,
     ) -> Result<(), PageError> {
-        match range {
-            WhichRange::Base => self.base.write_meta_col(addr, val, MetaPage::IndirectionCol),
-            WhichRange::Tail => self.tail.write_meta_col(addr, val, MetaPage::IndirectionCol),
-        }
-    }
-
-
-    #[inline]
-    pub fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
-        self.base.read(addr)
+        self.bufferpool.lock().update_meta_col(
+            val,
+            MetaPage::IndirectionCol,
+            page_location,
+            table_ctx,
+        )
     }
 
     #[inline]
-    pub fn read_projected(
+    pub fn read(
         &self,
-        projected: &[i64],
         addr: &PhysicalAddress,
+        table_ctx: &TableContext,
     ) -> Result<Vec<Option<i64>>, DbError> {
-        self.base.read_projected(projected, addr)
+        let num_data_cols = table_ctx.total_cols - Table::NUM_META_PAGES;
+        let page_location = PageLocation::base(*addr);
+        let mut buff = self.bufferpool.lock();
+        (0..num_data_cols)
+            .map(|col| Ok(buff.read_col(col, &page_location, table_ctx)?))
+            .collect()
     }
 
-    pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage, range: WhichRange) -> Result<Option<i64>, PageError>{
-        match range {
-            WhichRange::Base => self.base.read_meta_col(addr, col_type),
-            WhichRange::Tail => self.tail.read_meta_col(addr, col_type),
-        }
+    pub fn read_meta_col(
+        &mut self,
+        col_type: MetaPage,
+        page_location: &PageLocation,
+        table_ctx: &TableContext,
+    ) -> Result<Option<i64>, PageError> {
+        self.bufferpool
+            .lock()
+            .read_meta_col(col_type, &page_location, table_ctx)
     }
 }
 
@@ -248,7 +201,7 @@ pub struct PhysicalAddress {
     pub(crate) collection_num: usize,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct PhysicalAddressIterator {
     current: PhysicalAddress,
 }

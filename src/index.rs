@@ -4,6 +4,7 @@
 // M2: restore secondary indices — switch back to BTreeMap<i64, Vec<i64>> or similar
 use std::collections::BTreeMap;
 
+#[derive(Clone)]
 pub struct Index {
     index: BTreeMap<i64, Vec<i64>>,
 }
@@ -78,6 +79,10 @@ impl Index {
         if self.index.get(&key).unwrap().len() == 0 {
             self.index.remove(&key);
         }
+    }
+
+    pub fn iter(&self) -> std::collections::btree_map::Iter<'_, i64, i64> {
+        self.index.iter()
     }
 
     // drop_index and create_index is left to the Table

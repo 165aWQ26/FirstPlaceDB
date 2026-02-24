@@ -1,4 +1,4 @@
-use crate::error::DbError;
+use crate::db_error::DbError;
 use crate::page_directory::PageDirectory;
 use crate::page_range::PhysicalAddress;
 
@@ -30,8 +30,8 @@ fn add_grows_dynamically() {
 #[test]
 fn get_nonexistent_returns_error() {
     let pd = PageDirectory::default();
-    assert_eq!(pd.get(0), Err(DbError::RecordNotFound(0)));
-    assert_eq!(pd.get(99999), Err(DbError::RecordNotFound(99999)));
+    assert!(matches!(pd.get(0), Err(DbError::RecordNotFound(0))));
+    assert!(matches!(pd.get(99999), Err(DbError::RecordNotFound(99999))));
 }
 
 #[test]
@@ -41,5 +41,5 @@ fn delete_then_get_fails() {
     assert_eq!(pd.get(5).unwrap(), addr(5, 0));
 
     pd.delete(5).unwrap();
-    assert_eq!(pd.get(5), Err(DbError::RecordNotFound(5)));
+    assert!(matches!(pd.get(5), Err(DbError::RecordNotFound(5))));
 }
