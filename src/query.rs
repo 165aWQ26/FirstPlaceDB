@@ -81,7 +81,7 @@ impl Query {
             _ => return Ok(false),
         };
 
-        let base_location = PageLocation::base(self.table.page_directory.get(rid))?;
+        let base_location = PageLocation::base(self.table.page_directory.get(rid)?);
 
         // Get current indirection (points to latest tail, or self if no updates)
         let current_indirection = self
