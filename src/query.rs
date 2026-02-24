@@ -1,5 +1,4 @@
 use crate::db_error::DbError;
-use crate::page_range::WhichRange;
 use crate::table::Table;
 
 //May want to put MetaPage somewhere that isn't the bufferpool
@@ -56,10 +55,9 @@ impl<'a> Query<'a> {
         if self.table.is_deleted(rid)? {
             return Err(DbError::KeyNotFound(key));
         }
-        Ok(vec![
-            self.table
-                .read_latest_projected(projected_columns_index, rid)?,
-        ])
+        Ok(vec![self
+            .table
+            .read_latest_projected(projected_columns_index, rid)?])
     }
 
     pub fn select_version(
@@ -132,7 +130,7 @@ impl<'a> Query<'a> {
         // Update base indirection
         self.table.page_ranges.write_indirection(
             Some(next_rid),
-            &PageLocation::new(address, WhichRange::Base),
+            &base_location,
             &self.table.table_ctx,
         )?;
 

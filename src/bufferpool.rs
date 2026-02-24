@@ -367,11 +367,7 @@ impl BufferPool {
         table_ctx: &TableContext,
     ) -> Result<Pid, BufferPoolError> {
         if self.cache.contains(&pid) {
-            if self.cache.get(&pid).unwrap().has_capacity() {
                 return Ok(pid);
-            }
-            // Page exist but full, evict and make new page and return new pid
-            return self.create_blank_page(pid, table_ctx);
         }
 
         if self.on_disk(addr, pid, table_ctx) {

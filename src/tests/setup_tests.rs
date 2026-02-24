@@ -16,7 +16,7 @@ pub fn setup_db(num_columns: usize) -> Database {
     db
 }
 
-pub fn setup_query(db: &mut Database) -> Option<Query> {
+pub fn setup_query(db: &'_ mut Database) -> Option<Query<'_>> {
     if let Ok(Some(table)) = db.get_table(&String::from("test")) {
         return Some(Query::new(table));
     }

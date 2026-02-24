@@ -14,7 +14,6 @@ pub struct Database {
     table_id_iterator: std::ops::RangeFrom<usize>,
 }
 
-#[allow(dead_code)]
 impl Database {
     pub fn new() -> Self {
         Self {
@@ -30,6 +29,9 @@ impl Database {
         let mut table_path = self.path.clone();
         table_path.push_str(&name);
         table_path.push_str("/");
+
+        // Create table directory so bufferpool evictions can write during operation
+        let _ = std::fs::create_dir_all(&table_path);
 
         let table = Table::new(
             table_path.clone(),
@@ -54,22 +56,29 @@ impl Database {
         //  Drop index function
         self.bufferpool.lock().evict_all(&self.tables)?;
         for table in self.tables.values() {
+            std::fs::create_dir_all(&table.table_ctx.path)
+                .map_err(|_| DbError::WriteTableFailed())?;
             (*table)
-                .write_to_disk(self.path.clone())
+                .write_to_disk(table.table_ctx.path.clone())
                 .map_err(|_| DbError::WriteTableFailed())?;
         }
 
         Ok(())
     }
 
-    pub fn read_table_from_disk(&mut self, name: String) -> Result<(), DbError> {
-        //Assumes only one table
-        let mut table = Table::new(name.clone(), 0, 0, Arc::clone(&self.bufferpool), 0);
-        self.path = name.clone();
+    pub fn read_table_from_disk(&mut self, name: &str, table_path: String) -> Result<(), DbError> {
+        let table_id = self.table_id_iterator.next().unwrap();
+        let mut table = Table::new(
+            table_path.clone(),
+            0,
+            0,
+            Arc::clone(&self.bufferpool),
+            table_id,
+        );
         table
-            .read_from_disk(self.path.clone())
+            .read_from_disk(table_path)
             .map_err(|_| DbError::ReadTableFailed())?;
-        self.tables.insert(name, table);
+        self.tables.insert(name.to_string(), table);
 
         Ok(())
     }
@@ -79,13 +88,19 @@ impl Database {
             let mut table_path = self.path.clone();
             table_path.push_str(&name);
             table_path.push_str("/");
-            self.read_table_from_disk(table_path.clone())
+            self.read_table_from_disk(name, table_path)
                 .map_err(|_| DbError::ReadTableFailed())?;
-            self.bufferpool.lock().append_name(table_path.clone());
+            self.bufferpool.lock().append_name(name.to_string());
         }
         Ok(self.tables.get_mut(name))
     }
     pub fn drop_table(&mut self, name: &str) {
         self.tables.remove(name);
+    }
+}
+
+impl Default for Database {
+    fn default() -> Self {
+        Self::new()
     }
 }

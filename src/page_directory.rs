@@ -55,14 +55,30 @@ impl PageDirectory {
         writer: &mut BufWriter<File>,
         bufferpool: Arc<Mutex<BufferPool>>,
     ) -> Result<(), TableError> {
-        for addr in self.directory.iter() {
+        let entries: Vec<_> = self
+            .directory
+            .iter()
+            .enumerate()
+            .filter_map(|(i, addr)| addr.map(|a| (i, a)))
+            .collect();
+
+        bufferpool
+            .lock()
+            .write_i64(entries.len() as i64, writer)
+            .map_err(|_| TableError::WriteFail)?;
+
+        for (rid, addr) in entries {
             bufferpool
                 .lock()
-                .write_i64(addr.unwrap().collection_num as i64, writer)
+                .write_i64(rid as i64, writer)
                 .map_err(|_| TableError::WriteFail)?;
             bufferpool
                 .lock()
-                .write_i64(addr.unwrap().offset as i64, writer)
+                .write_i64(addr.collection_num as i64, writer)
+                .map_err(|_| TableError::WriteFail)?;
+            bufferpool
+                .lock()
+                .write_i64(addr.offset as i64, writer)
                 .map_err(|_| TableError::WriteFail)?;
         }
         Ok(())
@@ -74,21 +90,33 @@ impl PageDirectory {
         reader: &mut BufReader<File>,
         bufferpool: Arc<Mutex<BufferPool>>,
     ) -> Result<(), TableError> {
-        // We need to iterate X times?
-        // X = # of total vals times
-        // Until the end of the file lol.
+        let count = bufferpool
+            .lock()
+            .read_usize(buffer, reader)
+            .map_err(|_| TableError::ReadFail)?;
 
-        while let Ok(mut current) = bufferpool.lock().read_usize(buffer, reader) {
-            let mut addr: PhysicalAddress = PhysicalAddress::default();
-
-            addr.collection_num = current;
-            current = bufferpool
+        for _ in 0..count {
+            let rid = bufferpool
                 .lock()
                 .read_usize(buffer, reader)
                 .map_err(|_| TableError::ReadFail)?;
-            addr.offset = current;
+            let collection_num = bufferpool
+                .lock()
+                .read_usize(buffer, reader)
+                .map_err(|_| TableError::ReadFail)?;
+            let offset = bufferpool
+                .lock()
+                .read_usize(buffer, reader)
+                .map_err(|_| TableError::ReadFail)?;
 
-            self.directory.push(Some(addr));
+            let addr = PhysicalAddress {
+                offset,
+                collection_num,
+            };
+            if rid >= self.directory.len() {
+                self.directory.resize(rid + 1, None);
+            }
+            self.directory[rid] = Some(addr);
         }
 
         Ok(())

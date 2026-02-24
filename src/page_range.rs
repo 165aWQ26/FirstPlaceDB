@@ -21,6 +21,18 @@ impl PageRange {
     pub fn next_addr(&mut self) -> PhysicalAddress {
         self.next_addr.next().unwrap()
     }
+
+    pub fn position(&self) -> (usize, usize) {
+        (
+            self.next_addr.current.offset,
+            self.next_addr.current.collection_num,
+        )
+    }
+
+    pub fn set_position(&mut self, offset: usize, collection_num: usize) {
+        self.next_addr.current.offset = offset;
+        self.next_addr.current.collection_num = collection_num;
+    }
 }
 
 #[derive(PartialEq, Eq)]
@@ -30,8 +42,8 @@ pub enum WhichRange {
 }
 #[derive(Clone)]
 pub struct PageRanges {
-    tail: PageRange,
-    base: PageRange,
+    pub(crate) tail: PageRange,
+    pub(crate) base: PageRange,
     bufferpool: Arc<Mutex<BufferPool>>,
 }
 

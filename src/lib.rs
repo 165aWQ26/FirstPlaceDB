@@ -23,6 +23,8 @@ mod transaction_worker;
 /// import the module.
 #[pymodule]
 mod _core {
-    //     #[pymodule_export]
-    //     use crate::bindings::CoreQuery;
+    #[pymodule_export]
+    use crate::bindings::CoreDatabase;
+    #[pymodule_export]
+    use crate::bindings::CoreQuery;
 }

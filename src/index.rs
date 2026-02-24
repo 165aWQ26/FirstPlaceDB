@@ -59,5 +59,9 @@ impl Index {
         self.index.remove(&key);
     }
 
+    pub fn iter(&self) -> std::collections::btree_map::Iter<'_, i64, i64> {
+        self.index.iter()
+    }
+
     // drop_index and create_index is left to the Table
 }

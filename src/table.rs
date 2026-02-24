@@ -2,12 +2,11 @@ use crate::bufferpool::{BufferPool, MetaPage};
 use crate::bufferpool_context::{PageLocation, TableContext};
 use crate::db_error::DbError;
 use crate::index::Index;
-use crate::page::Page;
 use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
 use parking_lot::Mutex;
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Read};
+use std::io::{BufReader, BufWriter};
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -94,9 +93,55 @@ impl Table {
             .write_i64(self.key_index as i64, &mut writer)
             .map_err(|_| TableError::WriteFail)?;
 
+        // Persist RID counter (current value of the RangeFrom iterator)
+        self.bufferpool
+            .lock()
+            .write_i64(self.rid.start, &mut writer)
+            .map_err(|_| TableError::WriteFail)?;
+
+        // Persist base page range iterator position
+        let (base_off, base_col) = self.page_ranges.base.position();
+        self.bufferpool
+            .lock()
+            .write_i64(base_off as i64, &mut writer)
+            .map_err(|_| TableError::WriteFail)?;
+        self.bufferpool
+            .lock()
+            .write_i64(base_col as i64, &mut writer)
+            .map_err(|_| TableError::WriteFail)?;
+
+        // Persist tail page range iterator position
+        let (tail_off, tail_col) = self.page_ranges.tail.position();
+        self.bufferpool
+            .lock()
+            .write_i64(tail_off as i64, &mut writer)
+            .map_err(|_| TableError::WriteFail)?;
+        self.bufferpool
+            .lock()
+            .write_i64(tail_col as i64, &mut writer)
+            .map_err(|_| TableError::WriteFail)?;
+
+        // Persist primary key index
+        let index = &self.indices[self.key_index];
+        let entries: Vec<_> = index.iter().collect();
+        self.bufferpool
+            .lock()
+            .write_i64(entries.len() as i64, &mut writer)
+            .map_err(|_| TableError::WriteFail)?;
+        for (key, rid) in &entries {
+            self.bufferpool
+                .lock()
+                .write_i64(**key, &mut writer)
+                .map_err(|_| TableError::WriteFail)?;
+            self.bufferpool
+                .lock()
+                .write_i64(**rid, &mut writer)
+                .map_err(|_| TableError::WriteFail)?;
+        }
+
         self.write_page_directory(&mut writer)?;
 
-        return Ok(());
+        Ok(())
     }
 
     pub fn read_from_disk(&mut self, path: String) -> Result<(), TableError> {
@@ -106,8 +151,6 @@ impl Table {
         let file = File::open(&file_path).map_err(|_| TableError::InvalidPath)?;
 
         let mut reader = BufReader::new(file);
-
-        let mut page = Page::default();
 
         let mut buffer = [0u8; 8];
 
@@ -124,19 +167,62 @@ impl Table {
             .read_usize(&mut buffer, &mut reader)
             .map_err(|_| TableError::ReadFail)?;
 
+        // Restore RID counter
+        let rid_start = self
+            .bufferpool
+            .lock()
+            .read_usize(&mut buffer, &mut reader)
+            .map_err(|_| TableError::ReadFail)? as i64;
+        self.rid = rid_start..;
+
+        // Restore base page range iterator position
+        let base_off = self
+            .bufferpool
+            .lock()
+            .read_usize(&mut buffer, &mut reader)
+            .map_err(|_| TableError::ReadFail)?;
+        let base_col = self
+            .bufferpool
+            .lock()
+            .read_usize(&mut buffer, &mut reader)
+            .map_err(|_| TableError::ReadFail)?;
+        self.page_ranges.base.set_position(base_off, base_col);
+
+        // Restore tail page range iterator position
+        let tail_off = self
+            .bufferpool
+            .lock()
+            .read_usize(&mut buffer, &mut reader)
+            .map_err(|_| TableError::ReadFail)?;
+        let tail_col = self
+            .bufferpool
+            .lock()
+            .read_usize(&mut buffer, &mut reader)
+            .map_err(|_| TableError::ReadFail)?;
+        self.page_ranges.tail.set_position(tail_off, tail_col);
+
+        // Restore primary key index
+        let index_count = self
+            .bufferpool
+            .lock()
+            .read_usize(&mut buffer, &mut reader)
+            .map_err(|_| TableError::ReadFail)?;
+        for _ in 0..index_count {
+            let key = self
+                .bufferpool
+                .lock()
+                .read_usize(&mut buffer, &mut reader)
+                .map_err(|_| TableError::ReadFail)? as i64;
+            let rid = self
+                .bufferpool
+                .lock()
+                .read_usize(&mut buffer, &mut reader)
+                .map_err(|_| TableError::ReadFail)? as i64;
+            self.indices[self.key_index].insert(key, rid);
+        }
+
         self.page_directory
             .read_from_disk(&mut buffer, &mut reader, self.bufferpool.clone())?;
-
-        loop {
-            match reader.read_exact(&mut buffer) {
-                Ok(()) => {
-                    let value = i64::from_be_bytes(buffer);
-                    page.write(Some(value)).map_err(|_| TableError::ReadFail)?;
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
-                Err(_) => return Err(TableError::InvalidPath),
-            }
-        }
 
         Ok(())
     }
@@ -195,11 +281,16 @@ impl Table {
             //Columns updated in this tail but not yet seen in newer tails
             let new_cols = tail_schema & !accumulated_schema;
 
-            for col in 0..self.table_ctx.total_cols - Table::NUM_META_PAGES {
+            for (col, val) in result
+                .iter_mut()
+                .enumerate()
+                .take(self.table_ctx.total_cols - Table::NUM_META_PAGES)
+            {
+                // val = self.page_ranges.read_single(col, &tail_location, &self.table_ctx);
                 if (new_cols >> col) & 1 == 1 {
-                    result[col] =
-                        self.page_ranges
-                            .read_single(col, &tail_location, &self.table_ctx)?;
+                    *val = self
+                        .page_ranges
+                        .read_single(col, &tail_location, &self.table_ctx)?
                 }
             }
 
