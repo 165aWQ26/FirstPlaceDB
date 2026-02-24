@@ -260,9 +260,7 @@ impl BufferPool {
     #[inline]
     pub fn guarantee_writable_page(
         &mut self,
-        addr: &PhysicalAddress,
         pid: Pid,
-        table_ctx: &TableContext,
     ) -> Result<Pid, BufferPoolError> {
         if self.cache.contains(&pid) {
             return Ok(pid);
@@ -304,7 +302,7 @@ impl BufferPool {
     ) -> Result<PhysicalAddress, BufferPoolError> {
         for (i, val) in all_data.into_iter().enumerate() {
             let pid = make_pid(i, page_location, table_ctx);
-            let pid = self.guarantee_writable_page(&page_location.addr, pid, table_ctx)?;
+            let pid = self.guarantee_writable_page(pid)?;
             self.write_col(pid, val)
                 .map_err(|_| BufferPoolError::BufferPoolWriteFail)?;
         }

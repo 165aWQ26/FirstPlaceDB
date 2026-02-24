@@ -46,8 +46,7 @@ impl Database {
     }
 
     pub fn open(&mut self, path: &str) {
-        self.path.push_str(path);
-        self.path.push('/');
+        self.path = format!("{}/", path);
     }
 
     pub fn close(&self) -> Result<(), DbError> {

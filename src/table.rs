@@ -381,10 +381,10 @@ impl Table {
         col: usize,
         relative_version: i64,
     ) -> Result<Option<i64>, DbError> {
-        //relative_version: 0 = latest, -1 = one update before latest, etc.
-        //traverse tail chain from newest to oldest.
-        //Each tail that updates `col` counts as one version step.
-        //want the tail at position `relative_version` (0-indexed from latest).
+        // relative_version: 0 = latest, -1 = one update before latest, etc.
+        // We traverse tail chain from newest to oldest.
+        // Each tail that updates `col` counts as one version step.
+        // We want the tail at position `relative_version` (0-indexed from latest).
         let base_location = PageLocation::base(self.page_directory.get(rid)?);
         let indirection = self.page_ranges.read_meta_col(
             MetaPage::IndirectionCol,
@@ -454,15 +454,69 @@ impl Table {
         rid: i64,
         relative_version: i64,
     ) -> Result<Vec<Option<i64>>, DbError> {
-        let mut ans: Vec<Option<i64>> = Vec::new();
-        for (col, value) in projected.iter().enumerate() {
-            if *value == 1 {
-                ans.push(self.read_version_single(rid, col, relative_version)?);
-            } else {
-                ans.push(None);
+        let base_location = PageLocation::base(self.page_directory.get(rid)?);
+        let tails_to_skip = (-relative_version).max(0) as usize;
+
+        // Collect all tail RIDs newest → oldest
+        let mut tail_rids: Vec<i64> = Vec::new();
+        let indirection = self.page_ranges.read_meta_col(
+            MetaPage::IndirectionCol,
+            &base_location,
+            &self.table_ctx,
+        )?;
+        if let Some(tail_rid) = indirection
+            && tail_rid != rid
+        {
+            let mut current = tail_rid;
+            loop {
+                tail_rids.push(current);
+                let tail_location = PageLocation::tail(self.page_directory.get(current)?);
+                let next = self.page_ranges.read_meta_col(
+                    MetaPage::IndirectionCol,
+                    &tail_location,
+                    &self.table_ctx,
+                )?;
+                match next {
+                    Some(next_rid) if next_rid != rid => current = next_rid,
+                    _ => break,
+                }
             }
         }
-        Ok(ans)
+
+        // Start with base record
+        let mut result = self.page_ranges.read(&base_location.addr, &self.table_ctx)?;
+
+        // Skip the newest `tails_to_skip` tails, then apply the rest newest → oldest
+        let relevant = if tails_to_skip >= tail_rids.len() {
+            &tail_rids[tail_rids.len()..] // empty — return base
+        } else {
+            &tail_rids[tails_to_skip..]
+        };
+
+        let mut accumulated_schema: i64 = 0;
+        let num_data_cols = self.table_ctx.total_cols - Table::NUM_META_PAGES;
+        for &tail_rid in relevant {
+            let tail_location = PageLocation::tail(self.page_directory.get(tail_rid)?);
+            let tail_schema = self
+                .page_ranges
+                .read_meta_col(MetaPage::SchemaEncodingCol, &tail_location, &self.table_ctx)?
+                .unwrap_or(0);
+            let new_cols = tail_schema & !accumulated_schema;
+            for col in 0..num_data_cols {
+                if (new_cols >> col) & 1 == 1 {
+                    result[col] = self
+                        .page_ranges
+                        .read_single(col, &tail_location, &self.table_ctx)?;
+                }
+            }
+            accumulated_schema |= tail_schema;
+        }
+
+        Ok(projected
+            .iter()
+            .enumerate()
+            .map(|(col, &flag)| if flag == 1 { result[col] } else { None })
+            .collect())
     }
 
     /// Check if a base RID's latest tail has schema_encoding == None (deletion marker).

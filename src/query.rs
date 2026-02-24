@@ -180,7 +180,7 @@ impl<'a> Query<'a> {
 
         self.table.tail_count+=1;
         if self.table.tail_count % Query::DEFAULT_MERGE_THRESHOLD == 0 {
-            
+
         }
         Ok(true)
     }
