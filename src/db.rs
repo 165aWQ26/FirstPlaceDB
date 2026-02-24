@@ -29,6 +29,7 @@ impl Database {
         //Todo Throw an error if path is ""
         let mut table_path = self.path.clone();
         table_path.push_str(&name);
+        table_path.push_str("/");
 
         let table = Table::new(
             table_path.clone(),
@@ -77,6 +78,7 @@ impl Database {
         if !self.tables.contains_key(name) {
             let mut table_path = self.path.clone();
             table_path.push_str(&name);
+            table_path.push_str("/");
             self.read_table_from_disk(table_path.clone())
                 .map_err(|_| DbError::ReadTableFailed())?;
             self.bufferpool.lock().append_name(table_path.clone());
