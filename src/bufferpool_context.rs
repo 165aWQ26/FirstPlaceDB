@@ -4,11 +4,16 @@ use crate::page_range::{PhysicalAddress, WhichRange};
 pub struct TableContext {
     pub table_id: usize,
     pub total_cols: usize,
+    pub path: String,
 }
 
 impl TableContext {
-    pub fn new(table_id: usize, total_cols: usize) -> Self {
-        Self { table_id, total_cols }
+    pub fn new(table_id: usize, total_cols: usize, path: String) -> Self {
+        Self {
+            table_id,
+            total_cols,
+            path,
+        }
     }
 }
 
@@ -23,10 +28,16 @@ impl PageLocation {
     }
 
     pub fn base(addr: PhysicalAddress) -> Self {
-        Self { addr, range: WhichRange::Base }
+        Self {
+            addr,
+            range: WhichRange::Base,
+        }
     }
 
     pub fn tail(addr: PhysicalAddress) -> Self {
-        Self { addr, range: WhichRange::Tail }
+        Self {
+            addr,
+            range: WhichRange::Tail,
+        }
     }
 }

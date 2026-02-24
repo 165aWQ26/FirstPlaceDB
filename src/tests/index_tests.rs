@@ -47,10 +47,7 @@ fn delete_multiple_keys() {
     my_index.remove(6, 3);
     assert_eq!(my_index.locate(5), None);
     assert_eq!(my_index.locate(6), None);
-    assert_eq!(
-        my_index.locate_range(7, 8),
-        Some(vec![4, 5])
-    );
+    assert_eq!(my_index.locate_range(7, 8), Some(vec![4, 5]));
 }
 
 #[test]

@@ -1,10 +1,10 @@
 use crate::bufferpool::{BufferPool, MetaPage};
+use crate::bufferpool_context::{PageLocation, TableContext};
 use crate::db_error::DbError;
 use crate::page::{Page, PageError};
 use crate::table::Table;
-use parking_lot::{Mutex};
+use parking_lot::Mutex;
 use std::sync::Arc;
-use crate::bufferpool_context::{PageLocation, TableContext};
 
 #[derive(Clone)]
 pub struct PageRange {
@@ -12,7 +12,6 @@ pub struct PageRange {
 }
 
 impl PageRange {
-
     pub fn new() -> Self {
         Self {
             next_addr: PhysicalAddressIterator::default(),
@@ -50,7 +49,7 @@ impl PageRanges {
         &mut self,
         mut data_cols: Vec<Option<i64>>,
         rid: i64,
-        table_ctx: &TableContext
+        table_ctx: &TableContext,
     ) -> Result<PhysicalAddress, DbError> {
         data_cols.push(Some(rid)); // RID
         data_cols.push(Some(rid)); // indirection (self for new base record)
@@ -66,7 +65,7 @@ impl PageRanges {
         rid: i64,
         indirection: i64,
         schema_encoding: Option<i64>,
-        table_ctx: &TableContext
+        table_ctx: &TableContext,
     ) -> Result<PhysicalAddress, DbError> {
         data_cols.push(Some(rid)); // RID
         data_cols.push(Some(indirection)); // indirection (points to prev version)
@@ -82,7 +81,10 @@ impl PageRanges {
         page_location: &PageLocation,
         table_ctx: &TableContext,
     ) -> Result<Option<i64>, DbError> {
-        Ok(self.bufferpool.lock().read_col(column, &page_location, table_ctx)?)
+        Ok(self
+            .bufferpool
+            .lock()
+            .read_col(column, &page_location, table_ctx)?)
     }
 
     fn append(
@@ -97,7 +99,9 @@ impl PageRanges {
         };
 
         let page_location = PageLocation::new(addr, range);
-        self.bufferpool.lock().append(all_data, &page_location, table_ctx)?;
+        self.bufferpool
+            .lock()
+            .append(all_data, &page_location, table_ctx)?;
         Ok(addr)
     }
 
@@ -108,11 +112,20 @@ impl PageRanges {
         page_location: &PageLocation,
         table_ctx: &TableContext,
     ) -> Result<(), PageError> {
-        self.bufferpool.lock().update_meta_col(val, MetaPage::IndirectionCol, page_location, table_ctx)
+        self.bufferpool.lock().update_meta_col(
+            val,
+            MetaPage::IndirectionCol,
+            page_location,
+            table_ctx,
+        )
     }
 
     #[inline]
-    pub fn read(&self, addr: &PhysicalAddress, table_ctx: &TableContext) -> Result<Vec<Option<i64>>, DbError> {
+    pub fn read(
+        &self,
+        addr: &PhysicalAddress,
+        table_ctx: &TableContext,
+    ) -> Result<Vec<Option<i64>>, DbError> {
         let num_data_cols = table_ctx.total_cols - Table::NUM_META_PAGES;
         let page_location = PageLocation::base(*addr);
         let mut buff = self.bufferpool.lock();
@@ -127,7 +140,9 @@ impl PageRanges {
         page_location: &PageLocation,
         table_ctx: &TableContext,
     ) -> Result<Option<i64>, PageError> {
-        self.bufferpool.lock().read_meta_col(col_type, &page_location, table_ctx)
+        self.bufferpool
+            .lock()
+            .read_meta_col(col_type, &page_location, table_ctx)
     }
 }
 
@@ -139,7 +154,7 @@ pub struct PhysicalAddress {
     pub(crate) collection_num: usize,
 }
 
-#[derive(Default,Clone)]
+#[derive(Default, Clone)]
 pub struct PhysicalAddressIterator {
     current: PhysicalAddress,
 }

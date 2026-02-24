@@ -1,5 +1,5 @@
-use std::io;
 use crate::bufferpool::Pid;
+use std::io;
 
 #[derive(Debug)]
 pub enum PageError {
@@ -7,7 +7,7 @@ pub enum PageError {
     IndexOutOfBounds(usize),
     UpdateNotAllowed,
     IOError(io::Error),
-    PageNotFound(Pid)
+    PageNotFound(Pid),
 }
 
 #[derive(Clone, Debug)]

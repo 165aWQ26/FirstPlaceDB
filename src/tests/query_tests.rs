@@ -1,9 +1,9 @@
-use crate::tests::setup_tests::{setup_query, setup_db};
+use crate::tests::setup_tests::{setup_db, setup_query};
 
 #[test]
 fn insert_and_select() {
     let mut db = setup_db(3);
-    let mut q =  setup_query(&mut db).unwrap();
+    let mut q = setup_query(&mut db).unwrap();
 
     q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
 
@@ -11,16 +11,15 @@ fn insert_and_select() {
     let result = q.select(10, 0, &mask).unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], vec![Some(10), Some(20), Some(30)]);
-    
+
     //todo Danny should we do this
     db.close().expect("We have a problem");
 }
 
-
 #[test]
 fn insert_and_select_version_1() {
     let mut db = setup_db(3);
-    let mut q =  setup_query(&mut db).unwrap();;
+    let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
 
     q.update(10, vec![None, Some(2), Some(3)]).unwrap();
@@ -29,13 +28,13 @@ fn insert_and_select_version_1() {
     let result = q.select_version(10, 0, &mask, -1).unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], vec![Some(10), Some(20), Some(30)]);
-    db.close().expect("We have a problem");;
+    db.close().expect("We have a problem");
 }
 
 #[test]
 fn insert_and_select_version_2() {
     let mut db = setup_db(3);
-    let mut q =  setup_query(&mut db).unwrap();;
+    let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
 
     q.update(1, vec![None, None, Some(6)]).unwrap();
@@ -46,9 +45,8 @@ fn insert_and_select_version_2() {
     let result = q.select_version(1, 0, &mask, -2).unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], vec![Some(1), Some(2), Some(6)]);
-    db.close().expect("We have a problem");;
+    db.close().expect("We have a problem");
 }
-
 
 //Todo problems with binary comparisions. Just uncomment and you'll see
 // #[test]
@@ -58,12 +56,12 @@ fn insert_and_select_version_2() {
 //     let mut db = setup_db(3);
 //     let mut q =  setup_query(&mut db).unwrap();;
 //     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
-// 
+//
 //     q.update(1, vec![None, None, Some(6)]).unwrap();
 //     q.update(1, vec![None, None, Some(5)]).unwrap();
 //     q.delete(1).unwrap();
-// 
-// 
+//
+//
 //     let mask = [1i64, 1, 1];
 //     assert_eq!(q.select_version(1, 0, &mask, -1), Err(DbError::KeyNotFound(1)));
 //     db.close().expect("We have a problem");;
@@ -71,16 +69,16 @@ fn insert_and_select_version_2() {
 #[test]
 fn insert_duplicate_key_fails() {
     let mut db = setup_db(3);
-    let mut q =  setup_query(&mut db).unwrap();;
+    let mut q = setup_query(&mut db).unwrap();
     assert!(q.insert(vec![Some(1), Some(2), Some(3)]).unwrap());
     assert!(!q.insert(vec![Some(1), Some(5), Some(6)]).unwrap());
-    db.close().expect("We have a problem");;
+    db.close().expect("We have a problem");
 }
 
 #[test]
 fn update_and_select() {
     let mut db = setup_db(4);
-    let mut q =  setup_query(&mut db).unwrap();;
+    let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(1), Some(2), Some(3), Some(4)]).unwrap();
 
     // Update columns 1 and 3
@@ -89,19 +87,18 @@ fn update_and_select() {
     let mask = [1i64, 1, 1, 1];
     let result = q.select(1, 0, &mask).unwrap();
     assert_eq!(result[0], vec![Some(1), Some(20), Some(3), Some(40)]);
-    db.close().expect("We have a problem");;
+    db.close().expect("We have a problem");
 }
 
 #[test]
 fn delete_removes_from_index() {
     let mut db = setup_db(3);
-    let mut q =  setup_query(&mut db).unwrap();;
+    let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
     q.delete(1).unwrap();
     assert!(q.table.indices[0].locate(1).is_none());
-    db.close().expect("We have a problem");;
+    db.close().expect("We have a problem");
 }
-
 
 //Todo problems with binary comparisions. Just uncomment and you'll see
 // #[test]
@@ -110,7 +107,7 @@ fn delete_removes_from_index() {
 //     let mut q =  setup_query(&mut db).unwrap();;
 //     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
 //     q.delete(1).unwrap();
-// 
+//
 //     let mask = [1i64, 1, 1];
 //     assert_eq!(q.select(1, 0, &mask), Err(DbError::KeyNotFound(1)));
 //     db.close().expect("We have a problem");;
@@ -119,7 +116,7 @@ fn delete_removes_from_index() {
 #[test]
 fn sum_range() {
     let mut db = setup_db(3);
-    let mut q =  setup_query(&mut db).unwrap();;
+    let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(1), Some(10), Some(100)]).unwrap();
     q.insert(vec![Some(2), Some(20), Some(200)]).unwrap();
     q.insert(vec![Some(3), Some(30), Some(300)]).unwrap();
@@ -128,13 +125,13 @@ fn sum_range() {
     assert_eq!(q.sum(1, 3, 1).unwrap(), 60);
     // Sum column 2 for keys 1..2
     assert_eq!(q.sum(1, 2, 2).unwrap(), 300);
-    db.close().expect("We have a problem");;
+    db.close().expect("We have a problem");
 }
 
 #[test]
 fn increment() {
     let mut db = setup_db(3);
-    let mut q =  setup_query(&mut db).unwrap();;
+    let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(1), Some(10), Some(100)]).unwrap();
 
     q.increment(1, 1).unwrap(); // col 1: 10 → 11
@@ -146,55 +143,55 @@ fn increment() {
     // Other columns unchanged
     assert_eq!(result[0][0], Some(1));
     assert_eq!(result[0][2], Some(100));
-    db.close().expect("We have a problem");;
+    db.close().expect("We have a problem");
 }
 
 //Todo problems with binary comparisions. Just uncomment and you'll se
 // Keep the original integration test
 // #[test]
 // fn quick_test_all() {
-// 
+//
 //     //let table: Table = Table::new(String::from("test"), 5, 0);
 //     let mut db = setup_db(5);
 //     let mut query =  setup_query(&mut db).unwrap();
-// 
+//
 //     let rec_one: Vec<Option<i64>> = vec![Some(1); 5];
 //     let rec_two: Vec<Option<i64>> = vec![Some(2); 5];
 //     let rec_three: Vec<Option<i64>> = vec![Some(3), Some(4), Some(5), Some(6), Some(7)];
 //     let rec_four: Vec<Option<i64>> = vec![Some(4), Some(5), Some(6), Some(7), Some(8)];
-// 
+//
 //     query.insert(rec_one).unwrap();
 //     query.insert(rec_two).unwrap();
-// 
+//
 //     let rid1 = query.table.indices[0].locate(1).unwrap();
 //     assert_eq!(query.table.read(rid1), Ok(vec![Some(1); 5]));
-// 
+//
 //     let rid2 = query.table.indices[0].locate(2).unwrap();
 //     assert_eq!(query.table.read(rid2), Ok(vec![Some(2); 5]));
-// 
+//
 //     query.insert(rec_three).unwrap();
-// 
+//
 //     // key 1: col3=1, key 2: col3=2, key 3: col3=6 → 1+2+6=9
 //     let ans: i64 = query.sum(1, 3, 3).unwrap();
 //     assert_eq!(ans, 9);
-// 
+//
 //     query.insert(rec_four).unwrap();
 //     query.delete(4).unwrap();
-// 
+//
 //     let mask: [i64; 5] = [1, 0, 1, 0, 1];
 //     let ans_list: Vec<Vec<Option<i64>>> = query.select(1, 0, &mask).unwrap();
 //     assert_eq!(ans_list.len(), 1);
-// 
+//
 //     assert!(query.table.indices[0].locate(4).is_none());
-// 
+//
 //     query.increment(2, 0).unwrap();
 //     query.increment(1, 0).unwrap();
-// 
+//
 //     // After increment(2,0): key 2→3. After increment(1,0): key 1→2.
 //     let full_mask: [i64; 5] = [1, 1, 1, 1, 1];
 //     let ans_list_two: Vec<Vec<Option<i64>>> = query.select(2, 0, &full_mask).unwrap();
 //     assert_eq!(ans_list_two[0][0], Some(2));
-// 
+//
 //     let ans_list_three: Vec<Vec<Option<i64>>> = query.select(3, 0, &full_mask).unwrap();
 //     assert_eq!(ans_list_three[0][0], Some(3));
 // }
@@ -202,7 +199,7 @@ fn increment() {
 #[test]
 fn sum_version_1() {
     let mut db = setup_db(3);
-    let mut q =  setup_query(&mut db).unwrap();;
+    let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
     q.insert(vec![Some(5), Some(6), Some(7)]).unwrap();
     q.insert(vec![Some(2), Some(6), Some(8)]).unwrap();
@@ -213,7 +210,7 @@ fn sum_version_1() {
 
     let ans = q.sum_version(1, 5, 2, -1).unwrap();
     assert_eq!(ans, 15);
-    db.close().expect("We have a problem");;
+    db.close().expect("We have a problem");
     // q.sum_version(1, 5, 1, -1);
     // q.sum_version(1, 5, 1, 0);
 }
@@ -221,7 +218,7 @@ fn sum_version_1() {
 #[test]
 fn sum_version_2() {
     let mut db = setup_db(3);
-    let mut q =  setup_query(&mut db).unwrap();;
+    let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
     q.insert(vec![Some(2), Some(6), Some(1)]).unwrap();
     q.insert(vec![Some(3), Some(10), Some(8)]).unwrap();
@@ -244,14 +241,14 @@ fn sum_version_2() {
     assert_eq!(ans, 18);
     // q.sum_version(1, 5, 1, -1);
     // q.sum_version(1, 5, 1, 0);
-    db.close().expect("We have a problem");;
+    db.close().expect("We have a problem");
 }
 
 #[test]
 fn sum_version_3() {
     //Similar to previous but negatives are used
     let mut db = setup_db(3);
-    let mut q =  setup_query(&mut db).unwrap();;
+    let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(1), Some(52), Some(-3)]).unwrap();
     q.insert(vec![Some(2), Some(63), Some(-1)]).unwrap();
     q.insert(vec![Some(3), Some(210), Some(8)]).unwrap();
@@ -281,7 +278,7 @@ fn sum_version_3() {
     assert_eq!(ans, 175);
     // q.sum_version(1, 5, 1, -1);
     // q.sum_version(1, 5, 1, 0);
-    db.close().expect("We have a problem");;
+    db.close().expect("We have a problem");
 }
 
 #[test]
@@ -295,7 +292,7 @@ fn select_version_disjoint_column_updates() {
     // because it independently goes back 1 relevant version for each column,
     // which for col 1 means going all the way back to base.
     let mut db = setup_db(3);
-    let mut q =  setup_query(&mut db).unwrap();;
+    let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(100), Some(10), Some(20)]).unwrap();
 
     // Update 1: only col 1 → tail schema 0b010
@@ -320,13 +317,13 @@ fn select_version_disjoint_column_updates() {
     // Version -2: undo both updates, back to base
     let base = q.select_version(100, 0, &mask, -2).unwrap();
     assert_eq!(base[0], vec![Some(100), Some(10), Some(20)]);
-    db.close().expect("We have a problem");;
+    db.close().expect("We have a problem");
 }
 
 #[test]
 fn test_version_single() {
     let mut db = setup_db(3);
-    let mut q =  setup_query(&mut db).unwrap();;
+    let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
     q.insert(vec![Some(5), Some(6), Some(7)]).unwrap();
     q.insert(vec![Some(2), Some(6), Some(8)]).unwrap();
@@ -342,7 +339,7 @@ fn test_version_single() {
     assert_eq!(num2.unwrap(), 7);
     assert_eq!(num3.unwrap(), 6);
 
-    db.close().expect("We have a problem");;
+    db.close().expect("We have a problem");
 
     // q.sum_version(1, 5, 1, -1);
     // q.sum_version(1, 5, 1, 0);

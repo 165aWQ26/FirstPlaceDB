@@ -1,4 +1,4 @@
-use crate::bufferpool::{BufferPool};
+use crate::bufferpool::BufferPool;
 use crate::db_error::DbError;
 use crate::page_range::PhysicalAddress;
 use crate::table::{Table, TableError};

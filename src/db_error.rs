@@ -14,7 +14,7 @@ pub enum DbError {
     DuplicateKey(i64),   // Insertion is done with duplicate primary key
     NullValue(usize),    // Column was None when value is expected
     ReadTableFailed(),   // Cannot read table from disk
-    WriteTableFailed()   // Cannot write table to disk
+    WriteTableFailed(),  // Cannot write table to disk
 }
 
 impl fmt::Display for DbError {
@@ -46,6 +46,7 @@ impl From<BufferPoolError> for DbError {
 }
 
 impl From<TableError> for DbError {
-    fn from(e: TableError) -> Self { DbError::Table(e)
+    fn from(e: TableError) -> Self {
+        DbError::Table(e)
     }
 }

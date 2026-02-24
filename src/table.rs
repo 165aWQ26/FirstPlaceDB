@@ -1,17 +1,14 @@
-use std::cell::RefCell;
-use std::fs::{write, File};
-use std::io;
-use std::io::{BufReader, BufWriter,Read, Write};
-use std::rc::Rc;
-use crate::bufferpool::{BufferPool, BufferPoolError, MetaPage};
+use crate::bufferpool::{BufferPool, MetaPage};
+use crate::bufferpool_context::{PageLocation, TableContext};
 use crate::db_error::DbError;
 use crate::index::Index;
+use crate::page::Page;
 use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Read};
 use std::sync::Arc;
-use crate::bufferpool_context::{PageLocation, TableContext};
-use crate::page::{Page, PageError};
 
 #[derive(Debug)]
 pub enum TableError {
@@ -22,8 +19,6 @@ pub enum TableError {
 
 #[derive(Clone)]
 pub struct Table {
-    pub name: String,
-
     pub page_ranges: PageRanges,
 
     pub bufferpool: Arc<Mutex<BufferPool>>,
@@ -43,13 +38,17 @@ impl Table {
     pub const PROJECTED_NUM_RECORDS: usize = 10001;
     pub const NUM_META_PAGES: usize = 4;
     //data_pages_per_collection is the total number of pages in a PageDirectory
-    pub fn new(table_name: String, num_columns: usize, key_index: usize, bufferpool: Arc<Mutex<BufferPool>>, table_id: usize) -> Table {
+    pub fn new(
+        table_path: String,
+        num_columns: usize,
+        key_index: usize,
+        bufferpool: Arc<Mutex<BufferPool>>,
+        table_id: usize,
+    ) -> Table {
         //! Assume that we can only make one table for now. Bufferpool can't do more than one table.
         //! Also the bufferpool reference allocation related to table should be done in db.create_table.
         Self {
-            name: table_name,
             // Make new copy for PageRanges to use
-
             bufferpool: Arc::clone(&bufferpool),
 
             page_ranges: PageRanges::new(bufferpool),
@@ -62,6 +61,7 @@ impl Table {
             table_ctx: TableContext {
                 table_id,
                 total_cols: num_columns + Table::NUM_META_PAGES, //Todo IMPORTANT MAKE SURE THIS IS ACCOUNTED FOR
+                path: table_path,
             },
         }
     }
@@ -71,29 +71,36 @@ impl Table {
         self.page_ranges.read(&addr, &self.table_ctx)
     }
 
-    pub fn write_page_directory(&self, writer: &mut BufWriter<File>) -> Result<(), TableError>{
-        self.page_directory.write_to_disk(writer,Arc::clone(&self.bufferpool))
+    pub fn write_page_directory(&self, writer: &mut BufWriter<File>) -> Result<(), TableError> {
+        self.page_directory
+            .write_to_disk(writer, Arc::clone(&self.bufferpool))
     }
 
-    pub fn write_to_disk(&self, path: String) -> Result<(), TableError>{
-        let mut file_path : String = path.clone();
+    pub fn write_to_disk(&self, path: String) -> Result<(), TableError> {
+        let mut file_path: String = path.clone();
         file_path.push_str("table_data");
 
         let file = File::create(&file_path).map_err(|_| TableError::InvalidPath)?;
 
         let mut writer = BufWriter::new(file);
 
-        self.bufferpool.lock().write_i64(Some(self.table_ctx.total_cols as i64), &mut writer).map_err(|_| TableError::WriteFail)?;
+        self.bufferpool
+            .lock()
+            .write_i64(self.table_ctx.total_cols as i64, &mut writer)
+            .map_err(|_| TableError::WriteFail)?;
 
-        self.bufferpool.lock().write_i64(Some(self.key_index as i64), &mut writer).map_err(|_| TableError::WriteFail)?;
+        self.bufferpool
+            .lock()
+            .write_i64(self.key_index as i64, &mut writer)
+            .map_err(|_| TableError::WriteFail)?;
 
         self.write_page_directory(&mut writer)?;
 
         return Ok(());
     }
 
-    pub fn read_from_disk(&mut self,  path: String) -> Result<(), TableError>{
-        let mut file_path : String = path.clone();
+    pub fn read_from_disk(&mut self, path: String) -> Result<(), TableError> {
+        let mut file_path: String = path.clone();
         file_path.push_str("table_data");
 
         let file = File::open(&file_path).map_err(|_| TableError::InvalidPath)?;
@@ -104,17 +111,28 @@ impl Table {
 
         let mut buffer = [0u8; 8];
 
-       //Todo: Make sure this returns total num cols including metacols!
-        self.table_ctx.total_cols = self.bufferpool.lock().read_usize(& mut buffer, &mut reader).map_err(|_| TableError::ReadFail)?;
+        //Todo: Make sure this returns total num cols including metacols!
+        self.table_ctx.total_cols = self
+            .bufferpool
+            .lock()
+            .read_usize(&mut buffer, &mut reader)
+            .map_err(|_| TableError::ReadFail)?;
 
-        self.key_index = self.bufferpool.lock().read_usize(& mut buffer, &mut reader).map_err(|_| TableError::ReadFail)?;
+        self.key_index = self
+            .bufferpool
+            .lock()
+            .read_usize(&mut buffer, &mut reader)
+            .map_err(|_| TableError::ReadFail)?;
 
-        self.page_directory.read_from_disk(& mut buffer, &mut reader, self.bufferpool.clone())?;
+        self.page_directory
+            .read_from_disk(&mut buffer, &mut reader, self.bufferpool.clone())?;
 
-        while let _ = reader.read_exact(&mut buffer).map_err(|_| TableError::InvalidPath)? {
+        while let _ = reader
+            .read_exact(&mut buffer)
+            .map_err(|_| TableError::InvalidPath)?
+        {
             let value = i64::from_be_bytes(buffer);
-            page.write(Some(value))
-                .map_err(|_e| TableError::ReadFail)?;
+            page.write(Some(value)).map_err(|_e| TableError::ReadFail)?;
         }
 
         Ok(())
@@ -128,7 +146,8 @@ impl Table {
         range: WhichRange,
     ) -> Result<Option<i64>, DbError> {
         let page_location = PageLocation::new(self.page_directory.get(rid)?, range);
-        self.page_ranges.read_single(column, &page_location, &self.table_ctx)
+        self.page_ranges
+            .read_single(column, &page_location, &self.table_ctx)
     }
 
     //Use index to find the rid
@@ -151,7 +170,7 @@ impl Table {
         let indirection = self.page_ranges.read_meta_col(
             MetaPage::IndirectionCol,
             &base_location,
-            &self.table_ctx
+            &self.table_ctx,
         )?;
 
         //If no tail updates, return base values
@@ -176,7 +195,8 @@ impl Table {
             for col in 0..self.table_ctx.total_cols - Table::NUM_META_PAGES {
                 if (new_cols >> col) & 1 == 1 {
                     result[col] =
-                        self.page_ranges.read_single(col, &tail_location, &self.table_ctx)?;
+                        self.page_ranges
+                            .read_single(col, &tail_location, &self.table_ctx)?;
                 }
             }
 
@@ -209,7 +229,9 @@ impl Table {
             &self.table_ctx,
         )?;
 
-        if let Some(tail_rid) = indirection && tail_rid != rid {
+        if let Some(tail_rid) = indirection
+            && tail_rid != rid
+        {
             let mut current_tail_rid = tail_rid;
             loop {
                 let tail_location = PageLocation::tail(self.page_directory.get(current_tail_rid)?);
@@ -219,7 +241,9 @@ impl Table {
                     .unwrap_or(0); //None = deletion tail, no columns updated
 
                 if (tail_schema >> col) & 1 == 1 {
-                    return self.page_ranges.read_single(col, &tail_location, &self.table_ctx);
+                    return self
+                        .page_ranges
+                        .read_single(col, &tail_location, &self.table_ctx);
                 }
 
                 let next_rid = self.page_ranges.read_meta_col(
@@ -237,7 +261,8 @@ impl Table {
                 }
             }
         }
-        self.page_ranges.read_single(col, &base_location, &self.table_ctx)
+        self.page_ranges
+            .read_single(col, &base_location, &self.table_ctx)
     }
 
     pub fn read_version_single(
@@ -252,7 +277,9 @@ impl Table {
             &base_location,
             &self.table_ctx,
         )?;
-        if let Some(tail_rid) = indirection && tail_rid != rid  {
+        if let Some(tail_rid) = indirection
+            && tail_rid != rid
+        {
             let mut current_tail_rid = tail_rid;
             loop {
                 let tail_location = PageLocation::tail(self.page_directory.get(current_tail_rid)?);
@@ -269,7 +296,7 @@ impl Table {
                 if relative_version > 0 {
                     return self
                         .page_ranges
-                        .read_single(col,&tail_location, &self.table_ctx);
+                        .read_single(col, &tail_location, &self.table_ctx);
                 }
 
                 let next_rid = self.page_ranges.read_meta_col(
@@ -287,7 +314,8 @@ impl Table {
                 }
             }
         }
-        self.page_ranges.read_single(col, &base_location, &self.table_ctx)
+        self.page_ranges
+            .read_single(col, &base_location, &self.table_ctx)
     }
 
     pub fn read_latest_projected(
@@ -339,7 +367,7 @@ impl Table {
         let schema = self.page_ranges.read_meta_col(
             MetaPage::SchemaEncodingCol,
             &tail_location,
-            &self.table_ctx
+            &self.table_ctx,
         )?;
 
         Ok(schema.is_none())

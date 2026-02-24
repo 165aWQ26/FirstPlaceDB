@@ -1,15 +1,14 @@
+use crate::bufferpool_context::{PageLocation, TableContext};
 use crate::page::{Page, PageError};
 use crate::page_range::{PhysicalAddress, WhichRange};
 use crate::table::Table;
-use concread::arcache::ARCache;
+use lru::LruCache;
+use rustc_hash::FxHashMap;
 use std::convert::Into;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::num::NonZeroUsize;
 use std::path::Path;
-use lru::LruCache;
-use parking_lot::RwLock;
-use crate::bufferpool_context::{PageLocation, TableContext};
 
 pub enum MetaPage {
     RidCol = 0,
@@ -35,38 +34,20 @@ pub enum BufferPoolError {
 pub struct BufferPool {
     cache: LruCache<Pid, Page>,
     size: usize,
-    total_cols: usize,
-    path: String,
+    table_names: Vec<String>,
 }
 
 impl BufferPool {
     pub const NUMBER_OF_FRAMES: usize = 32;
 
-    //done
-    pub fn set_total_cols(&mut self, cols: usize) {
-        self.total_cols = Table::NUM_META_PAGES + cols;
-    }
-
-    //done
-    pub fn set_path(&mut self, path: String) {
-        self.path = path;
+    #[inline]
+    pub fn append_name(&mut self, name: String) {
+        self.table_names.push(name);
     }
 
     //done
     #[inline]
     pub fn write_col(&mut self, pid: Pid, val: Option<i64>) -> Result<(), PageError> {
-        //col: usize, total_cols: usize, collection_num: usize, range : WhichRange
-        // if let Some(mut page) = transaction.get(&pid).clone() {
-        //     page.write(val);
-        // }
-        // transaction.commit();
-        // if let Some(page) = self.cache.write.(&pid, true) {
-        //     page.write(val);
-        //     page.set_dirty(true);
-        // } else {
-        //     return Err(PageError::PageNotFound(pid))
-        // }
-        // Ok(())
         if let Some(page) = self.cache.get_mut(&pid) {
             page.write(val)?;
         } else {
@@ -83,12 +64,15 @@ impl BufferPool {
         page_location: &PageLocation,
         table_ctx: &TableContext,
     ) -> Result<Option<i64>, PageError> {
-        let pid = make_pid(col, self.total_cols, page_location.addr.collection_num, &page_location.range, table_ctx.table_id);
+        let pid = make_pid(col, page_location, table_ctx);
         // If page is not in cache, unwrap can crash the entire program.
         // lazy_guarantee_page() ensures the page is in the bufferpool before access.
-        self.lazy_guarantee_page(&page_location.addr, pid)
+        self.lazy_guarantee_page(&page_location.addr, pid, table_ctx)
             .map_err(|_| PageError::IndexOutOfBounds(page_location.addr.offset))?;
-        self.cache.get(&pid).unwrap().read(page_location.addr.offset)
+        self.cache
+            .get(&pid)
+            .unwrap()
+            .read(page_location.addr.offset)
     }
 
     //done
@@ -102,10 +86,10 @@ impl BufferPool {
     ) -> Result<(), PageError> {
         match col_type {
             MetaPage::IndirectionCol => {
-                let col: usize = self.total_cols - Table::NUM_META_PAGES + col_type as usize;
-                let pid = make_pid(col, self.total_cols, page_location.addr.collection_num, &page_location.range, table_ctx.table_id);
+                let col: usize = table_ctx.total_cols - Table::NUM_META_PAGES + col_type as usize;
+                let pid = make_pid(col, page_location, table_ctx);
                 // See read_col
-                self.lazy_guarantee_page(&page_location.addr, pid)
+                self.lazy_guarantee_page(&page_location.addr, pid, table_ctx)
                     .map_err(|_| PageError::IndexOutOfBounds(page_location.addr.offset))?;
 
                 // let page = self.cache.write().get(&pid).unwrap();
@@ -137,12 +121,15 @@ impl BufferPool {
         page_location: &PageLocation,
         table_ctx: &TableContext,
     ) -> Result<Option<i64>, PageError> {
-        let col: usize = self.total_cols - Table::NUM_META_PAGES + col_type as usize;
-        let pid = make_pid(col, self.total_cols, page_location.addr.collection_num, &page_location.range, table_ctx.table_id);
+        let col: usize = table_ctx.total_cols - Table::NUM_META_PAGES + col_type as usize;
+        let pid = make_pid(col, page_location, table_ctx);
 
-        self.lazy_guarantee_page(&page_location.addr, pid)
+        self.lazy_guarantee_page(&page_location.addr, pid, table_ctx)
             .map_err(|_| PageError::IndexOutOfBounds(page_location.addr.offset))?;
-        self.cache.get(&pid).unwrap().read(page_location.addr.offset)
+        self.cache
+            .get(&pid)
+            .unwrap()
+            .read(page_location.addr.offset)
     }
 
     //done
@@ -151,13 +138,18 @@ impl BufferPool {
     }
 
     //done
-    pub fn make_path(&self, addr: &PhysicalAddress, pid: Pid) -> Result<String, BufferPoolError> {
+    pub fn make_path(
+        &self,
+        addr: &PhysicalAddress,
+        pid: Pid,
+        table_cxt: &TableContext,
+    ) -> Result<String, BufferPoolError> {
         let pid = pid.get_pid();
         if pid == 0 {
             return Err(BufferPoolError::ZeroPid);
         }
 
-        let mut path = self.path.clone(); // ./ECS165
+        let mut path = table_cxt.path.clone(); // ./ECS165/
 
         if pid < 0 {
             path.push_str("tp_");
@@ -167,7 +159,7 @@ impl BufferPool {
         path.push_str(addr.collection_num.to_string().as_str());
         path.push_str("_");
         path.push_str(
-            ((pid.abs() - 1) % (self.total_cols as i64))
+            ((pid.abs() - 1) % (table_cxt.total_cols as i64))
                 .to_string()
                 .as_str(),
         );
@@ -194,15 +186,15 @@ impl BufferPool {
             .map_err(|_| BufferPoolError::DiskWriteFail)
     }
 
-
     pub fn write_to_disk(
         &mut self,
         page: &Page,
         addr: &PhysicalAddress,
         pid: Pid,
+        table_ctx: &TableContext,
     ) -> Result<(), BufferPoolError> {
         // write
-        let file_path = self.make_path(addr, pid)?;
+        let file_path = self.make_path(addr, pid, table_ctx)?;
         let file = File::create(&file_path).map_err(|_| BufferPoolError::DiskWriteFail)?;
 
         let mut writer = BufWriter::new(file);
@@ -220,12 +212,13 @@ impl BufferPool {
         &mut self,
         address: &PhysicalAddress,
         pid: Pid,
+        table_ctx: &TableContext,
     ) -> Result<(), BufferPoolError> {
         if self.is_full() {
-            self.evict()?;
+            self.evict(table_ctx)?;
         }
 
-        let file_path = self.make_path(address, pid)?;
+        let file_path = self.make_path(address, pid, table_ctx)?;
         let file = File::open(&file_path).map_err(|_| BufferPoolError::DiskReadFail)?;
 
         let mut reader = BufReader::new(file);
@@ -244,9 +237,11 @@ impl BufferPool {
 
         Ok(())
     }
-    pub fn read_usize(&mut self,
-                      buffer: &mut [u8],
-                      reader: &mut BufReader<File>) -> Result<usize, BufferPoolError> {
+    pub fn read_usize(
+        &mut self,
+        buffer: &mut [u8],
+        reader: &mut BufReader<File>,
+    ) -> Result<usize, BufferPoolError> {
         self.read_bytes(buffer, reader)?;
 
         // 1. Ensure the slice is converted to a fixed-size array of 8 bytes
@@ -259,54 +254,61 @@ impl BufferPool {
         Ok(value as usize)
     }
 
-    pub fn read_bytes(&mut self,
-                      buffer: &mut [u8],
-                      reader: &mut BufReader<File>) -> Result<(), BufferPoolError> {
-        reader.read_exact(buffer).map_err(|_| BufferPoolError::DiskReadFail)
+    pub fn read_bytes(
+        &mut self,
+        buffer: &mut [u8],
+        reader: &mut BufReader<File>,
+    ) -> Result<(), BufferPoolError> {
+        reader
+            .read_exact(buffer)
+            .map_err(|_| BufferPoolError::DiskReadFail)
     }
     pub fn is_dirty(&self, page: Page) -> bool {
         page.is_dirty()
     }
-    // when does a page become dirty?
-    // it is dirty when the content in the bufferpool does not match the content in the disk
-    // if we just append stuff to the bufferpool, that's still dirty bc it's never added to the disk.
     /// Kicks last page from the cache out of the bufferpool and onto disk
     /// If the file path is not set, the db is assumed to be in memory only.
     /// evict() will not write to disk but instead do only the removal step.
-    pub fn evict(&mut self) -> Result<(), BufferPoolError> {
+    pub fn evict(&mut self, table_ctx: &TableContext) -> Result<(), BufferPoolError> {
         // We only want to write to disk if the page is dirty.
         let (pid, page) = self.cache.pop_lru().unwrap();
-        if page.is_dirty() && !self.path.is_empty() {
-            let collection_num = { pid.get_pid().unsigned_abs() as usize - 1 } / self.total_cols;
+        if page.is_dirty() && !table_ctx.path.is_empty() {
+            let collection_num =
+                { pid.get_pid().unsigned_abs() as usize - 1 } / table_ctx.total_cols;
             let addr = PhysicalAddress {
                 offset: 0,
                 collection_num,
             };
-            self.write_to_disk(&page, &addr, pid)?;
+            self.write_to_disk(&page, &addr, pid, table_ctx)?;
         }
         self.size -= 1;
         Ok(())
     }
 
-    pub fn evict_all(&mut self) -> Result<(), BufferPoolError> {
+    pub fn evict_all(&mut self, tables: &FxHashMap<String, Table>) -> Result<(), BufferPoolError> {
         while self.size != 0 {
             //offset no
             //addr.offset = self.cache.get(&pid).unwrap().len() - 1;
             let (pid, page) = self.cache.pop_lru().unwrap();
+
+            let table_ctx = &tables
+                .get(&self.table_names[pid.get_table_id()])
+                .unwrap()
+                .table_ctx;
             let addr = PhysicalAddress {
                 offset: 0,
-                collection_num: (pid.0.abs() - 1) as usize / self.total_cols,
+                collection_num: (pid.0.abs() - 1) as usize / table_ctx.total_cols,
             };
             if page.is_dirty() {
-                self.write_to_disk(&page, &addr, pid)?;
+                self.write_to_disk(&page, &addr, pid, table_ctx)?;
             }
             self.size -= 1;
         }
         Ok(())
     }
 
-    pub fn on_disk(&self, addr: &PhysicalAddress, pid: Pid) -> bool {
-        let path = self.make_path(addr, pid);
+    pub fn on_disk(&self, addr: &PhysicalAddress, pid: Pid, table_ctx: &TableContext) -> bool {
+        let path = self.make_path(addr, pid, table_ctx);
 
         Path::new(&path.unwrap()).exists()
     }
@@ -324,12 +326,16 @@ impl BufferPool {
     ///
     /// Fix: increment FIRST, push at the new pid, and return it so the
     /// caller knows where the new page lives.
-    pub fn create_blank_page(&mut self, pid: Pid) -> Result<Pid, BufferPoolError> {
+    pub fn create_blank_page(
+        &mut self,
+        pid: Pid,
+        table_ctx: &TableContext,
+    ) -> Result<Pid, BufferPoolError> {
         if self.is_full() {
-            self.evict()?
+            self.evict(table_ctx)?
         }
         let mut new_pid = pid;
-        increment_pid(&mut new_pid, self.total_cols as i64)?;
+        increment_pid(&mut new_pid, table_ctx.total_cols as i64)?;
         self.cache.push(new_pid, Page::default());
         self.size += 1;
         Ok(new_pid)
@@ -358,22 +364,23 @@ impl BufferPool {
         &mut self,
         addr: &PhysicalAddress,
         pid: Pid,
+        table_ctx: &TableContext,
     ) -> Result<Pid, BufferPoolError> {
         if self.cache.contains(&pid) {
             if self.cache.get(&pid).unwrap().has_capacity() {
                 return Ok(pid);
             }
             // Page exist but full, evict and make new page and return new pid
-            return self.create_blank_page(pid);
+            return self.create_blank_page(pid, table_ctx);
         }
 
-        if self.on_disk(addr, pid) {
-            self.read_from_disk(addr, pid)?;
+        if self.on_disk(addr, pid, table_ctx) {
+            self.read_from_disk(addr, pid, table_ctx)?;
             return Ok(pid);
         } else {
             // Not on disk
             if self.is_full() {
-                self.evict()?;
+                self.evict(table_ctx)?;
             }
             self.cache.push(pid, Page::default());
             self.size += 1;
@@ -389,8 +396,8 @@ impl BufferPool {
         table_ctx: &TableContext,
     ) -> Result<PhysicalAddress, BufferPoolError> {
         for (i, val) in all_data.into_iter().enumerate() {
-            let pid = make_pid(i, self.total_cols, page_location.addr.collection_num, &page_location.range,table_ctx.table_id);
-            let pid = self.lazy_guarantee_page(&page_location.addr, pid)?;
+            let pid = make_pid(i, page_location, table_ctx);
+            let pid = self.lazy_guarantee_page(&page_location.addr, pid, table_ctx)?;
 
             self.write_col(pid, val)
                 .map_err(|_| BufferPoolError::BufferPoolWriteFail)?;
@@ -404,8 +411,7 @@ impl Default for BufferPool {
         Self {
             cache: LruCache::new(NonZeroUsize::new(BufferPool::NUMBER_OF_FRAMES).unwrap()),
             size: 0,
-            total_cols: 0,
-            path: String::from(""),
+            table_names: vec![],
         }
     }
 }
@@ -415,20 +421,26 @@ pub type Pid = (i64, usize);
 
 trait PidExt {
     fn get_pid(&self) -> i64;
-    fn address(&self) -> usize;
+    fn get_table_id(&self) -> usize;
 }
 
 impl PidExt for Pid {
-    fn get_pid(&self) -> i64 { self.0 }
-    fn address(&self) -> usize { self.1 }
+    #[inline]
+    fn get_pid(&self) -> i64 {
+        self.0
+    }
+    #[inline]
+    fn get_table_id(&self) -> usize {
+        self.1
+    }
 }
 
-pub fn make_pid(col: usize, total_cols: usize, collection_num: usize, range: &WhichRange, table_id: usize) -> Pid {
-    let pid = ((col + total_cols * collection_num) + 1) as i64;
-    if *range == WhichRange::Tail {
-        (-pid, table_id)
+pub fn make_pid(col: usize, page_location: &PageLocation, table_context: &TableContext) -> Pid {
+    let pid = ((col + table_context.total_cols * page_location.addr.collection_num) + 1) as i64;
+    if page_location.range == WhichRange::Tail {
+        (-pid, table_context.table_id)
     } else {
-        (pid, table_id)
+        (pid, table_context.table_id)
     }
 }
 

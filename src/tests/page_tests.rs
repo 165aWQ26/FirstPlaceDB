@@ -58,7 +58,10 @@ fn read_out_of_bounds() {
     let mut page2 = Page::default();
     page2.write(Some(1)).unwrap();
     assert!(matches!(page2.read(1), Err(PageError::IndexOutOfBounds(1))));
-    assert!(matches!(page2.read(100), Err(PageError::IndexOutOfBounds(100))));
+    assert!(matches!(
+        page2.read(100),
+        Err(PageError::IndexOutOfBounds(100))
+    ));
 }
 
 #[test]
@@ -80,10 +83,16 @@ fn update_to_none() {
 #[test]
 fn update_out_of_bounds() {
     let mut page = Page::default();
-    assert!(matches!(page.update(0, Some(1)), Err(PageError::IndexOutOfBounds(0))));
+    assert!(matches!(
+        page.update(0, Some(1)),
+        Err(PageError::IndexOutOfBounds(0))
+    ));
 
     page.write(Some(10)).unwrap();
-    assert!(matches!(page.update(1, Some(1)), Err(PageError::IndexOutOfBounds(1))));
+    assert!(matches!(
+        page.update(1, Some(1)),
+        Err(PageError::IndexOutOfBounds(1))
+    ));
 }
 
 #[test]

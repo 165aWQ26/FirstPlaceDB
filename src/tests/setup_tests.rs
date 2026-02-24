@@ -1,6 +1,6 @@
-use std::process::Command;
-use crate::query::Query;
 use crate::db::Database;
+use crate::query::Query;
+use std::process::Command;
 
 pub fn setup_db(num_columns: usize) -> Database {
     //Deletes all files and directories in ./ECS165
@@ -16,9 +16,9 @@ pub fn setup_db(num_columns: usize) -> Database {
     db
 }
 
-pub fn setup_query(db: & mut Database) ->Option<Query> {
+pub fn setup_query(db: &mut Database) -> Option<Query> {
     if let Ok(Some(table)) = db.get_table(&String::from("test")) {
-        return Some(Query::new(table.clone()));
+        return Some(Query::new(table));
     }
     None
 }
