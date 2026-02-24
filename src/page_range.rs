@@ -8,6 +8,8 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct PageRange {
+    range: Vec<PageCollection>,
+    pub tps: Vec<i64>,
     next_addr: PhysicalAddressIterator,
 }
 
@@ -15,6 +17,35 @@ impl PageRange {
     pub fn new() -> Self {
         Self {
             next_addr: PhysicalAddressIterator::default(),
+            pages_per_collection,
+        }
+    }
+
+    //Append assumes metadata has been pre-calculated (allData)
+    //All it does is write to the current offset
+    //allData cols must be in correct places
+    pub fn append(&mut self, all_data: Vec<Option<i64>>) -> Result<PhysicalAddress, DbError> {
+        //get next addr
+        let addr = self.next_addr.next().unwrap();
+
+        //Lazily create page collection and associated pages
+        self.lazy_create_page_collection(addr.collection_num);
+
+        let collection = &mut self.range[addr.collection_num];
+        for (i, data) in all_data.iter().enumerate() {
+            collection.write_col(i, *data)?;
+        }
+
+        Ok(addr) //return addr (from here add this addr to a page_dir)
+        //Note that you should deal with RID elsewhere (imo) --> isn't a PageRange Construct.
+        //By this point it will have been generated and be in data.
+    }
+
+    //iterators make this so cleannnnn
+    fn lazy_create_page_collection(&mut self, page: usize) {
+        while self.range.len() <= page {
+            self.range
+                .push(PageCollection::new(self.pages_per_collection));
         }
     }
 
@@ -67,7 +98,8 @@ impl PageRanges {
         data_cols.push(Some(rid)); // indirection (self for new base record)
         data_cols.push(Some(0)); // schema_encoding (no updates)
         data_cols.push(None);
-        self.append(data_cols, WhichRange::Base, &table_ctx)
+        self.append(data_cols, WhichRange::Base, &table_ctx);
+        self.base.append(data_cols)
     }
 
     // For updates: caller provides indirection (previous version) and schema_encoding (which cols updated)
@@ -78,12 +110,15 @@ impl PageRanges {
         indirection: i64,
         schema_encoding: Option<i64>,
         table_ctx: &TableContext,
+        base_rid:i64,
     ) -> Result<PhysicalAddress, DbError> {
         data_cols.push(Some(rid)); // RID
         data_cols.push(Some(indirection)); // indirection (points to prev version)
         data_cols.push(schema_encoding); // schema_encoding: None = deletion, Some(bitmask) = update
         data_cols.push(None);
         self.append(data_cols, WhichRange::Tail, table_ctx)
+        data_cols.push(Some(base_rid));
+        self.tail.append(data_cols)
     }
 
     #[inline]
