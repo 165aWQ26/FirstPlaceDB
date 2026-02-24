@@ -13,6 +13,16 @@ class Record:
         self.key = key
         self.columns = columns
 
+    def __eq__(self, other):
+        if isinstance(other, Record):
+            return self.columns == other.columns
+        if isinstance(other, list):
+            return self.columns == other
+        return NotImplemented
+
+    def __repr__(self):
+        return f"{self.columns}"
+
 
 class Table:
     """
