@@ -4,9 +4,8 @@ use crate::db_error::DbError;
 use crate::index::Index;
 use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
-use std::collections::HashMap;
 use parking_lot::Mutex;
-use rustc_hash::FxHashSet;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::sync::Arc;
@@ -485,35 +484,36 @@ impl Table {
     }
 
     pub fn merge(&mut self) -> Result<(), DbError> {
-        let mut seen: FxHashSet<i64> = FxHashSet::default();
-        let mut max_tail_per_collection: HashMap<usize, i64> =
-            HashMap::default();
-        let max_rid = self.rid.start - 1;
+        let mut max_tail_per_collection: HashMap<usize, i64> = HashMap::default();
 
-        for tail_rid in (0..=max_rid).rev() {
+        let base_rids: Vec<i64> = self.indices[self.key_index]
+            .iter()
+            .map(|(_, &rid)| rid)
+            .collect();
+
+        for base_rid in base_rids {
+            let base_addr = match self.page_directory.get(base_rid) {
+                Ok(addr) => addr,
+                Err(_) => continue,
+            };
+            let base_location = PageLocation::base(base_addr);
+            let indirection = match self.page_ranges.read_meta_col(
+                MetaPage::IndirectionCol,
+                &base_location,
+                &self.table_ctx,
+            ) {
+                Ok(Some(ind)) if ind != base_rid => ind,
+                _ => continue,
+            };
+
+            let tail_rid = indirection;
+
             let tail_addr = match self.page_directory.get(tail_rid) {
                 Ok(addr) => addr,
                 Err(_) => continue,
             };
 
             let tail_location = PageLocation::tail(tail_addr);
-            let base_rid = match self.page_ranges.read_meta_col(
-                MetaPage::RidCol,
-                &tail_location,
-                &self.table_ctx,
-            ) {
-                Ok(Some(base)) => base,
-                _ => continue,
-            };
-
-            if base_rid >= tail_rid {
-                continue;
-            }
-
-            if seen.contains(&base_rid) {
-                continue;
-            }
-            seen.insert(base_rid);
 
             let schema = match self.page_ranges.read_meta_col(
                 MetaPage::SchemaEncodingCol,
@@ -524,23 +524,14 @@ impl Table {
                 Err(_) => continue,
             };
 
-            let base_addr = match self.page_directory.get(base_rid) {
-                Ok(addr) => addr,
-                Err(_) => continue,
-            };
-            let base_location = PageLocation::base(base_addr);
-
             if schema.is_none() {
-                self.bufferpool.lock().update_meta_col(Option::from(-1), MetaPage::SchemaEncodingCol, &base_location, &self.table_ctx)?;
+                self.bufferpool.lock().update_meta_col(
+                    Option::from(-1),
+                    MetaPage::SchemaEncodingCol,
+                    &base_location,
+                    &self.table_ctx,
+                )?;
             }
-
-            // update indirection in clone to point to this tail
-            // --> read_latest can use TPS shortcut correctly
-
-            // merged_base[base_addr.collection_num].pages[indir_col]
-            //     .update(base_addr.offset, Some(tail_rid))
-            //     .unwrap();
-            self.bufferpool.lock().update_meta_col(Option::from(tail_rid), MetaPage::IndirectionCol, &base_location, &self.table_ctx)?;
 
             max_tail_per_collection
                 .entry(base_location.addr.collection_num)
@@ -551,19 +542,13 @@ impl Table {
         // grow tps to match new range length if needed
         for (collection_num, max_rid) in max_tail_per_collection {
             if collection_num >= self.page_ranges.base.tps.len() {
-                self.page_ranges.base.tps.resize(collection_num+1, i64::MAX);
+                self.page_ranges
+                    .base
+                    .tps
+                    .resize(collection_num + 1, i64::MAX);
             }
             self.page_ranges.base.tps[collection_num] = max_rid;
         }
         Ok(())
     }
-
-    // TODO do for m2 -- what the helly do these do
-    // pub fn create_index() {
-
-    // }
-
-    // pub fn drop_index() {
-
-    // }
 }
