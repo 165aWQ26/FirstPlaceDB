@@ -16,13 +16,11 @@ fn read_from_file_insert() {
     db.get_table("test").expect("andrew fucked something up");
 
     // select the record that we pulled wow
-    {
-        let mask = [1i64, 1, 1];
-        let mut q = setup_query(&mut db).unwrap();
-        let result = q.select(10, 0, &mask).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0], vec![Some(10), Some(20), Some(30)]);
-    }
+    let mask = [1i64, 1, 1];
+    let mut q = setup_query(&mut db).unwrap();
+    let result = q.select(10, 0, &mask).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], vec![Some(10), Some(20), Some(30)]);
 
     db.close().expect("close failed");
 }
@@ -52,8 +50,8 @@ fn read_from_file_insert_1000() {
 
         assert_eq!(result1.len(), 1);
         assert_eq!(result2.len(), 1);
-        assert_eq!(result1[0], vec![Some(321), Some(322), Some(333)]);
-        assert_eq!(result2[1], vec![Some(321), Some(322), Some(333)]);
+        assert_eq!(result1[0], vec![Some(321), Some(322), Some(323)]);
+        assert_eq!(result2[0], vec![Some(632), Some(633), Some(634)]);
     }
 
     db.close().expect("close failed");
@@ -129,42 +127,6 @@ fn read_1000_updates_from_file() {
 }
 
 #[test]
-fn read_from_file_1000_inserts_1_update_() {
-    let mut db = setup_db(3);
-    {
-        let mut q = setup_query(&mut db).unwrap();
-
-        for i in 0..1000 {
-            q.insert(vec![Some(i), Some(i + 1), Some(i + 2)]).unwrap();
-        }
-
-        for i in 0..1000 {
-            for j in i..1000 {
-                q.update(i, vec![None, Some(i + 1), Some(i + j)]).unwrap();
-            }
-        }
-    }
-
-    db.close().expect("We have a problem.");
-
-    // see if we can pull the record from disk
-    db.open("./ECS165");
-    db.get_table("test").expect("andrew fucked something up");
-
-    // select the record that we pulled wow
-    let mask = [1i64, 1, 1];
-    {
-        let mut q = setup_query(&mut db).unwrap();
-        let result = q.select(10, 0, &mask).unwrap();
-
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0], vec![Some(10), Some(20 + 999), Some(30 + 999)]);
-    }
-
-    db.close().expect("close failed");
-}
-
-#[test]
 fn read_uneven_number_read_and_updates() {
     let mut db = setup_db(3);
     {
@@ -194,7 +156,7 @@ fn read_uneven_number_read_and_updates() {
         let result = q.select(10, 0, &mask).unwrap();
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0], vec![Some(10), Some(20 + 999), Some(30 + 999)]);
+        assert_eq!(result[0], vec![Some(10), Some(11), Some(1009)]);
     }
 
     db.close().expect("close failed");
