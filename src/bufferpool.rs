@@ -1,11 +1,15 @@
 use crate::page::{Page, PageError};
 use crate::page_range::{PhysicalAddress, WhichRange};
 use crate::table::Table;
-use lru::LruCache;
+use concread::arcache::ARCache;
+use std::convert::Into;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::num::NonZeroUsize;
 use std::path::Path;
+use lru::LruCache;
+use parking_lot::RwLock;
+use crate::bufferpool_context::{PageLocation, TableContext};
 
 pub enum MetaPage {
     RidCol = 0,
@@ -22,13 +26,14 @@ pub enum BufferPoolError {
     DiskWriteFail,
     DiskReadFail,
     BufferPoolWriteFail,
+    InvalidLength,
 }
 
 //In general this structure will make a lot of assumptions about the data that is passed (not good for modularity but wtv).
 //For now, we assume metadata is appended after data
 //When writing getters and setters we will have to assume a position of each meta_col.
 pub struct BufferPool {
-    cache: LruCache<i64, Page>,
+    cache: LruCache<Pid, Page>,
     size: usize,
     total_cols: usize,
     path: String,
@@ -42,7 +47,6 @@ impl BufferPool {
         self.total_cols = Table::NUM_META_PAGES + cols;
     }
 
-
     //done
     pub fn set_path(&mut self, path: String) {
         self.path = path;
@@ -50,62 +54,78 @@ impl BufferPool {
 
     //done
     #[inline]
-    pub fn write_col(&mut self, pid: i64, val: Option<i64>) -> Result<(), PageError> {
+    pub fn write_col(&mut self, pid: Pid, val: Option<i64>) -> Result<(), PageError> {
         //col: usize, total_cols: usize, collection_num: usize, range : WhichRange
-        let page = self.cache.get_mut(&pid).unwrap();
-
-        page.write(val)
-
-}
+        // if let Some(mut page) = transaction.get(&pid).clone() {
+        //     page.write(val);
+        // }
+        // transaction.commit();
+        // if let Some(page) = self.cache.write.(&pid, true) {
+        //     page.write(val);
+        //     page.set_dirty(true);
+        // } else {
+        //     return Err(PageError::PageNotFound(pid))
+        // }
+        // Ok(())
+        if let Some(page) = self.cache.get_mut(&pid) {
+            page.write(val)?;
+        } else {
+            return Err(PageError::PageNotFound(pid));
+        }
+        Ok(())
+    }
 
     //done
     #[inline]
     pub fn read_col(
         &mut self,
         col: usize,
-        addr: &PhysicalAddress,
-        range: WhichRange,
+        page_location: &PageLocation,
+        table_ctx: &TableContext,
     ) -> Result<Option<i64>, PageError> {
-        let pid = make_pid(col, self.total_cols, addr.collection_num, &range);
+        let pid = make_pid(col, self.total_cols, page_location.addr.collection_num, &page_location.range, table_ctx.table_id);
         // If page is not in cache, unwrap can crash the entire program.
-        // lazy_guarentee_page() ensures the page is in the bufferpool before access.
-        self.lazy_guarantee_page(addr, pid)
-            .map_err(|_| PageError::IndexOutOfBounds(addr.offset))?;
-        self.cache.get(&pid).unwrap().read(addr.offset)
+        // lazy_guarantee_page() ensures the page is in the bufferpool before access.
+        self.lazy_guarantee_page(&page_location.addr, pid)
+            .map_err(|_| PageError::IndexOutOfBounds(page_location.addr.offset))?;
+        self.cache.get(&pid).unwrap().read(page_location.addr.offset)
     }
 
     //done
     #[inline]
     pub fn update_meta_col(
         &mut self,
-        addr: &PhysicalAddress,
         val: Option<i64>,
         col_type: MetaPage,
-        range: WhichRange,
+        page_location: PageLocation
+        table_ctx: &TableContext,
     ) -> Result<(), PageError> {
-        match(col_type) {
+        match col_type {
             MetaPage::IndirectionCol => {
                 let col: usize = self.total_cols - Table::NUM_META_PAGES + col_type as usize;
-                let pid = make_pid(col, self.total_cols, addr.collection_num, &range);
+                let pid = make_pid(col, self.total_cols, page_location.addr.collection_num, &page_location.range, table_ctx.table_id);
                 // See read_col
-                self.lazy_guarantee_page(addr, pid)
-                    .map_err(|_| PageError::IndexOutOfBounds(addr.offset))?;
-                let page = self.cache.get_mut(&pid).unwrap();
+                self.lazy_guarantee_page(&page_location.addr, pid)
+                    .map_err(|_| PageError::IndexOutOfBounds(page_location.addr.offset))?;
 
+                // let page = self.cache.write().get(&pid).unwrap();
+                //
+                // page.set_dirty(true);
+                // page.update(addr.offset, val)?;
+                let page = self.cache.get_mut(&pid).unwrap();
                 page.set_dirty(true);
-                page.update(addr.offset, val)?;
+                page.update(page_location.addr.offset, val)?;
+
                 Ok(())
             }
-            _ => {
-                Err(PageError::UpdateNotAllowed)
-            }
+            _ => Err(PageError::UpdateNotAllowed),
         }
     }
 
     // Returns a reference to the metadata page at the given column index
     // done
     #[inline]
-    fn meta_record(&mut self, pid: i64) -> &Page {
+    fn meta_record(&mut self, pid: Pid) -> &Page {
         self.cache.get(&pid).unwrap()
     }
 
@@ -113,16 +133,16 @@ impl BufferPool {
     #[inline]
     pub fn read_meta_col(
         &mut self,
-        addr: &PhysicalAddress,
         col_type: MetaPage,
-        range: WhichRange,
+        page_location: &PageLocation,
+        table_ctx: &TableContext,
     ) -> Result<Option<i64>, PageError> {
         let col: usize = self.total_cols - Table::NUM_META_PAGES + col_type as usize;
-        let pid = make_pid(col, self.total_cols, addr.collection_num, &range);
+        let pid = make_pid(col, self.total_cols, page_location.addr.collection_num, &page_location.range, table_ctx.table_id);
 
-        self.lazy_guarantee_page(addr, pid)
-            .map_err(|_| PageError::IndexOutOfBounds(addr.offset))?;
-        self.meta_record(pid).read(addr.offset)
+        self.lazy_guarantee_page(&page_location.addr, pid)
+            .map_err(|_| PageError::IndexOutOfBounds(page_location.addr.offset))?;
+        self.cache.get(&pid).unwrap().read(page_location.addr.offset)
     }
 
     //done
@@ -132,7 +152,7 @@ impl BufferPool {
 
     //done
     pub fn make_path(&self, addr: &PhysicalAddress, pid: Pid) -> Result<String, BufferPoolError> {
-
+        let pid = pid.get_pid();
         if pid == 0 {
             return Err(BufferPoolError::ZeroPid);
         }
@@ -155,8 +175,26 @@ impl BufferPool {
         Ok(path)
     }
 
+    pub fn write_i64(
+        &self,
+        val: impl Into<Option<i64>>,
+        writer: &mut BufWriter<File>,
+    ) -> Result<(), BufferPoolError> {
+        const SENTINEL: i64 = i64::MAX;
+        // let bytes = val.to_be_bytes();
+        // writer
+        //     .write_all(&bytes)
+        //     .map_err(|_| BufferPoolError::DiskWriteFail)?;
+        let bytes = match val.into() {
+            Some(v) => v.to_be_bytes(),
+            None => SENTINEL.to_be_bytes(),
+        };
+        writer
+            .write_all(&bytes)
+            .map_err(|_| BufferPoolError::DiskWriteFail)
+    }
 
-    ///
+
     pub fn write_to_disk(
         &mut self,
         page: &Page,
@@ -170,20 +208,7 @@ impl BufferPool {
         let mut writer = BufWriter::new(file);
 
         for value in page.iter() {
-            if let Some(val) = value {
-                let bytes = val.to_be_bytes();
-                writer
-                    .write_all(&bytes)
-                    .map_err(|_| BufferPoolError::DiskWriteFail)?;
-            } else {
-                //largest positive number
-                let crazy_big_num : i64 = -1 ^ (1 << 63);
-
-                let bytes = crazy_big_num.to_be_bytes();
-                writer
-                    .write_all(&bytes)
-                    .map_err(|_| BufferPoolError::DiskWriteFail)?;
-            }
+            self.write_i64(*value, &mut writer)?;
         }
 
         writer.flush().map_err(|_| BufferPoolError::DiskWriteFail)?;
@@ -199,6 +224,7 @@ impl BufferPool {
         if self.is_full() {
             self.evict()?;
         }
+
         let file_path = self.make_path(address, pid)?;
         let file = File::open(&file_path).map_err(|_| BufferPoolError::DiskReadFail)?;
 
@@ -207,7 +233,7 @@ impl BufferPool {
 
         let mut buffer = [0u8; 8];
 
-        while let Ok(()) = reader.read_exact(&mut buffer) {
+        while let Ok(()) = self.read_bytes(&mut buffer, &mut reader) {
             let value = i64::from_be_bytes(buffer);
             page.write(Some(value))
                 .map_err(|_e| BufferPoolError::DiskReadFail)?;
@@ -218,7 +244,26 @@ impl BufferPool {
 
         Ok(())
     }
+    pub fn read_usize(&mut self,
+                      buffer: &mut [u8],
+                      reader: &mut BufReader<File>) -> Result<usize, BufferPoolError> {
+        self.read_bytes(buffer, reader)?;
 
+        // 1. Ensure the slice is converted to a fixed-size array of 8 bytes
+        // 2. Map the error to your custom BufferPoolError if it's not the right length
+        let bytes: [u8; 8] = buffer[..8]
+            .try_into()
+            .map_err(|_| BufferPoolError::InvalidLength)?;
+
+        let value = i64::from_be_bytes(bytes);
+        Ok(value as usize)
+    }
+
+    pub fn read_bytes(&mut self,
+                      buffer: &mut [u8],
+                      reader: &mut BufReader<File>) -> Result<(), BufferPoolError> {
+        reader.read_exact(buffer).map_err(|_| BufferPoolError::DiskReadFail)
+    }
     pub fn is_dirty(&self, page: Page) -> bool {
         page.is_dirty()
     }
@@ -232,7 +277,7 @@ impl BufferPool {
         // We only want to write to disk if the page is dirty.
         let (pid, page) = self.cache.pop_lru().unwrap();
         if page.is_dirty() && !self.path.is_empty() {
-            let collection_num = { pid.unsigned_abs() as usize - 1 } / self.total_cols;
+            let collection_num = { pid.get_pid().unsigned_abs() as usize - 1 } / self.total_cols;
             let addr = PhysicalAddress {
                 offset: 0,
                 collection_num,
@@ -243,7 +288,6 @@ impl BufferPool {
         Ok(())
     }
 
-
     pub fn evict_all(&mut self) -> Result<(), BufferPoolError> {
         while self.size != 0 {
             //offset no
@@ -251,7 +295,7 @@ impl BufferPool {
             let (pid, page) = self.cache.pop_lru().unwrap();
             let addr = PhysicalAddress {
                 offset: 0,
-                collection_num: (pid.abs() - 1) as usize / self.total_cols,
+                collection_num: (pid.0.abs() - 1) as usize / self.total_cols,
             };
             if page.is_dirty() {
                 self.write_to_disk(&page, &addr, pid)?;
@@ -260,7 +304,6 @@ impl BufferPool {
         }
         Ok(())
     }
-
 
     pub fn on_disk(&self, addr: &PhysicalAddress, pid: Pid) -> bool {
         let path = self.make_path(addr, pid);
@@ -281,10 +324,7 @@ impl BufferPool {
     ///
     /// Fix: increment FIRST, push at the new pid, and return it so the
     /// caller knows where the new page lives.
-    pub fn create_blank_page (
-        &mut self,
-        pid: Pid,
-    ) -> Result<Pid, BufferPoolError> {
+    pub fn create_blank_page(&mut self, pid: Pid) -> Result<Pid, BufferPoolError> {
         if self.is_full() {
             self.evict()?
         }
@@ -319,7 +359,6 @@ impl BufferPool {
         addr: &PhysicalAddress,
         pid: Pid,
     ) -> Result<Pid, BufferPoolError> {
-
         if self.cache.contains(&pid) {
             if self.cache.get(&pid).unwrap().has_capacity() {
                 return Ok(pid);
@@ -331,7 +370,8 @@ impl BufferPool {
         if self.on_disk(addr, pid) {
             self.read_from_disk(addr, pid)?;
             return Ok(pid);
-        } else { // Not on disk
+        } else {
+            // Not on disk
             if self.is_full() {
                 self.evict()?;
             }
@@ -345,17 +385,17 @@ impl BufferPool {
     pub fn append(
         &mut self,
         all_data: Vec<Option<i64>>,
-        addr: &PhysicalAddress,
-        range: &WhichRange,
+        page_location: &PageLocation,
+        table_ctx: &TableContext,
     ) -> Result<PhysicalAddress, BufferPoolError> {
         for (i, val) in all_data.into_iter().enumerate() {
-            let pid = make_pid(i, self.total_cols, addr.collection_num, range);
-            let pid = self.lazy_guarantee_page(addr, pid)?;
+            let pid = make_pid(i, self.total_cols, page_location.addr.collection_num, &page_location.range,table_ctx.table_id);
+            let pid = self.lazy_guarantee_page(&page_location.addr, pid)?;
 
             self.write_col(pid, val)
                 .map_err(|_| BufferPoolError::BufferPoolWriteFail)?;
         }
-        Ok(*addr)
+        Ok(page_location.addr)
     }
 }
 
@@ -370,18 +410,46 @@ impl Default for BufferPool {
     }
 }
 
-pub type Pid = i64;
+/// Pid, address
+pub type Pid = (i64, usize);
 
-pub fn make_pid(col: usize, total_cols: usize, collection_num: usize, range: &WhichRange) -> Pid {
-    let pid = ((col + total_cols * collection_num) + 1) as i64;
-    if *range == WhichRange::Tail { -pid } else { pid }
+trait PidExt {
+    fn get_pid(&self) -> i64;
+    fn address(&self) -> usize;
 }
 
-pub fn increment_pid(pid: &mut Pid, step: i64) -> Result<i64, BufferPoolError> {
+impl PidExt for Pid {
+    fn get_pid(&self) -> i64 { self.0 }
+    fn address(&self) -> usize { self.1 }
+}
+
+pub fn make_pid(col: usize, total_cols: usize, collection_num: usize, range: &WhichRange, table_id: usize) -> Pid {
+    let pid = ((col + total_cols * collection_num) + 1) as i64;
+    if *range == WhichRange::Tail {
+        (-pid, table_id)
+    } else {
+        (pid, table_id)
+    }
+}
+
+pub fn increment_pid(pid: &mut Pid, step: i64) -> Result<Pid, BufferPoolError> {
     match *pid {
-        p if p > 0 => *pid += step,
-        p if p < 0 => *pid -= step,
+        p if p.0 > 0 => pid.0 += step,
+        p if p.0 < 0 => pid.0 -= step,
         _ => return Err(BufferPoolError::ZeroPid),
     }
     Ok(*pid)
+}
+
+impl From<PageError> for BufferPoolError {
+    fn from(e: PageError) -> Self {
+        match e {
+            PageError::Full => BufferPoolError::Full,
+            PageError::PageNotFound(_) => BufferPoolError::PidNotInFrame,
+            PageError::IOError(_) => BufferPoolError::DiskWriteFail,
+            PageError::IndexOutOfBounds(_) | PageError::UpdateNotAllowed => {
+                BufferPoolError::BufferPoolWriteFail
+            }
+        }
+    }
 }

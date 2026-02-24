@@ -1,12 +1,18 @@
-use crate::error::DbError;
+use crate::bufferpool::{BufferPool};
+use crate::db_error::DbError;
 use crate::page_range::PhysicalAddress;
-use crate::table::Table;
+use crate::table::{Table, TableError};
+use parking_lot::Mutex;
+use std::fs::File;
+use std::io::{BufReader, BufWriter};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct PageDirectory {
     /// RID -> Address
     directory: Vec<Option<PhysicalAddress>>,
 }
+
 /* We do not need a hashmap here. There is No benefit...
 Instead, just use a vec and the rid as the index directly.
 Everything is None by default.
@@ -42,6 +48,50 @@ impl PageDirectory {
             .copied()
             .flatten()
             .ok_or(DbError::RecordNotFound(rid))
+    }
+
+    pub fn write_to_disk(
+        &self,
+        writer: &mut BufWriter<File>,
+        bufferpool: Arc<Mutex<BufferPool>>,
+    ) -> Result<(), TableError> {
+        for addr in self.directory.iter() {
+            bufferpool
+                .lock()
+                .write_i64(addr.unwrap().collection_num as i64, writer)
+                .map_err(|_| TableError::WriteFail)?;
+            bufferpool
+                .lock()
+                .write_i64(addr.unwrap().offset as i64, writer)
+                .map_err(|_| TableError::WriteFail)?;
+        }
+        Ok(())
+    }
+
+    pub fn read_from_disk(
+        &mut self,
+        buffer: &mut [u8],
+        reader: &mut BufReader<File>,
+        bufferpool: Arc<Mutex<BufferPool>>,
+    ) -> Result<(), TableError> {
+        // We need to iterate X times?
+        // X = # of total vals times
+        // Until the end of the file lol.
+
+        while let Ok(mut current) = bufferpool.lock().read_usize(buffer, reader) {
+            let mut addr: PhysicalAddress = PhysicalAddress::default();
+
+            addr.collection_num = current;
+            current = bufferpool
+                .lock()
+                .read_usize(buffer, reader)
+                .map_err(|_| TableError::ReadFail)?;
+            addr.offset = current;
+
+            self.directory.push(Some(addr));
+        }
+
+        Ok(())
     }
 }
 

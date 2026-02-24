@@ -1,4 +1,4 @@
-use crate::error::DbError;
+use crate::db_error::DbError;
 use crate::page_directory::PageDirectory;
 use crate::page_range::PhysicalAddress;
 

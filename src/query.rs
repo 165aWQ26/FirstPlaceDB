@@ -1,9 +1,10 @@
-use crate::error::DbError;
+use crate::db_error::DbError;
 use crate::page_range::WhichRange;
 use crate::table::Table;
 
 //May want to put MetaPage somewhere that isn't the bufferpool
 use crate::bufferpool::MetaPage;
+use crate::bufferpool_context::PageLocation;
 
 pub struct Query {
     pub table: Table,
@@ -33,7 +34,8 @@ impl Query {
         }
 
         // Write record (append_base handles all 4 metadata columns)
-        let address = self.table.page_ranges.append_base(record, rid)?;
+
+        let address = self.table.page_ranges.append_base(record, rid, &self.table.table_ctx)?;
         self.table.page_directory.add(rid, address);
         Ok(true)
     }
@@ -79,13 +81,13 @@ impl Query {
             _ => return Ok(false),
         };
 
-        let base_addr = self.table.page_directory.get(rid)?;
+        let base_location = PageLocation::base(self.table.page_directory.get(rid))?;
 
         // Get current indirection (points to latest tail, or self if no updates)
         let current_indirection = self
             .table
             .page_ranges
-            .read_meta_col(&base_addr, MetaPage::IndirectionCol, WhichRange::Base)?
+            .read_meta_col(MetaPage::IndirectionCol, &base_location, &self.table.table_ctx)?
             .ok_or(DbError::NullValue(404))?;
 
 
@@ -126,6 +128,7 @@ impl Query {
             next_rid,
             current_indirection,
             Some(schema_encoding),
+            self.table.table_id
         )?;
 
         self.table.page_directory.add(next_rid, address);
@@ -158,7 +161,7 @@ impl Query {
         let address =
             self.table
                 .page_ranges
-                .append_tail(tail_record, next_rid, current_indirection, None)?;
+                .append_tail(tail_record, next_rid, current_indirection, None, self.table.table_id)?;
 
         self.table.page_directory.add(next_rid, address);
 
@@ -237,9 +240,6 @@ impl Query {
         self.update(key, record)
     }
 }
-
-
-//
 
 // TODO m3
 // if let Some(indirection_pointer) = self.table.read_single(rid, record.len() + 2) {
