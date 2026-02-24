@@ -1,119 +1,104 @@
-use crate::error::DbError;
-use crate::page_collection::{MetaPage};
-use crate::page_range::WhichRange;
+use crate::db_error::DbError;
 use crate::table::Table;
 
-pub struct Query {
-    pub table: Table,
+//May want to put MetaPage somewhere that isn't the bufferpool
+use crate::bufferpool::MetaPage;
+use crate::bufferpool_context::PageLocation;
+
+pub struct Query<'a> {
+    pub table: &'a mut Table,
+    num_data_cols: usize,
 }
 
-impl Query {
+impl<'a> Query<'a> {
+    pub const DEFAULT_MERGE_THRESHOLD: usize = 10;
     pub const DEFAULT_INDIRECTION: Option<i64> = None;
     pub const DEFAULT_SCHEMA_ENCODING: Option<i64> = Some(0);
 
-    pub fn new(table: Table) -> Self {
-        Self { table }
+    pub fn new(table: &'a mut Table) -> Self {
+        let cols = table.table_ctx.total_cols - Table::NUM_META_PAGES;
+        Self {
+            table,
+            num_data_cols: cols,
+        }
     }
-
-    // TODO
-    // M1: primary key index only. For M2: restore secondary indices here.
-    // Old secondary index code:
-    // for (i, val) in record.iter().enumerate() {
-    //     self.table.indices[i].insert(val.unwrap(), rid);
-    // }
 
     pub fn insert(&mut self, record: Vec<Option<i64>>) -> Result<bool, DbError> {
         let rid = self.table.rid.next().unwrap();
-        //let key = record[self.table.key_index].ok_or(DbError::NullValue(self.table.key_index))?;
+        let key = record[self.table.key_index].ok_or(DbError::NullValue(self.table.key_index))?;
 
-        for (i, key) in record.iter().enumerate() {
-            if i == self.table.key_index {
-                // very smart lil d
-                // Single-traversal uniqueness check + insert
-                if !self.table.indices[i].insert_unique(key.unwrap(), rid) {
-                    return Ok(false);
-                }
-            } else {
-                self.table.indices[i].insert(key.unwrap(), rid);
-            }
+        // Single-traversal uniqueness check + insert
+        if !self.table.indices[self.table.key_index].insert_unique(key, rid) {
+            return Ok(false);
         }
 
         // Write record (append_base handles all 4 metadata columns)
-        let address = self.table.page_ranges.append_base(record, rid)?;
+
+        let address = self
+            .table
+            .page_ranges
+            .append_base(record, rid, &self.table.table_ctx)?;
         self.table.page_directory.add(rid, address);
         Ok(true)
     }
 
     pub fn select(
-        &self,
+        &mut self,
         key: i64,
         search_key_index: usize,
         projected_columns_index: &[i64],
     ) -> Result<Vec<Vec<Option<i64>>>, DbError> {
-        let rids = match self.table.rids_for_key(key, search_key_index) {
-            Ok(rids) => rids,
-            Err(e) => return Err(e),
-        };
+        let rid = self.table.indices[search_key_index]
+            .locate(key)
+            .ok_or(DbError::KeyNotFound(key))?;
 
-        let mut result = vec![];
-        
-        for rid in rids {
-            // TODO: What behavior should happen when user tries selecting deleted RID?
-            // for m1, we returned an error when trying to select 
-            // oh we could never have dup primary.
-            // wait wtf? why couldnt we insert a new primary key after old one was deleted?
-            // lets assume we cant bc that's weird -- selecting now will ignore deleted records
-            if !self.table.is_deleted(*rid)? {
-                result
-                    .push(self.table
-                        .read_latest_projected(projected_columns_index, *rid)?);
-            }
+        //for rid in Rids
+        if self.table.is_deleted(rid)? {
+            return Err(DbError::KeyNotFound(key));
         }
-        Ok(result)
+        Ok(vec![self
+            .table
+            .read_latest_projected(projected_columns_index, rid)?])
     }
 
-    pub fn select_version(&self, key: i64, search_key_index:usize,
-            projected_columns_index: &[i64], relative_version:i64) -> Result<Vec<Vec<Option<i64>>>, DbError> {
+    pub fn select_version(
+        &mut self,
+        key: i64,
+        _search_key_index: usize,
+        projected_columns_index: &[i64],
+        relative_version: i64,
+    ) -> Result<Vec<Vec<Option<i64>>>, DbError> {
+        let rid = self.table.rid_for_key(key)?;
 
-        let rids = match self.table.rids_for_key(key, search_key_index) {
-            Ok(rids) => rids,
-            Err(e) => return Err(e),
-        };
-
-        let mut result = vec![];
-
-        for rid in rids {
-            let deleted = self.table.is_deleted(*rid)?;
-
-            if deleted && relative_version < 0 {
-                return Err(DbError::KeyNotFound(key));
-            }
-
-            if !deleted {
-                result
-                    .push(self.table
-                        .read_version_projected(projected_columns_index, *rid, relative_version)?);
-            }
+        if self.table.is_deleted(rid)? {
+            return Err(DbError::KeyNotFound(key));
         }
-        Ok(result)
+
+        Ok(vec![self.table.read_version_projected(
+            projected_columns_index,
+            rid,
+            relative_version,
+        )?])
     }
 
-    // unique key only
     pub fn update(&mut self, key: i64, record: Vec<Option<i64>>) -> Result<bool, DbError> {
-        let rid = match self.table.rid_for_unique_key(key) {
+        let rid = match self.table.rid_for_key(key) {
             Ok(rid) => rid,
             _ => return Ok(false),
         };
 
-        let base_addr = self.table.page_directory.get(rid)?;
+        let base_location = PageLocation::base(self.table.page_directory.get(rid)?);
 
         // Get current indirection (points to latest tail, or self if no updates)
         let current_indirection = self
             .table
             .page_ranges
-            .read_meta_col(&base_addr, MetaPage::IndirectionCol, WhichRange::Base)?
+            .read_meta_col(
+                MetaPage::IndirectionCol,
+                &base_location,
+                &self.table.table_ctx,
+            )?
             .ok_or(DbError::NullValue(404))?;
-
 
         // Build schema encoding for this tail record
         let mut schema_encoding: i64 = 0;
@@ -123,22 +108,11 @@ impl Query {
             }
         }
 
-        // when updating,
-        // if key == primary key, return error
-        // otherwise, remove from index and add new one
-
+        // TODO fix secondary indices
         // remove the previous tail from the index
-        let current_values = self.table.read_latest(rid)?;
-        for (i, key) in record.iter().enumerate() {
-            if i == self.table.key_index && record[i] != None {
-                return Err(DbError::DuplicateKey(key.unwrap()));
-            }
-            if key.is_some() {
-                if current_values[i].is_some() {
-                    self.table.indices[i].remove(current_values[i].unwrap(), rid);
-                }
-                self.table.indices[i].insert(key.ok_or(DbError::NullValue(0))?, rid);
-            }
+        if let Some(new_key) = record[self.table.key_index] {
+            self.table.indices[self.table.key_index].remove(key, rid);
+            self.table.indices[self.table.key_index].insert_unique(new_key, rid);
         }
 
         let next_rid = self.table.rid.next().unwrap();
@@ -149,57 +123,69 @@ impl Query {
             next_rid,
             current_indirection,
             Some(schema_encoding),
+            Option::from(rid),
+            &self.table.table_ctx,
         )?;
 
         self.table.page_directory.add(next_rid, address);
 
         // Update base indirection
-        self.table
-            .page_ranges
-            .write_indirection(&base_addr, Some(next_rid), WhichRange::Base)?;
+        self.table.page_ranges.write_indirection(
+            Some(next_rid),
+            &base_location,
+            &self.table.table_ctx,
+        )?;
 
         Ok(true)
     }
 
-    // unique key only
     pub fn delete(&mut self, key: i64) -> Result<bool, DbError> {
-        let rid = self.table.rid_for_unique_key(key)?;
+        let rid = self.table.rid_for_key(key)?;
 
-        // Remove primary + secondaries from index
-        let current_values = self.table.read_latest(rid)?;
+        // Only remove from primary key index; secondary indices are filtered lazily
+        self.table.indices[self.table.key_index].remove(key, rid);
 
-        for (i, key) in current_values.iter().enumerate() {
-            self.table.indices[i].remove(key.unwrap(), rid);
-        }
-
-        let base_addr = self.table.page_directory.get(rid)?;
+        let base_location = PageLocation::base(self.table.page_directory.get(rid)?);
 
         let current_indirection = self
             .table
             .page_ranges
-            .read_meta_col(&base_addr, MetaPage::IndirectionCol, WhichRange::Base)?
+            .read_meta_col(
+                MetaPage::IndirectionCol,
+                &base_location,
+                &self.table.table_ctx,
+            )?
             .ok_or(DbError::NullValue(404))?;
 
         // Append deletion tail (schema_encoding = None marks deletion)
         let next_rid = self.table.rid.next().unwrap();
-        let tail_record = vec![None; self.table.num_columns];
-        let address =
-            self.table
-                .page_ranges
-                .append_tail(tail_record, next_rid, current_indirection, None)?;
+        let tail_record = vec![None; self.num_data_cols];
+        let address = self.table.page_ranges.append_tail(
+            tail_record,
+            next_rid,
+            current_indirection,
+            None,
+            Option::from(rid),
+            &self.table.table_ctx,
+        )?;
 
         self.table.page_directory.add(next_rid, address);
 
         // Update base indirection to point to deletion tail
-        self.table
-            .page_ranges
-            .write_indirection(&base_addr, Some(next_rid), WhichRange::Base)?;
+        self.table.page_ranges.write_indirection(
+            Some(next_rid),
+            &base_location,
+            &self.table.table_ctx,
+        )?;
 
+        self.table.tail_count+=1;
+        if self.table.tail_count % Query::DEFAULT_MERGE_THRESHOLD == 0 {
+            
+        }
         Ok(true)
     }
 
-    // unique key only
-    pub fn sum(&self, start_range: i64, end_range: i64, col: usize) -> Result<i64, DbError> {
+    pub fn sum(&mut self, start_range: i64, end_range: i64, col: usize) -> Result<i64, DbError> {
         if let Some(rids) =
             self.table.indices[self.table.key_index].locate_range(start_range, end_range)
         {
@@ -220,9 +206,8 @@ impl Query {
         }
     }
 
-    // unique key only
     pub fn sum_version(
-        &self,
+        &mut self,
         start_range: i64,
         end_range: i64,
         col: usize,
@@ -235,27 +220,28 @@ impl Query {
             let mut sum: i64 = 0;
 
             for rid in rids {
-                sum += self.table
-                    .read_version_single(rid,col,relative_version)?
+                sum += self
+                    .table
+                    .read_version_single(rid, col, relative_version)?
                     .ok_or(DbError::NullValue(col))?;
             }
             Ok(sum)
-        }
-        else {
+        } else {
             Err(DbError::KeyNotFound(start_range))
         }
     }
 
-    // rid from unique key
     pub fn increment(&mut self, key: i64, col: usize) -> Result<bool, DbError> {
         // Reject primary key or metadata column increments
-        if col == self.table.key_index || col >= self.table.num_columns {
+        if col == self.table.key_index || col >= self.num_data_cols {
             return Ok(false);
         }
 
-        let rid = self.table.rid_for_unique_key(key)?;
+        let rid = self.table.indices[self.table.key_index]
+            .locate(key)
+            .ok_or(DbError::KeyNotFound(key))?;
 
-        let mut record: Vec<Option<i64>> = vec![None; self.table.num_columns];
+        let mut record: Vec<Option<i64>> = vec![None; self.num_data_cols];
 
         let temp = self
             .table
@@ -267,72 +253,3 @@ impl Query {
         self.update(key, record)
     }
 }
-
-
-//
-
-// TODO m3
-// if let Some(indirection_pointer) = self.table.read_single(rid, record.len() + 2) {
-//             // set to previous tail page
-//         } else if let Some(indirection_pointer) = self.table.read_single(rid, record.len() + 1) {
-//             // first update --> set to base page
-//         } else {
-//         }
-//         // TODO: UPDATE INDIRECTION COLUMN
-//     }
-
-// pub fn update(&mut self, key: i64, record: Vec<Option<i64>>) -> bool {
-
-//     if let Some(rids) = self.table.indices[self.table.key_index].locate(key) {
-//         let rid = rids[0];
-//         let base_addr = self.table.page_directory.get(rid);
-//         if let indirection = self
-//             .table
-//             .page_ranges
-//             .get_indirection(&base_addr)
-//             .unwrap() {
-
-//             } else if self.table.page_ranges.get_indirection(addr)
-
-//         let mut schema_encoding: i64 =
-//             self.table.read_single(rid, record.len() + IndirectionCol).unwrap_or(0);
-
-//         //Updating index for all value that have been changed
-//         for i in 0..record.len() {
-//             if record[i].is_some() {
-//                 self.table.indices[i].remove(self.table.read_single(rid, i).unwrap(), rid);
-//                 //Updates schema encoding
-//                 self.table.indices[i].insert(record[i].unwrap(), rid);
-//                 schema_encoding |= 1 << i;
-//             }
-//         }
-//         //Appending rid, schema, then the indirection pointer to the end of
-//         //  it
-//         let next_rid = self.table.rid.next().unwrap();
-//         let address =
-//             self.table
-//                 .page_ranges
-//                 .append_tail(record, next_rid, indirection, schema_encoding);
-//         self.table.page_directory.add(next_rid, address);
-//         let indirection_col = self.table.num_columns + IndirectionCol;
-//         self.table
-//             .page_ranges
-//             .write_meta_col(indirection_col, &base_addr, Some(next_rid));
-//         return true;
-//     };
-//     //let key: Option<i64> = record[self.table.key_index];
-//     false
-// }
-
-
-//WAS IN UPDATE:         ////
-//
-//         // let current_values = self.table.read_latest(rid)?;
-//         // for (i, val) in record.iter().enumerate() {
-//         //     if val.is_some() {
-//         //         if let Some(old_val) = current_values[i] {
-//         //             self.table.indices[i].remove(old_val, rid);
-//         //         }
-//         //         self.table.indices[i].insert(val.ok_or(DbError::NullValue(i))?, rid);
-//         //     }
-//         // }

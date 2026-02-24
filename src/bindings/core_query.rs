@@ -1,285 +1,104 @@
-use crate::bufferpool::{BufferPool, MetaPage};
-use crate::error::DbError;
-use crate::index::Index;
-use crate::page_directory::PageDirectory;
-use crate::page_range::{PageRanges, WhichRange};
-use parking_lot::RwLock;
+use crate::bindings::core_db::CoreDatabase;
+use parking_lot::Mutex;
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::prelude::*;
 use std::sync::Arc;
 
-pub struct Table {
-    pub name: String,
+use crate::db::Database;
+use crate::query::Query;
 
-    pub page_ranges: PageRanges,
-
-    pub page_directory: PageDirectory,
-
-    pub rid: std::ops::RangeFrom<i64>,
-
-    pub num_columns: usize,
-
-    pub key_index: usize,
-
-    pub indices: Vec<Index>,
+#[pyclass]
+pub struct CoreQuery {
+    db: Arc<Mutex<Database>>,
+    table_name: String,
 }
 
-impl Table {
-    pub const PROJECTED_NUM_RECORDS: usize = 10001;
-    pub const NUM_META_PAGES: usize = 4;
-    //data_pages_per_collection is the total number of pages in a PageDirectory
-    pub fn new(table_name: String, num_columns: usize, key_index: usize, bufferpool: Arc<RwLock<BufferPool>>) -> Table {
-        //! Assume that we can only make one table for now. Bufferpool can't do more than one table.
-        //! Also the bufferpool reference allocation related to table should be done in db.create_table.
-        Self {
-            name: table_name,
-            // Make new copy for PageRanges to use
-            page_ranges: PageRanges::new(num_columns, bufferpool),
-
-            // original copy here
-            page_directory: PageDirectory::default(),
-            rid: 0..,
-            key_index,
-            num_columns,
-            indices: (0..1).map(|_| Index::new()).collect(),
-        }
+impl CoreQuery {
+    fn with_query<F, T>(&self, f: F) -> PyResult<T>
+    where
+        F: FnOnce(&mut Query) -> Result<T, crate::db_error::DbError>,
+    {
+        let mut db = self.db.lock();
+        let table = db.tables.get_mut(self.table_name.as_str()).ok_or_else(|| {
+            PyRuntimeError::new_err(format!("table '{}' not found", self.table_name))
+        })?;
+        let mut query = Query::new(table);
+        f(&mut query).map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
-    /// Returns all the columns of the record
-    pub fn read(&self, rid: i64) -> Result<Vec<Option<i64>>, DbError> {
-        let addr = self.page_directory.get(rid)?;
-        self.page_ranges.read(&addr)
-    }
+}
 
-    /// Like read but you choose col
-    pub fn read_single(
-        &self,
-        rid: i64,
-        column: usize,
-        range: WhichRange,
-    ) -> Result<Option<i64>, DbError> {
-        let addr = self.page_directory.get(rid)?;
-        self.page_ranges.read_single(column, &addr, range)
-    }
-
-    //Use index to find the rid
-    pub fn rid_for_key(&self, key: i64) -> Result<i64, DbError> {
-        self.indices[self.key_index]
-            .locate(key)
-            .ok_or(DbError::KeyNotFound(key))
-    }
-
-    // pub fn read_projected(&self, projected: &[i64], rid: i64) -> Result<Vec<Option<i64>>, DbError> {
-    //     let addr = self.page_directory.get(rid)?;
-    //     self.page_ranges.read_projected(projected, &addr)
-    // }
-
-    pub fn read_latest(&self, rid: i64) -> Result<Vec<Option<i64>>, DbError> {
-        let base_addr = self.page_directory.get(rid)?;
-        let mut result = self.read(rid)?;
-
-        //Read indirection column
-        let indirection = self.page_ranges.read_meta_col(
-            &base_addr,
-            MetaPage::IndirectionCol,
-            WhichRange::Base,
-        )?;
-
-        //If no tail updates, return base values
-        if indirection.is_none() || indirection == Some(rid) {
-            return Ok(result);
-        }
-
-        //Tail exists, walk the chain
-        let mut current_tail_rid = indirection.unwrap();
-        let mut accumulated_schema: i64 = 0;
-
-        loop {
-            let tail_addr = self.page_directory.get(current_tail_rid)?;
-            let tail_schema = self
-                .page_ranges
-                .read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)?
-                .unwrap_or(0); // None = deletion tail, no columns updated
-
-            //Columns updated in this tail but not yet seen in newer tails
-            let new_cols = tail_schema & !accumulated_schema;
-
-            for col in 0..self.num_columns {
-                if (new_cols >> col) & 1 == 1 {
-                    result[col] =
-                        self.page_ranges.read_single(col, &tail_addr, WhichRange::Tail)?;
-                }
-            }
-
-            accumulated_schema |= tail_schema;
-
-            //Move to next (older) tail record
-            let next_rid = self.page_ranges.read_meta_col(
-                &tail_addr,
-                MetaPage::IndirectionCol,
-                WhichRange::Tail,
-            )?;
-            if let Some(next) = next_rid {
-                if next == rid {
-                    break; //reached base
-                }
-                current_tail_rid = next; //continue down the chain
-            } else {
-                break; //no more tails
+#[pymethods]
+impl CoreQuery {
+    #[new]
+    fn new(db: &CoreDatabase, table_name: String) -> PyResult<Self> {
+        {
+            let db_lock = db.inner.lock();
+            if !db_lock.tables.contains_key(table_name.as_str()) {
+                return Err(PyRuntimeError::new_err(format!(
+                    "table '{}' not found",
+                    table_name
+                )));
             }
         }
-
-        Ok(result)
+        Ok(Self {
+            db: Arc::clone(&db.inner),
+            table_name,
+        })
     }
 
-    pub fn read_latest_single(&self, rid: i64, col: usize) -> Result<Option<i64>, DbError> {
-        let base_addr = self.page_directory.get(rid)?;
-        let indirection = self.page_ranges.read_meta_col(
-            &base_addr,
-            MetaPage::IndirectionCol,
-            WhichRange::Base,
-        )?;
-
-        if let Some(tail_rid) = indirection && tail_rid != rid {
-            let mut current_tail_rid = tail_rid;
-            loop {
-                let tail_addr = self.page_directory.get(current_tail_rid)?;
-                let tail_schema = self
-                    .page_ranges
-                    .read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)?
-                    .unwrap_or(0); //None = deletion tail, no columns updated
-
-                if (tail_schema >> col) & 1 == 1 {
-                    return self.page_ranges.read_single(col, &tail_addr, WhichRange::Tail);
-                }
-
-                let next_rid = self.page_ranges.read_meta_col(
-                    &tail_addr,
-                    MetaPage::IndirectionCol,
-                    WhichRange::Tail,
-                )?;
-                if let Some(next) = next_rid {
-                    if next == rid {
-                        break;
-                    }
-                    current_tail_rid = next;
-                } else {
-                    break;
-                }
-            }
-        }
-        self.page_ranges.read_single(col, &base_addr, WhichRange::Base)
+    fn insert(&self, record: Vec<Option<i64>>) -> PyResult<bool> {
+        self.with_query(|q| q.insert(record))
     }
 
-    pub fn read_version_single(
+    fn select(
         &self,
-        rid: i64,
-        col: usize,
-        mut relative_version: i64,
-    ) -> Result<Option<i64>, DbError> {
-        let base_addr = self.page_directory.get(rid)?;
-        let indirection = self.page_ranges.read_meta_col(
-            &base_addr,
-            MetaPage::IndirectionCol,
-            WhichRange::Base,
-        )?;
-        if let Some(tail_rid) = indirection && tail_rid != rid  {
-            let mut current_tail_rid = tail_rid;
-            loop {
-                let tail_addr = self.page_directory.get(current_tail_rid)?;
-                let tail_schema = self
-                    .page_ranges
-                    .read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)?
-                    .unwrap_or(0); // None = deletion tail, no columns updated
-
-                //Case where latest update if found
-                if (tail_schema >> col) & 1 == 1 {
-                    // Newest tail that updates this column
-                    relative_version += 1;
-                }
-                if relative_version > 0 {
-                    return self
-                        .page_ranges
-                        .read_single(col, &tail_addr, WhichRange::Tail);
-                }
-
-                let next_rid = self.page_ranges.read_meta_col(
-                    &tail_addr,
-                    MetaPage::IndirectionCol,
-                    WhichRange::Tail,
-                )?;
-                if let Some(next) = next_rid {
-                    if next == rid {
-                        break;
-                    }
-                    current_tail_rid = next;
-                } else {
-                    break;
-                }
-            }
-        }
-        self.page_ranges
-            .read_single(col, &base_addr, WhichRange::Base)
+        search_key: i64,
+        search_key_index: usize,
+        projected_columns_index: Vec<i64>,
+    ) -> PyResult<Vec<Vec<Option<i64>>>> {
+        self.with_query(|q| q.select(search_key, search_key_index, &projected_columns_index))
     }
 
-    pub fn read_latest_projected(
+    fn select_version(
         &self,
-        projected: &[i64],
-        rid: i64,
-    ) -> Result<Vec<Option<i64>>, DbError> {
-        let full = self.read_latest(rid)?;
-        Ok(projected
-            .iter()
-            .enumerate()
-            .map(|(col, &flag)| if flag == 1 { full[col] } else { None })
-            .collect())
-    }
-
-    pub fn read_version_projected(
-        &self,
-        projected: &[i64],
-        rid: i64,
+        search_key: i64,
+        search_key_index: usize,
+        projected_columns_index: Vec<i64>,
         relative_version: i64,
-    ) -> Result<Vec<Option<i64>>, DbError> {
-        let mut ans: Vec<Option<i64>> = Vec::new();
-        for (col, value) in projected.iter().enumerate() {
-            if *value == 1 {
-                ans.push(self.read_version_single(rid, col, relative_version)?);
-            } else {
-                ans.push(None);
-            }
-        }
-        Ok(ans)
+    ) -> PyResult<Vec<Vec<Option<i64>>>> {
+        self.with_query(|q| {
+            q.select_version(
+                search_key,
+                search_key_index,
+                &projected_columns_index,
+                relative_version,
+            )
+        })
     }
 
-    /// Check if a base RID's latest tail has schema_encoding == None (deletion marker).
-    pub fn is_deleted(&self, rid: i64) -> Result<bool, DbError> {
-        let base_addr = self.page_directory.get(rid)?;
-        let indirection = self.page_ranges.read_meta_col(
-            &base_addr,
-            MetaPage::IndirectionCol,
-            WhichRange::Base,
-        )?;
-
-        if indirection.is_none() || indirection == Some(rid) {
-            return Ok(false);
-        }
-
-        //Tail exists
-        let tail_rid = indirection.unwrap();
-        let tail_addr = self.page_directory.get(tail_rid)?;
-        let schema = self.page_ranges.read_meta_col(
-            &tail_addr,
-            MetaPage::SchemaEncodingCol,
-            WhichRange::Tail,
-        )?;
-
-        Ok(schema.is_none())
+    fn update(&self, primary_key: i64, record: Vec<Option<i64>>) -> PyResult<bool> {
+        self.with_query(|q| q.update(primary_key, record))
     }
 
-    // TODO do for m2 -- what the helly do these do
-    // pub fn create_index() {
+    fn delete(&self, primary_key: i64) -> PyResult<bool> {
+        self.with_query(|q| q.delete(primary_key))
+    }
 
-    // }
+    fn sum(&self, start_range: i64, end_range: i64, col: usize) -> PyResult<i64> {
+        self.with_query(|q| q.sum(start_range, end_range, col))
+    }
 
-    // pub fn drop_index() {
+    fn sum_version(
+        &self,
+        start_range: i64,
+        end_range: i64,
+        col: usize,
+        relative_version: i64,
+    ) -> PyResult<i64> {
+        self.with_query(|q| q.sum_version(start_range, end_range, col, relative_version))
+    }
 
-    // }
+    fn increment(&self, key: i64, column: usize) -> PyResult<bool> {
+        self.with_query(|q| q.increment(key, column))
+    }
 }
