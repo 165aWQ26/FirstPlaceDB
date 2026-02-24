@@ -1,3 +1,4 @@
+/*
 use rustc_hash::FxHashMap;
 
 use crate::table::Table;
@@ -20,6 +21,36 @@ impl Database {
     pub fn get_table(&self, name: &str) -> Option<&Table> {
         self.tables.get(name)
     }
+    pub fn drop_table(&mut self, name: &str) {
+        self.tables.remove(name);
+    }
+}
+*/
+
+use rustc_hash::FxHashMap;
+use std::sync::{Arc, Mutex};
+use crate::table::Table;
+use crate::transaction_worker::create_merge_worker;
+
+struct Database {
+    tables: FxHashMap<String, Arc<Mutex<Table>>>,
+}
+
+impl Database {
+    pub fn create_table(&mut self, name: String, num_columns: usize, key_index: usize) {
+        let table = Arc::new(Mutex::new(Table::new(
+            name.clone(),
+            num_columns + Table::NUM_META_PAGES,
+            key_index,
+        )));
+        create_merge_worker(Arc::clone(&table)); // spawn background merge thread
+        self.tables.insert(name, table);
+    }
+
+    pub fn get_table(&self, name: &str) -> Option<Arc<Mutex<Table>>> {
+        self.tables.get(name).cloned()
+    }
+
     pub fn drop_table(&mut self, name: &str) {
         self.tables.remove(name);
     }

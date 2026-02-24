@@ -5,6 +5,7 @@ pub mod error;
 pub mod index;
 mod page;
 mod page_collection;
+mod transaction_worker;
 mod page_directory;
 mod page_range;
 pub mod query;

@@ -1,9 +1,13 @@
 use crate::error::DbError;
 use crate::query::Query;
 use crate::table::Table;
+use std::sync::{Arc, Mutex};
 
 fn setup(num_columns: usize, key_index: usize) -> Query {
-    let table = Table::new(String::from("test"), num_columns, key_index);
+    //let table = Table::new(String::from("test"), num_columns, key_index);
+    let table = Arc::new(Mutex::new(
+        Table::new(String::from("test"), num_columns, key_index)
+    ));
     Query::new(table)
 }
 
@@ -84,7 +88,7 @@ fn delete_removes_from_index() {
     let mut q = setup(3, 0);
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
     q.delete(1).unwrap();
-    assert!(q.table.indices[0].locate(1).is_none());
+    assert!(q.table.lock().unwrap().indices[0].locate(1).is_none());
 }
 
 #[test]
@@ -129,7 +133,10 @@ fn increment() {
 // Keep the original integration test
 #[test]
 fn quick_test_all() {
-    let table: Table = Table::new(String::from("test"), 5, 0);
+    //let table: Table = Table::new(String::from("test"), 5, 0);
+    let table = Arc::new(Mutex::new(
+        Table::new(String::from("test"), 5, 0)
+    ));
     let mut query: Query = Query::new(table);
 
     let rec_one: Vec<Option<i64>> = vec![Some(1); 5];
@@ -140,11 +147,11 @@ fn quick_test_all() {
     query.insert(rec_one).unwrap();
     query.insert(rec_two).unwrap();
 
-    let rid1 = query.table.rid_for_unique_key(1).unwrap();
-    assert_eq!(query.table.read(rid1), Ok(vec![Some(1); 5]));
+    let rid1 = query.table.lock().unwrap().rid_for_unique_key(1).unwrap();
+    assert_eq!(query.table.lock().unwrap().read(rid1), Ok(vec![Some(1); 5]));
 
-    let rid2 = query.table.rid_for_unique_key(2).unwrap();
-    assert_eq!(query.table.read(rid2), Ok(vec![Some(2); 5]));
+    let rid2 = query.table.lock().unwrap().rid_for_unique_key(2).unwrap();
+    assert_eq!(query.table.lock().unwrap().read(rid2), Ok(vec![Some(2); 5]));
 
     query.insert(rec_three).unwrap();
 
@@ -159,7 +166,7 @@ fn quick_test_all() {
     let ans_list: Vec<Vec<Option<i64>>> = query.select(1, 0, &mask).unwrap();
     assert_eq!(ans_list.len(), 1);
 
-    assert!(query.table.indices[0].locate(4).is_none());
+    assert!(query.table.lock().unwrap().indices[0].locate(4).is_none());
 
     query.increment(2, 0).unwrap();
     query.increment(1, 0).unwrap();
@@ -300,9 +307,9 @@ fn test_version_single() {
     q.update(2, vec![None, Some(4), Some(5)]).unwrap();
     q.update(2, vec![None, Some(4), Some(6)]).unwrap();
 
-    let num1 = q.table.read_version_single(0,2,-2).unwrap();
-    let num2 = q.table.read_version_single(1,2,-5).unwrap();
-    let num3 = q.table.read_version_single(2,2,0).unwrap();
+    let num1 = q.table.lock().unwrap().read_version_single(0,2,-2).unwrap();
+    let num2 = q.table.lock().unwrap().read_version_single(1,2,-5).unwrap();
+    let num3 = q.table.lock().unwrap().read_version_single(2,2,0).unwrap();
     assert_eq!(num1.unwrap(), 3);
     assert_eq!(num2.unwrap(), 7);
     assert_eq!(num3.unwrap(), 6);
