@@ -1,10 +1,19 @@
-use crate::bufferpool::{BufferPool, MetaPage};
+use std::fs::File;
+use std::io;
+use std::io::BufWriter;
+use crate::bufferpool::{BufferPool, BufferPoolError, MetaPage};
 use crate::error::DbError;
 use crate::index::Index;
 use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
 use parking_lot::RwLock;
 use std::sync::Arc;
+use crate::page::PageError;
+
+#[derive(Debug)]
+pub enum TableError {
+    InvalidPath,
+}
 
 #[derive(Clone)]
 pub struct Table {
@@ -48,6 +57,32 @@ impl Table {
         let addr = self.page_directory.get(rid)?;
         self.page_ranges.read(&addr)
     }
+
+    pub fn write_i64(&self, val: i64, writer: &mut BufWriter<File>) -> Result<(), TableError> {
+
+    }
+
+    pub fn write_vector(&self, writer: &mut BufWriter<File>) -> Result<(), TableError> {
+
+    }
+
+    pub fn write_table_data_to_disk(&self, path: &str) -> Result<(), TableError>{
+        let mut file_path : String = directory_path.clone();
+        file_path.push_str("table_data");
+
+        let file = File::create(&file_path).map_err(|_| TableError::InvalidPath)?;
+
+        let mut writer = BufWriter::new(file);
+
+        self.write_i64(self.num_columns, &mut writer);
+
+        self.write_i64(self.key_index, &mut writer);
+
+        self.write_vector(self.page_directory, &mut writer);
+
+        return Ok(());
+    }
+
 
     /// Like read but you choose col
     pub fn read_single(

@@ -1,8 +1,11 @@
+use std::fs::File;
+use std::io::BufWriter;
 use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
-use crate::bufferpool::BufferPool;
+use crate::bufferpool::{BufferPool, BufferPoolError};
+use crate::error::DbError;
 use crate::table::Table;
 
 #[derive(Clone)]
@@ -52,23 +55,13 @@ impl Database {
         //  Drop index function
         self.bufferpool.write().evict_all().unwrap();
         for table in self.tables.values() {
-            (*table).write_table_to_disk(self.path);
-
+            (*table).write_table_data_to_disk(self.path);
         }
-    }
-
-    pub fn write_table_to_disk(&self, path: &str) {
-
-    }
-
-    pub fn write_page_directory(&self,directory_path: String){
-        //(*table).save_page_directory(self.path);
     }
 
     pub fn read_table_from_disk(){
         //Assumes only one table
-        let mut path : String = directory_path.clone();
-        path.push_str("table_data");
+        
 
     }
 

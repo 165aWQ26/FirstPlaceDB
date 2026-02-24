@@ -1,5 +1,6 @@
 use crate::bufferpool::BufferPoolError;
 use crate::page::PageError;
+use crate::table::TableError;
 
 use std::fmt;
 
@@ -7,6 +8,7 @@ use std::fmt;
 pub enum DbError {
     BufferPool(BufferPoolError),
     Page(PageError),
+    Table(TableError),
     RecordNotFound(i64), // No such RID
     KeyNotFound(i64),    // Index look up return ()
     DuplicateKey(i64),   // Insertion is done with duplicate primary key
@@ -17,6 +19,7 @@ impl fmt::Display for DbError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DbError::BufferPool(e) => write!(f, "bufferpool error: {:?}", e),
+            DbError::Table(e) => write!(f, "table error: {:?}", e),
             DbError::Page(e) => write!(f, "page error: {:?}", e),
             DbError::RecordNotFound(rid) => write!(f, "record not found: RID {}", rid),
             DbError::KeyNotFound(key) => write!(f, "key not found: {}", key),
@@ -35,5 +38,10 @@ impl From<PageError> for DbError {
 impl From<BufferPoolError> for DbError {
     fn from(e: BufferPoolError) -> Self {
         DbError::BufferPool(e)
+    }
+}
+
+impl From<TableError> for DbError {
+    fn from(e: TableError) -> Self { DbError::Table(e)
     }
 }
