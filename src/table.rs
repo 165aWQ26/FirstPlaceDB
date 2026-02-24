@@ -30,13 +30,12 @@ pub struct Table {
 
     pub indices: Vec<Index>,
 
-    pub tail_count: usize,
     pub table_ctx: TableContext,
 }
 
 impl Table {
     pub const PROJECTED_NUM_RECORDS: usize = 10001;
-    pub const NUM_META_PAGES: usize = 5;
+    pub const NUM_META_PAGES: usize = 4;
     //data_pages_per_collection is the total number of pages in a PageDirectory
     pub fn new(
         table_path: String,
@@ -63,8 +62,6 @@ impl Table {
                 total_cols: num_columns + Table::NUM_META_PAGES, //Todo IMPORTANT MAKE SURE THIS IS ACCOUNTED FOR
                 path: table_path,
             },
-            num_columns,
-            tail_count: 0,
         }
     }
     /// Returns all the columns of the record
@@ -242,17 +239,9 @@ impl Table {
             .read_single(column, &page_location, &self.table_ctx)
     }
 
-    // Use primary index to find the rid
-    pub fn rid_for_unique_key(&self, key: i64) -> Result<i64, DbError> {
-        Some(self.indices[self.key_index]
-            .locate(key)
-            .unwrap()[0])
-            .ok_or(DbError::KeyNotFound(key))
-    }
-
-    // get all rids for a key
-    pub fn rids_for_key(&self, key: i64, search_key_index: usize) -> Result<&Vec<i64>, DbError> {
-        self.indices[search_key_index]
+    //Use index to find the rid
+    pub fn rid_for_key(&self, key: i64) -> Result<i64, DbError> {
+        self.indices[self.key_index]
             .locate(key)
             .ok_or(DbError::KeyNotFound(key))
     }
@@ -288,44 +277,6 @@ impl Table {
                 .page_ranges
                 .read_meta_col(MetaPage::SchemaEncodingCol, &tail_location, &self.table_ctx)?
                 .unwrap_or(0); // None = deletion tail, no columns updated
-        // If indirection is None, no updates
-        match indirection {
-            Some(ind_rid) if ind_rid == rid => Ok(result),
-            None => Ok(result),
-            Some(tail_rid) => {
-                // check if already merged
-                if tail_rid <= self.page_ranges.base.tps[base_addr.collection_num] {
-                    let mut current_tail_rid = tail_rid;
-                    let mut accumulated_schema: i64 = 0;
-                    loop {
-                        let tail_addr = self.page_directory.get(current_tail_rid)?;
-                        let tail_schema = self.page_ranges
-                            .read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)?
-                            .unwrap_or(0);
-                        let new_cols = tail_schema & !accumulated_schema;
-                        for col in 0..self.num_columns {
-                            if (new_cols >> col) & 1 == 1 {
-                                result[col] = self.page_ranges.read_single(col, &tail_addr, WhichRange::Tail)?;
-                            }
-                        }
-                        accumulated_schema |= tail_schema;
-                        let next_rid = self.page_ranges.read_meta_col(&tail_addr, MetaPage::IndirectionCol, WhichRange::Tail)?;
-                        match next_rid {
-                            Some(next) if next == rid => break,
-                            Some(next) if next <= self.page_ranges.base.tps[base_addr.collection_num] => current_tail_rid = next,
-                            _ => break,
-                        }
-                    }
-                    return Ok(result);
-                }
-                let mut current_tail_rid = tail_rid;
-                let mut accumulated_schema: i64 = 0;
-                loop {
-                    let tail_addr = self.page_directory.get(current_tail_rid)?;
-                    let tail_schema = self
-                        .page_ranges
-                        .read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)?
-                        .unwrap_or(0); // None = deletion tail, no columns updated
 
             //Columns updated in this tail but not yet seen in newer tails
             let new_cols = tail_schema & !accumulated_schema;
@@ -382,39 +333,6 @@ impl Table {
                     .page_ranges
                     .read_meta_col(MetaPage::SchemaEncodingCol, &tail_location, &self.table_ctx)?
                     .unwrap_or(0); //None = deletion tail, no columns updated
-        match indirection {
-            Some(ind_rid) if ind_rid == rid => self.page_ranges.read_single(col, &base_addr, WhichRange::Base),
-            None => self.page_ranges.read_single(col, &base_addr, WhichRange::Base),
-            Some(tail_rid) => {
-                // Check if already merged
-                if tail_rid <= self.page_ranges.base.tps[base_addr.collection_num] {
-                    let tps = self.page_ranges.base.tps[base_addr.collection_num];
-                    let mut current_tail_rid = tail_rid;
-                    loop {
-                        let tail_addr = self.page_directory.get(current_tail_rid)?;
-                        let tail_schema = self.page_ranges
-                            .read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)?
-                            .unwrap_or(0);
-                        if (tail_schema >> col) & 1 == 1 {
-                            return self.page_ranges.read_single(col, &tail_addr, WhichRange::Tail);
-                        }
-                        let next_rid = self.page_ranges.read_meta_col(&tail_addr, MetaPage::IndirectionCol, WhichRange::Tail)?;
-                        match next_rid {
-                            Some(next) if next == rid => break,
-                            Some(next) if next <= tps => current_tail_rid = next,
-                            _ => break,
-                        }
-                    }
-                    return self.page_ranges.read_single(col, &base_addr, WhichRange::Base);
-                }
-
-                let mut current_tail_rid = tail_rid;
-                loop {
-                    let tail_addr = self.page_directory.get(current_tail_rid)?;
-                    let tail_schema = self
-                        .page_ranges
-                        .read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)?
-                        .unwrap_or(0); // None = deletion tail, no columns updated
 
                 if (tail_schema >> col) & 1 == 1 {
                     return self
@@ -490,42 +408,6 @@ impl Table {
                 }
             }
         }
-        // add back return if neccessary
-        self.page_ranges.read_single(col, &base_location, &self.table_ctx)
-    }
-     */
-
-    // merge based read_version_single
-    pub fn read_version_single(&self, rid: i64, col: usize, mut relative_version: i64) -> Result<Option<i64>, DbError> {
-        let base_addr = self.page_directory.get(rid)?;
-        let indirection = self.page_ranges.read_meta_col(&base_addr, MetaPage::IndirectionCol, WhichRange::Base)?;
-
-        if let Some(tail_rid) = indirection && tail_rid != rid {
-            let mut current_tail_rid = tail_rid;
-            loop {
-                let tail_addr = self.page_directory.get(current_tail_rid)?;
-                let tail_schema = self
-                    .page_ranges
-                    .read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)?
-                    .unwrap_or(0);
-
-                if (tail_schema >> col) & 1 == 1 {
-                    if relative_version == 0 {
-                        return self.page_ranges.read_single(col, &tail_addr, WhichRange::Tail);
-                    }
-                    relative_version += 1;
-                }
-
-                let next_rid = self.page_ranges.read_meta_col(&tail_addr, MetaPage::IndirectionCol, WhichRange::Tail)?;
-                match next_rid {
-                    Some(next) if next == rid => break,
-                    Some(next) => current_tail_rid = next,
-                    None => break,
-                }
-            }
-        }
-
-        self.page_ranges.read_single(col, &base_addr, WhichRange::Base)
         self.page_ranges
             .read_single(col, &base_location, &self.table_ctx)
     }
@@ -583,26 +465,6 @@ impl Table {
         )?;
 
         Ok(schema.is_none())
-    pub fn is_deleted(&self, rid: i64) -> Result<bool, DbError> {
-        let base_addr = self.page_directory.get(rid)?;
-
-        //check if alr marked deleted via merge
-        let base_schema = self.page_ranges.read_meta_col(&base_addr, MetaPage::SchemaEncodingCol, WhichRange::Base)?;
-        // TODO: add sentinel val to track if page is deleted
-        if base_schema == Some(-1){
-            return Ok(true);
-        }
-
-        let indirection = self.page_ranges.read_meta_col(&base_addr, MetaPage::IndirectionCol, WhichRange::Base)?;
-        match indirection {
-            None => Ok(false),
-            Some(ind_rid) if ind_rid == rid => Ok(false),
-            Some(tail_rid) => {
-                let tail_addr = self.page_directory.get(tail_rid)?;
-                let schema = self.page_ranges.read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)?;
-                Ok(schema.is_none())
-            }
-        }
     }
 
     // TODO do for m2 -- what the helly do these do
@@ -613,90 +475,4 @@ impl Table {
     // pub fn drop_index() {
 
     // }
-
-    pub fn merge(&mut self) {
-        let mut merged_base = self.page_ranges.base.clone_range();
-
-        let mut seen: HashSet<i64> = HashSet::new();
-        let mut max_tail_per_collection: std::collections::HashMap<usize, i64> = std::collections::HashMap::new();
-        let max_rid = self.rid.start - 1;
-
-        for tail_rid in (0..=max_rid).rev() {
-            let tail_addr = match self.page_directory.get(tail_rid) {
-                Ok(addr) => addr,
-                Err(_) => continue,
-            };
-
-            let base_rid = match self.page_ranges.read_meta_col(&tail_addr, MetaPage::BaseRidCol, WhichRange::Tail) {
-                Ok(Some(base)) => base,
-                _ => continue,
-            };
-
-            if base_rid >= tail_rid {
-                continue;
-            }
-
-            if seen.contains(&base_rid) {
-                continue;
-            }
-            seen.insert(base_rid);
-
-            let base_addr = match self.page_directory.get(base_rid) {
-                Ok(addr) => addr,
-                Err(_) => continue,
-            };
-
-            let schema = match self.page_ranges.read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail) {
-                Ok(val) => val,
-                Err(_) => continue,
-            };
-
-            if schema.is_none() {
-                let meta_col = self.num_columns + MetaPage::SchemaEncodingCol as usize;
-                merged_base[base_addr.collection_num].pages[meta_col]
-                    .update(base_addr.offset, Some(-1))
-                    .unwrap();
-            }
-            /*
-            else {
-                let schema_bits = schema.unwrap();
-                for col in 0..self.num_columns {
-                    if (schema_bits >> col) & 1 == 1 {
-                        // read from live tail
-                        let val = self.page_ranges
-                            .read_single(col, &tail_addr, WhichRange::Tail)
-                            .unwrap();
-                        // write into clone, not live base
-                        merged_base[base_addr.collection_num].pages[col]
-                            .update(base_addr.offset, val)
-                            .unwrap();
-                    }
-                }
-            }
-             */
-
-            // update indirection in clone to point to this tail
-            // --> read_latest can use TPS shortcut correctly
-            let indir_col = self.num_columns + MetaPage::IndirectionCol as usize;
-            merged_base[base_addr.collection_num].pages[indir_col]
-                .update(base_addr.offset, Some(tail_rid))
-                .unwrap();
-
-            max_tail_per_collection
-                .entry(base_addr.collection_num)
-                .and_modify(|v| *v = (*v).max(tail_rid))
-                .or_insert(tail_rid);
-        }
-
-        self.page_ranges.base.swap_range(merged_base);
-
-        // grow tps to match new range length if needed
-        while self.page_ranges.base.tps.len() < self.page_ranges.base.range_len() {
-            self.page_ranges.base.tps.push(i64::MAX);
-        }
-
-        for (collection_num, max_rid) in max_tail_per_collection {
-            self.page_ranges.base.tps[collection_num] = max_rid;
-        }
-    }
 }
