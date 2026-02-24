@@ -76,7 +76,6 @@ impl Database {
     pub fn get_table(&mut self, name: &str) -> Result<Option<&mut Table>, DbError> {
         if !self.tables.contains_key(name) {
             let mut table_path = self.path.clone();
-            table_path.push_str("/");
             table_path.push_str(&name);
             self.read_table_from_disk(table_path.clone())
                 .map_err(|_| DbError::ReadTableFailed())?;
