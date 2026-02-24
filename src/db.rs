@@ -37,7 +37,7 @@ impl Database {
             name.clone(),
             num_columns,
             key_index,
-            bufferpool = Arc::new(Mutex::new(BufferPool::default())),
+            Arc::clone(&self.bufferpool),
             self.table_id_iterator.next().unwrap()
         );
         self.tables.insert(name, table);

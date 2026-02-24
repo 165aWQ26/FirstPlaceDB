@@ -97,7 +97,7 @@ impl BufferPool {
         &mut self,
         val: Option<i64>,
         col_type: MetaPage,
-        page_location: PageLocation
+        page_location: &PageLocation,
         table_ctx: &TableContext,
     ) -> Result<(), PageError> {
         match col_type {

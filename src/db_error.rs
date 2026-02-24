@@ -28,6 +28,7 @@ impl fmt::Display for DbError {
             DbError::DuplicateKey(key) => write!(f, "duplicate key: {}", key),
             DbError::NullValue(col) => write!(f, "unexpected null in column {}", col),
             DbError::ReadTableFailed() => write!(f, "read table failed"),
+            DbError::WriteTableFailed() => write!(f, "write table failed"),
         }
     }
 }

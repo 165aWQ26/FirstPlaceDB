@@ -41,7 +41,7 @@ impl Query {
     }
 
     pub fn select(
-        &self,
+        &mut self,
         key: i64,
         search_key_index: usize,
         projected_columns_index: &[i64],
@@ -61,7 +61,7 @@ impl Query {
         ])
     }
 
-    pub fn select_version(&self, key: i64, _search_key_index: usize,
+    pub fn select_version(&mut self, key: i64, _search_key_index: usize,
                           projected_columns_index: &[i64], relative_version: i64) -> Result<Vec<Vec<Option<i64>>>, DbError> {
         let rid = self.table.rid_for_key(key)?;
 
@@ -128,7 +128,7 @@ impl Query {
             next_rid,
             current_indirection,
             Some(schema_encoding),
-            self.table.table_id
+            &self.table.table_ctx
         )?;
 
         self.table.page_directory.add(next_rid, address);
@@ -136,7 +136,7 @@ impl Query {
         // Update base indirection
         self.table
             .page_ranges
-            .write_indirection(&base_addr, Some(next_rid), WhichRange::Base)?;
+            .write_indirection(&address, Some(next_rid), WhichRange::Base, &self.table.table_ctx)?;
 
         Ok(true)
     }
@@ -147,28 +147,28 @@ impl Query {
         // Only remove from primary key index; secondary indices are filtered lazily
         self.table.indices[self.table.key_index].remove(key, rid);
 
-        let base_addr = self.table.page_directory.get(rid)?;
+        let base_location = PageLocation::base(self.table.page_directory.get(rid)?);
 
         let current_indirection = self
             .table
             .page_ranges
-            .read_meta_col(&base_addr, MetaPage::IndirectionCol, WhichRange::Base)?
+            .read_meta_col(MetaPage::IndirectionCol, &base_location, &self.table.table_ctx)?
             .ok_or(DbError::NullValue(404))?;
 
         // Append deletion tail (schema_encoding = None marks deletion)
         let next_rid = self.table.rid.next().unwrap();
-        let tail_record = vec![None; self.table.num_columns];
+        let tail_record = vec![None; self.table.table_ctx.total_cols - Table::NUM_META_PAGES as usize];
         let address =
             self.table
                 .page_ranges
-                .append_tail(tail_record, next_rid, current_indirection, None, self.table.table_id)?;
+                .append_tail(tail_record, next_rid, current_indirection, None, &self.table.table_ctx)?;
 
         self.table.page_directory.add(next_rid, address);
 
         // Update base indirection to point to deletion tail
         self.table
             .page_ranges
-            .write_indirection(&base_addr, Some(next_rid), WhichRange::Base)?;
+            .write_indirection( Some(next_rid), &base_location,  &self.table.table_ctx)?;
 
         Ok(true)
     }

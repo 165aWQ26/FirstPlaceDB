@@ -104,12 +104,10 @@ impl PageRanges {
     #[inline]
     pub fn write_indirection(
         &mut self,
-        addr: &PhysicalAddress,
         val: Option<i64>,
-        range: WhichRange,
+        page_location: &PageLocation,
         table_ctx: &TableContext,
     ) -> Result<(), PageError> {
-        let page_location = PageLocation::new(*addr, range);
         self.bufferpool.lock().update_meta_col(val, MetaPage::IndirectionCol, page_location, table_ctx)
     }
 
