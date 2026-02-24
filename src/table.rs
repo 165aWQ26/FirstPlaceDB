@@ -50,7 +50,7 @@ impl Table {
         //! Assume that we can only make one table for now. Bufferpool can't do more than one table.
         //! Also the bufferpool reference allocation related to table should be done in db.create_table.
         Self {
-            // Make new copy for PageRanges to use
+            // Make default copy for PageRanges to use
             bufferpool: Arc::clone(&bufferpool),
 
             page_ranges: PageRanges::new(bufferpool),
@@ -539,7 +539,7 @@ impl Table {
                 .or_insert(tail_rid);
         }
 
-        // grow tps to match new range length if needed
+        // grow tps to match default range length if needed
         for (collection_num, max_rid) in max_tail_per_collection {
             if collection_num >= self.page_ranges.base.tps.len() {
                 self.page_ranges

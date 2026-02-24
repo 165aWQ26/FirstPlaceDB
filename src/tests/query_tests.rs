@@ -151,7 +151,7 @@ fn increment() {
 // #[test]
 // fn quick_test_all() {
 //
-//     //let table: Table = Table::new(String::from("test"), 5, 0);
+//     //let table: Table = Table::default(String::from("test"), 5, 0);
 //     let mut db = setup_db(5);
 //     let mut query =  setup_query(&mut db).unwrap();
 //

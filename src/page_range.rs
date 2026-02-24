@@ -9,7 +9,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct PageRange {
     next_addr: PhysicalAddressIterator,
-    pub tps: Vec<i64>
+    pub tps: Vec<i64>,
 }
 
 impl PageRange {
@@ -42,6 +42,7 @@ pub enum WhichRange {
     Base,
     Tail,
 }
+
 #[derive(Clone)]
 pub struct PageRanges {
     pub(crate) tail: PageRange,
@@ -58,7 +59,6 @@ impl PageRanges {
         }
     }
 
-    // For inserts: stages metadata (rid, indirection=rid, schema=0) then appends to base
     pub fn append_base(
         &mut self,
         mut data_cols: Vec<Option<i64>>,
@@ -67,13 +67,12 @@ impl PageRanges {
     ) -> Result<PhysicalAddress, DbError> {
         data_cols.push(Some(rid)); // RID
         data_cols.push(Some(rid)); // indirection (self for new base record)
-        data_cols.push(Some(0)); // schema_encoding (no updates)
-        data_cols.push(None);   // Start Time Col
-        data_cols.push(None);    // Base RID
-        self.append(data_cols, WhichRange::Base, &table_ctx)
+        data_cols.push(Some(0));   // schema_encoding (no updates)
+        data_cols.push(None);      // Start Time Col
+        data_cols.push(None);      // Base RID
+        self.append(data_cols, WhichRange::Base, table_ctx)
     }
 
-    // For updates: caller provides indirection (previous version) and schema_encoding (which cols updated)
     pub fn append_tail(
         &mut self,
         mut data_cols: Vec<Option<i64>>,
@@ -83,11 +82,11 @@ impl PageRanges {
         base_rid: Option<i64>,
         table_ctx: &TableContext,
     ) -> Result<PhysicalAddress, DbError> {
-        data_cols.push(Some(rid)); // RID
+        data_cols.push(Some(rid));        // RID
         data_cols.push(Some(indirection)); // indirection (points to prev version)
-        data_cols.push(schema_encoding); // schema_encoding: None = deletion, Some(bitmask) = update
-        data_cols.push(None);   // Start time column that doesn't get used
-        data_cols.push(base_rid); // Base RID
+        data_cols.push(schema_encoding);   // schema_encoding: None = deletion, Some(bitmask) = update
+        data_cols.push(None);              // Start time column
+        data_cols.push(base_rid);          // Base RID
         self.append(data_cols, WhichRange::Tail, table_ctx)
     }
 
@@ -101,7 +100,7 @@ impl PageRanges {
         Ok(self
             .bufferpool
             .lock()
-            .read_col(column, &page_location, table_ctx)?)
+            .read_col(column, page_location, table_ctx)?)
     }
 
     fn append(
@@ -114,7 +113,6 @@ impl PageRanges {
             WhichRange::Base => self.base.next_addr(),
             WhichRange::Tail => self.tail.next_addr(),
         };
-
         let page_location = PageLocation::new(addr, range);
         self.bufferpool
             .lock()
@@ -159,12 +157,10 @@ impl PageRanges {
     ) -> Result<Option<i64>, PageError> {
         self.bufferpool
             .lock()
-            .read_meta_col(col_type, &page_location, table_ctx)
+            .read_meta_col(col_type, page_location, table_ctx)
     }
 }
 
-//Possibly put here & below into its own file
-//This iterator automatically manages where you write to.
 #[derive(Hash, Eq, PartialEq, Copy, Clone, Debug, Default)]
 pub struct PhysicalAddress {
     pub(crate) offset: usize,

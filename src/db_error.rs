@@ -20,7 +20,7 @@ pub enum DbError {
 impl fmt::Display for DbError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DbError::BufferPool(e) => write!(f, "bufferpool error: {:?}", e),
+            DbError::BufferPool(e) => /* Todo: revert write!(f, "bufferpool error: {:?}", e) */ panic!("BufferPoolWriteFail"),
             DbError::Table(e) => write!(f, "table error: {:?}", e),
             DbError::Page(e) => write!(f, "page error: {:?}", e),
             DbError::RecordNotFound(rid) => write!(f, "record not found: RID {}", rid),
