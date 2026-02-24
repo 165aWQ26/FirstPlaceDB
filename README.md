@@ -2,10 +2,15 @@
 
 ### Build the binding
 git clone https://github.com/165aWQ26/FirstPlaceDB.git
+
 cd FirstPlaceDB
+
 pip install uv
+
 uv sync
+
 uv run maturin develop --release
+
 ## Run the code
 uv run python NAME_OF THE TEST FILE
 
