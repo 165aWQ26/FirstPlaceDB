@@ -28,7 +28,6 @@ impl Database {
     pub fn create_table(&mut self, name: String, num_columns: usize, key_index: usize) {
         //Todo Throw an error if path is ""
         let mut table_path = self.path.clone();
-        table_path.push_str("/");
         table_path.push_str(&name);
 
         let table = Table::new(
