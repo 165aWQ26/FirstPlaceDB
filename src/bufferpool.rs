@@ -15,6 +15,7 @@ pub enum MetaPage {
     IndirectionCol = 1,
     SchemaEncodingCol = 2,
     StartTimeCol = 3,
+    BaseRidCol = 4,
 }
 
 #[derive(Debug, Clone, PartialEq)]

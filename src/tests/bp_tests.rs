@@ -96,14 +96,14 @@ fn read_updates_from_file() {
 }
 
 #[test]
-fn read_100_updates_from_file() {
+fn read_1000_updates_from_file() {
     let mut db = setup_db(3);
     {
         let mut q = setup_query(&mut db).unwrap();
 
         q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
 
-        for i in 0..100 {
+        for i in 0..1000 {
             q.update(10, vec![None, Some(20 + i), Some(30 + i)])
                 .unwrap();
         }

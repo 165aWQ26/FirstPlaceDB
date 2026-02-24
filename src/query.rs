@@ -11,6 +11,7 @@ pub struct Query<'a> {
 }
 
 impl<'a> Query<'a> {
+    pub const DEFAULT_MERGE_THRESHOLD: usize = 10;
     pub const DEFAULT_INDIRECTION: Option<i64> = None;
     pub const DEFAULT_SCHEMA_ENCODING: Option<i64> = Some(0);
 
@@ -122,6 +123,7 @@ impl<'a> Query<'a> {
             next_rid,
             current_indirection,
             Some(schema_encoding),
+            Option::from(rid),
             &self.table.table_ctx,
         )?;
 
@@ -163,6 +165,7 @@ impl<'a> Query<'a> {
             next_rid,
             current_indirection,
             None,
+            Option::from(rid),
             &self.table.table_ctx,
         )?;
 
@@ -174,6 +177,11 @@ impl<'a> Query<'a> {
             &base_location,
             &self.table.table_ctx,
         )?;
+
+        self.table.tail_count+=1;
+        if self.table.tail_count % Query::DEFAULT_MERGE_THRESHOLD == 0 {
+            
+        }
         Ok(true)
     }
 

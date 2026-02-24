@@ -9,12 +9,14 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct PageRange {
     next_addr: PhysicalAddressIterator,
+    pub tps: Vec<i64>
 }
 
 impl PageRange {
     pub fn new() -> Self {
         Self {
             next_addr: PhysicalAddressIterator::default(),
+            tps: vec![],
         }
     }
 
@@ -66,7 +68,8 @@ impl PageRanges {
         data_cols.push(Some(rid)); // RID
         data_cols.push(Some(rid)); // indirection (self for new base record)
         data_cols.push(Some(0)); // schema_encoding (no updates)
-        data_cols.push(None);
+        data_cols.push(None);   // Start Time Col
+        data_cols.push(None);    // Base RID
         self.append(data_cols, WhichRange::Base, &table_ctx)
     }
 
@@ -77,12 +80,14 @@ impl PageRanges {
         rid: i64,
         indirection: i64,
         schema_encoding: Option<i64>,
+        base_rid: Option<i64>,
         table_ctx: &TableContext,
     ) -> Result<PhysicalAddress, DbError> {
         data_cols.push(Some(rid)); // RID
         data_cols.push(Some(indirection)); // indirection (points to prev version)
         data_cols.push(schema_encoding); // schema_encoding: None = deletion, Some(bitmask) = update
-        data_cols.push(None);
+        data_cols.push(None);   // Start time column that doesn't get used
+        data_cols.push(base_rid); // Base RID
         self.append(data_cols, WhichRange::Tail, table_ctx)
     }
 
