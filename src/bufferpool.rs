@@ -66,12 +66,12 @@ impl BufferPool {
         addr: &PhysicalAddress,
         range: WhichRange,
     ) -> Result<Option<i64>, PageError> {
-        let pid = Pid::new(col, self.total_cols, addr.collection_num, &range);
+        let pid = make_pid(col, self.total_cols, addr.collection_num, &range);
         // If page is not in cache, unwrap can crash the entire program.
         // lazy_guarentee_page() ensures the page is in the bufferpool before access.
         self.lazy_guarantee_page(addr, pid)
             .map_err(|_| PageError::IndexOutOfBounds(addr.offset))?;
-        self.cache.get(&pid.get()).unwrap().read(addr.offset)
+        self.cache.get(&pid).unwrap().read(addr.offset)
     }
 
     //done
@@ -86,11 +86,11 @@ impl BufferPool {
         match(col_type) {
             MetaPage::IndirectionCol => {
                 let col: usize = self.total_cols - Table::NUM_META_PAGES + col_type as usize;
-                let pid = Pid::new(col, self.total_cols, addr.collection_num, &range);
+                let pid = make_pid(col, self.total_cols, addr.collection_num, &range);
                 // See read_col
                 self.lazy_guarantee_page(addr, pid)
                     .map_err(|_| PageError::IndexOutOfBounds(addr.offset))?;
-                let page = self.cache.get_mut(&pid.get()).unwrap();
+                let page = self.cache.get_mut(&pid).unwrap();
 
                 page.set_dirty(true);
                 page.update(addr.offset, val)?;
@@ -107,8 +107,6 @@ impl BufferPool {
     #[inline]
     fn meta_record(&mut self, pid: i64) -> &Page {
         self.cache.get(&pid).unwrap()
-
-
     }
 
     //done
@@ -120,11 +118,11 @@ impl BufferPool {
         range: WhichRange,
     ) -> Result<Option<i64>, PageError> {
         let col: usize = self.total_cols - Table::NUM_META_PAGES + col_type as usize;
-        let pid = Pid::new(col, self.total_cols, addr.collection_num, &range);
+        let pid = make_pid(col, self.total_cols, addr.collection_num, &range);
 
         self.lazy_guarantee_page(addr, pid)
             .map_err(|_| PageError::IndexOutOfBounds(addr.offset))?;
-        self.meta_record(pid.get()).read(addr.offset)
+        self.meta_record(pid).read(addr.offset)
     }
 
     //done
@@ -134,13 +132,14 @@ impl BufferPool {
 
     //done
     pub fn make_path(&self, addr: &PhysicalAddress, pid: Pid) -> Result<String, BufferPoolError> {
-        let pid_val = pid.get();
-        if pid_val == 0 {
+
+        if pid == 0 {
             return Err(BufferPoolError::ZeroPid);
         }
+
         let mut path = self.path.clone(); // ./ECS165
 
-        if pid_val < 0 {
+        if pid < 0 {
             path.push_str("tp_");
         } else {
             path.push_str("bp_");
@@ -148,15 +147,13 @@ impl BufferPool {
         path.push_str(addr.collection_num.to_string().as_str());
         path.push_str("_");
         path.push_str(
-            ((pid_val.abs() - 1) % (self.total_cols as i64))
+            ((pid.abs() - 1) % (self.total_cols as i64))
                 .to_string()
                 .as_str(),
         );
 
         Ok(path)
     }
-
-
 
 
     ///
@@ -216,7 +213,7 @@ impl BufferPool {
                 .map_err(|_e| BufferPoolError::DiskReadFail)?;
         }
 
-        self.cache.push(pid.get(), page);
+        self.cache.push(pid, page);
         self.size += 1;
 
         Ok(())
@@ -233,31 +230,29 @@ impl BufferPool {
     /// evict() will not write to disk but instead do only the removal step.
     pub fn evict(&mut self) -> Result<(), BufferPoolError> {
         // We only want to write to disk if the page is dirty.
-        let (evicted_pid_val, page) = self.cache.pop_lru().unwrap();
+        let (pid, page) = self.cache.pop_lru().unwrap();
         if page.is_dirty() && !self.path.is_empty() {
-            let evicted_pid = Pid {
-                pid: evicted_pid_val,
-            };
-            let collection_num = { evicted_pid_val.unsigned_abs() as usize - 1 } / self.total_cols;
+            let collection_num = { pid.unsigned_abs() as usize - 1 } / self.total_cols;
             let addr = PhysicalAddress {
                 offset: 0,
                 collection_num,
             };
-            self.write_to_disk(&page, &addr, evicted_pid)?;
+            self.write_to_disk(&page, &addr, pid)?;
         }
         self.size -= 1;
         Ok(())
     }
-    #[inline]
+
+
     pub fn evict_all(&mut self) -> Result<(), BufferPoolError> {
         while self.size != 0 {
-            let (pid, page) = self.cache.pop_lru().unwrap();
-            let mut addr: PhysicalAddress = PhysicalAddress::default();
             //offset no
             //addr.offset = self.cache.get(&pid).unwrap().len() - 1;
-            addr.collection_num = (pid.abs() - 1) as usize / self.total_cols;
-
-            let pid = Pid { pid };
+            let (pid, page) = self.cache.pop_lru().unwrap();
+            let addr = PhysicalAddress {
+                offset: 0,
+                collection_num: (pid.abs() - 1) as usize / self.total_cols,
+            };
             if page.is_dirty() {
                 self.write_to_disk(&page, &addr, pid)?;
             }
@@ -265,6 +260,7 @@ impl BufferPool {
         }
         Ok(())
     }
+
 
     pub fn on_disk(&self, addr: &PhysicalAddress, pid: Pid) -> bool {
         let path = self.make_path(addr, pid);
@@ -288,15 +284,15 @@ impl BufferPool {
     pub fn create_blank_page (
         &mut self,
         pid: Pid,
-    ) -> Result<i64, BufferPoolError> {
+    ) -> Result<Pid, BufferPoolError> {
         if self.is_full() {
             self.evict()?
         }
         let mut new_pid = pid;
-        new_pid.increment(self.total_cols as i64)?;
-        self.cache.push(new_pid.get(), Page::default());
+        increment_pid(&mut new_pid, self.total_cols as i64)?;
+        self.cache.push(new_pid, Page::default());
         self.size += 1;
-        Ok(new_pid.get())
+        Ok(new_pid)
     }
 
     /// Ensures a usable page exists in the buffer pool for the given pid.
@@ -322,13 +318,11 @@ impl BufferPool {
         &mut self,
         addr: &PhysicalAddress,
         pid: Pid,
-    ) -> Result<i64, BufferPoolError> {
+    ) -> Result<Pid, BufferPoolError> {
 
-        let pid_val = pid.get();
-
-        if self.cache.contains(&pid.get()) {
-            if self.cache.get(&pid_val).unwrap().has_capacity() {
-                return Ok(pid_val);
+        if self.cache.contains(&pid) {
+            if self.cache.get(&pid).unwrap().has_capacity() {
+                return Ok(pid);
             }
             // Page exist but full, evict and make new page and return new pid
             return self.create_blank_page(pid);
@@ -336,15 +330,15 @@ impl BufferPool {
 
         if self.on_disk(addr, pid) {
             self.read_from_disk(addr, pid)?;
-            return Ok(pid_val);
+            return Ok(pid);
         } else { // Not on disk
             if self.is_full() {
                 self.evict()?;
             }
-            self.cache.push(pid_val, Page::default());
+            self.cache.push(pid, Page::default());
             self.size += 1;
         }
-        Ok(pid_val)
+        Ok(pid)
     }
 
     #[inline]
@@ -355,10 +349,8 @@ impl BufferPool {
         range: &WhichRange,
     ) -> Result<PhysicalAddress, BufferPoolError> {
         for (i, val) in all_data.into_iter().enumerate() {
-            let pid = Pid::new(i, self.total_cols, addr.collection_num, range);
+            let pid = make_pid(i, self.total_cols, addr.collection_num, range);
             let pid = self.lazy_guarantee_page(addr, pid)?;
-
-
 
             self.write_col(pid, val)
                 .map_err(|_| BufferPoolError::BufferPoolWriteFail)?;
@@ -378,32 +370,18 @@ impl Default for BufferPool {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct Pid {
-    /// ID fot the Nth page. Tail if negative, base if positive
-    pid: i64,
+pub type Pid = i64;
+
+pub fn make_pid(col: usize, total_cols: usize, collection_num: usize, range: &WhichRange) -> Pid {
+    let pid = ((col + total_cols * collection_num) + 1) as i64;
+    if *range == WhichRange::Tail { -pid } else { pid }
 }
 
-impl Pid {
-    pub fn new(col: usize, total_cols: usize, collection_num: usize, range: &WhichRange) -> Self {
-        let mut pid = ((col + total_cols * collection_num) + 1) as i64;
-
-        if *range == WhichRange::Tail {
-            pid = -pid;
-        }
-        Self { pid }
+pub fn increment_pid(pid: &mut Pid, step: i64) -> Result<i64, BufferPoolError> {
+    match *pid {
+        p if p > 0 => *pid += step,
+        p if p < 0 => *pid -= step,
+        _ => return Err(BufferPoolError::ZeroPid),
     }
-
-    pub fn get(&self) -> i64 {
-        self.pid
-    }
-
-    pub fn increment(&mut self, i: i64) -> Result<i64, BufferPoolError> {
-        match self.pid {
-            pid if pid > 0 => self.pid += i,
-            pid if pid < 0 => self.pid -= i,
-            _ => return Err(BufferPoolError::ZeroPid), // covers all cases, should never happen
-        }
-        Ok(self.pid)
-    }
+    Ok(*pid)
 }
