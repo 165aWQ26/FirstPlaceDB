@@ -164,7 +164,7 @@ impl Query {
         // Check for Merge
         self.table.tail_count += 1;
         if self.table.tail_count % 10 == 0 {
-            //self.table.merge();
+            self.table.merge();
         }
 
         Ok(true)
@@ -207,7 +207,7 @@ impl Query {
         // Check for Merge
         self.table.tail_count += 1;
         if self.table.tail_count % 10 == 0 {
-            //self.table.merge();
+            self.table.merge();
         }
 
         Ok(true)
