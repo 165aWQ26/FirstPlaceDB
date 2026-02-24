@@ -24,7 +24,7 @@ impl fmt::Display for DbError {
             DbError::Table(e) => write!(f, "table error: {:?}", e),
             DbError::Page(e) => write!(f, "page error: {:?}", e),
             DbError::RecordNotFound(rid) => write!(f, "record not found: RID {}", rid),
-            DbError::KeyNotFound(key) => write!(f, "key not found: {}", key),
+            DbError::KeyNotFound(key) => /*write!(f, "key not found: {}", key)*/ panic!("diddy"),
             DbError::DuplicateKey(key) => write!(f, "duplicate key: {}", key),
             DbError::NullValue(col) => write!(f, "unexpected null in column {}", col),
             DbError::ReadTableFailed() => write!(f, "read table failed"),

@@ -379,8 +379,12 @@ impl Table {
         &mut self,
         rid: i64,
         col: usize,
-        mut relative_version: i64,
+        relative_version: i64,
     ) -> Result<Option<i64>, DbError> {
+        //relative_version: 0 = latest, -1 = one update before latest, etc.
+        //traverse tail chain from newest to oldest.
+        //Each tail that updates `col` counts as one version step.
+        //want the tail at position `relative_version` (0-indexed from latest).
         let base_location = PageLocation::base(self.page_directory.get(rid)?);
         let indirection = self.page_ranges.read_meta_col(
             MetaPage::IndirectionCol,
@@ -390,6 +394,8 @@ impl Table {
         if let Some(tail_rid) = indirection
             && tail_rid != rid
         {
+            // version_counter starts at 0 (latest) and decrements toward relative_version
+            let mut version_counter: i64 = 0;
             let mut current_tail_rid = tail_rid;
             loop {
                 let tail_location = PageLocation::tail(self.page_directory.get(current_tail_rid)?);
@@ -398,15 +404,15 @@ impl Table {
                     .read_meta_col(MetaPage::SchemaEncodingCol, &tail_location, &self.table_ctx)?
                     .unwrap_or(0); // None = deletion tail, no columns updated
 
-                //Case where latest update if found
                 if (tail_schema >> col) & 1 == 1 {
-                    // Newest tail that updates this column
-                    relative_version += 1;
-                }
-                if relative_version > 0 {
-                    return self
-                        .page_ranges
-                        .read_single(col, &tail_location, &self.table_ctx);
+                    // This tail updates `col`
+                    if version_counter == relative_version {
+                        // This is the version we want
+                        return self
+                            .page_ranges
+                            .read_single(col, &tail_location, &self.table_ctx);
+                    }
+                    version_counter -= 1;
                 }
 
                 let next_rid = self.page_ranges.read_meta_col(
@@ -424,6 +430,7 @@ impl Table {
                 }
             }
         }
+        // Fell off the chain — return base value
         self.page_ranges
             .read_single(col, &base_location, &self.table_ctx)
     }
