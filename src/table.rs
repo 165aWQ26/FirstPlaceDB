@@ -77,7 +77,7 @@ impl Table {
     }
 
     pub fn write_to_disk(&self, path: String) -> Result<(), TableError> {
-        let mut file_path: String = path.clone();
+        let mut file_path: String = path;
         file_path.push_str("table_data");
 
         let file = File::create(&file_path).map_err(|_| TableError::InvalidPath)?;
@@ -127,12 +127,15 @@ impl Table {
         self.page_directory
             .read_from_disk(&mut buffer, &mut reader, self.bufferpool.clone())?;
 
-        while let _ = reader
-            .read_exact(&mut buffer)
-            .map_err(|_| TableError::InvalidPath)?
-        {
-            let value = i64::from_be_bytes(buffer);
-            page.write(Some(value)).map_err(|_e| TableError::ReadFail)?;
+        loop {
+            match reader.read_exact(&mut buffer) {
+                Ok(()) => {
+                    let value = i64::from_be_bytes(buffer);
+                    page.write(Some(value)).map_err(|_| TableError::ReadFail)?;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+                Err(_) => return Err(TableError::InvalidPath),
+            }
         }
 
         Ok(())
