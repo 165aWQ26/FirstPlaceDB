@@ -1,8 +1,8 @@
-use crate::tests::setup_tests::{setup_db, setup_query};
+use crate::tests::setup_tests::{setup_query, setup_test_table};
 
 #[test]
 fn insert_and_read_latest() {
-    let mut db = setup_db(3);
+    let (mut db, _dir) = setup_test_table("test", 3, 0);
     let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
 
@@ -13,7 +13,7 @@ fn insert_and_read_latest() {
 
 #[test]
 fn read_latest_follows_update_chain() {
-    let mut db = setup_db(3);
+    let (mut db, _dir) = setup_test_table("test", 3, 0);
     let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
 
@@ -27,7 +27,7 @@ fn read_latest_follows_update_chain() {
 
 #[test]
 fn read_latest_multiple_updates() {
-    let mut db = setup_db(4);
+    let (mut db, _dir) = setup_test_table("test", 4,0);
     let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(1), Some(2), Some(3), Some(4)]).unwrap();
 
@@ -43,7 +43,7 @@ fn read_latest_multiple_updates() {
 
 #[test]
 fn read_latest_projected() {
-    let mut db = setup_db(4);
+    let (mut db, _dir) = setup_test_table("test", 4,0);
     let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(1), Some(2), Some(3), Some(4)]).unwrap();
     q.update(1, vec![None, Some(99), None, None]).unwrap();
@@ -56,7 +56,7 @@ fn read_latest_projected() {
 
 #[test]
 fn read_latest_single() {
-    let mut db = setup_db(3);
+    let (mut db, _dir) = setup_test_table("test", 3, 0);
     let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(5), Some(6), Some(7)]).unwrap();
     q.update(5, vec![None, Some(60), None]).unwrap();
@@ -69,7 +69,7 @@ fn read_latest_single() {
 
 #[test]
 fn index_being_weird() {
-    let mut db = setup_db(3);
+    let (mut db, _dir) = setup_test_table("test", 3, 0);
     let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(5), Some(6), Some(7)]).unwrap();
 
