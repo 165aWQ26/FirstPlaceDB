@@ -6,14 +6,14 @@ use crate::tests::setup_tests::{
 // can we pull tables from disk
 #[test]
 fn read_from_file_insert() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
     {
-        let mut q = setup_query(&mut db).unwrap();
+        let mut q = setup_query(&mut db, name).unwrap();
         bulk_insert(&mut q, 4, 3);
     }
 
-    persistence_round_trip(&mut db);
-    let mut q = setup_query(&mut db).unwrap();
+    persistence_round_trip(&mut db, name);
+    let mut q = setup_query(&mut db, name).unwrap();
 
     assert_select_eq(&mut q, 1, 3, make_record(1, 3));
     assert_select_eq(&mut q, 3, 3, make_record(3, 3));
@@ -23,13 +23,13 @@ fn read_from_file_insert() {
 
 #[test]
 fn read_from_file_insert_10000() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
     {
-        let mut q = setup_query(&mut db).unwrap();
+        let mut q = setup_query(&mut db, name).unwrap();
         bulk_insert(&mut q, 10000, 3);
     }
-    persistence_round_trip(&mut db);
-    let mut q = setup_query(&mut db).unwrap();
+    persistence_round_trip(&mut db, name);
+    let mut q = setup_query(&mut db, name).unwrap();
     assert_select_eq(&mut q, 321, 3, make_record(321, 3));
     assert_select_eq(&mut q, 632, 3, make_record(632, 3));
 
@@ -38,9 +38,9 @@ fn read_from_file_insert_10000() {
 
 #[test]
 fn read_updates_from_file() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
     {
-        let mut q = setup_query(&mut db).unwrap();
+        let mut q = setup_query(&mut db, name).unwrap();
 
         q.insert(record(&[10, 20, 30])).unwrap();
         q.insert(record(&[20, 40, 60])).unwrap();
@@ -49,11 +49,11 @@ fn read_updates_from_file() {
         q.update(20, updates_from(&[(1, 41), (2, 61)], 3)).unwrap();
     }
 
-    persistence_round_trip(&mut db);
+    persistence_round_trip(&mut db, name);
 
     // select the record that we pulled wow
     {
-        let mut q = setup_query(&mut db).unwrap();
+        let mut q = setup_query(&mut db, name).unwrap();
         // let result1 = q.select(10, 0, &mask).unwrap();
         // let result2 = q.select(20, 0, &mask).unwrap();
         //
@@ -71,9 +71,9 @@ fn read_updates_from_file() {
 
 #[test]
 fn read_1000_updates_from_file() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
     {
-        let mut q = setup_query(&mut db).unwrap();
+        let mut q = setup_query(&mut db, name).unwrap();
 
         q.insert(record(&[10, 20, 30])).unwrap();
 
@@ -83,12 +83,12 @@ fn read_1000_updates_from_file() {
         }
     }
 
-    persistence_round_trip(&mut db);
+    persistence_round_trip(&mut db, name);
 
     // select the record that we pulled wow
     let mask = [1i64, 1, 1];
     {
-        let mut q = setup_query(&mut db).unwrap();
+        let mut q = setup_query(&mut db, name).unwrap();
         let result = q.select(10, 0, &mask).unwrap();
 
         assert_eq!(result.len(), 1);
@@ -102,9 +102,9 @@ fn read_1000_updates_from_file() {
 // sum(1000-i for i in 0..1000) = 500,000 updates
 #[test]
 fn read_uneven_number_read_and_updates() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
     {
-        let mut q = setup_query(&mut db).unwrap();
+        let mut q = setup_query(&mut db, name).unwrap();
 
         for i in 0..100 {
             q.insert(vec![Some(i), Some(i + 1), Some(i + 2)]).unwrap();
@@ -117,12 +117,12 @@ fn read_uneven_number_read_and_updates() {
         }
     }
 
-    persistence_round_trip(&mut db);
+    persistence_round_trip(&mut db, name);
 
     // select the record that we pulled wow
     let mask = [1i64, 1, 1];
     {
-        let mut q = setup_query(&mut db).unwrap();
+        let mut q = setup_query(&mut db, name).unwrap();
         let result = q.select(10, 0, &mask).unwrap();
 
         assert_eq!(result.len(), 1);
@@ -134,9 +134,9 @@ fn read_uneven_number_read_and_updates() {
 
 #[test]
 fn read_select_version() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
     {
-        let mut q = setup_query(&mut db).unwrap();
+        let mut q = setup_query(&mut db, name).unwrap();
 
         q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
         q.update(10, vec![None, Some(21), Some(31)]).unwrap();
@@ -145,11 +145,11 @@ fn read_select_version() {
         q.update(10, vec![None, Some(24), Some(34)]).unwrap();
         q.update(10, vec![None, Some(25), Some(35)]).unwrap();
     }
-    persistence_round_trip(&mut db);
+    persistence_round_trip(&mut db, name);
 
     // select the record that we pulled wow
     let mask = [1i64, 1, 1];
-    let mut q = setup_query(&mut db).unwrap();
+    let mut q = setup_query(&mut db, name).unwrap();
     let result = q.select_version(10, 0, &mask, -2).unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], vec![Some(10), Some(23), Some(33)]);
@@ -159,9 +159,9 @@ fn read_select_version() {
 
 #[test]
 fn read_select_version_across_pages() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
     {
-        let mut q = setup_query(&mut db).unwrap();
+        let mut q = setup_query(&mut db, name).unwrap();
 
         q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
         q.insert(vec![Some(11), Some(12), Some(13)]).unwrap();
@@ -179,11 +179,11 @@ fn read_select_version_across_pages() {
         }
         q.update(10, vec![None, Some(25), Some(35)]).unwrap();
     }
-    persistence_round_trip(&mut db);
+    persistence_round_trip(&mut db, name);
 
     // select the record that we pulled wow
     let mask = [1i64, 1, 1];
-    let mut q = setup_query(&mut db).unwrap();
+    let mut q = setup_query(&mut db, name).unwrap();
     let result = q.select_version(10, 0, &mask, -2).unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], vec![Some(10), Some(23), Some(33)]);
@@ -193,8 +193,8 @@ fn read_select_version_across_pages() {
 
 #[test]
 fn select_version_disjoint_column_updates() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
-    let mut q = setup_query(&mut db).unwrap();
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
+    let mut q = setup_query(&mut db, name).unwrap();
     q.insert(vec![Some(100), Some(10), Some(20)]).unwrap();
 
     q.update(100, sparse_update(1, 11, 3)).unwrap();

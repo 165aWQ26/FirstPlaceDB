@@ -135,8 +135,8 @@ impl<'a> Query<'a> {
             &base_location,
             &self.table.table_ctx,
         )?;
-        self.table.tail_count+=1;
-        if self.table.tail_count.is_multiple_of(Query::DEFAULT_MERGE_THRESHOLD) {
+
+        if self.table.page_ranges.tail.full_pages_since_merge >= Query::DEFAULT_MERGE_THRESHOLD {
             self.table.merge()?;
         }
 
@@ -182,8 +182,7 @@ impl<'a> Query<'a> {
             &self.table.table_ctx,
         )?;
 
-        self.table.tail_count+=1;
-        if self.table.tail_count.is_multiple_of(Query::DEFAULT_MERGE_THRESHOLD) {
+        if self.table.page_ranges.tail.full_pages_since_merge >= Query::DEFAULT_MERGE_THRESHOLD {
             self.table.merge()?;
         }
         Ok(true)

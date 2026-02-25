@@ -39,8 +39,6 @@ impl PageDirectory {
     }
 
     //noinspection SpellCheckingInspection
-    //When this throws a panic it means you are either accessing a record that
-    //DNE or has been deleted... Too lazy to write real exception handling DAANNNYYY Fix me
     #[inline]
     pub fn get(&self, rid: i64) -> Result<PhysicalAddress, DbError> {
         self.directory

@@ -48,8 +48,10 @@ export RUST_LIB_BACKTRACE=1
 # Build
 if [ "$USE_RELEASE" = true ]; then
 	uv run maturin develop --release
+	echo "Running in release mode"
 else
 	uv run maturin develop
+	echo "Running in debug mode.. Unoptimized"
 fi
 
 if [ $? -ne 0 ]; then
