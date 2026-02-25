@@ -9,8 +9,11 @@ use crate::table::Table;
 pub struct Database {
     pub(crate) tables: FxHashMap<String, Table>,
     bufferpool: Arc<Mutex<BufferPool>>,
-    path: String,
+    pub(crate) path: String,
     table_id_iterator: std::ops::RangeFrom<usize>,
+    // For "In-memory" db, you still need a  temp dir so the
+    // bufferpool can still evict/reload pages.  Cleaned up on close().
+    fallback_dir: Option<std::path::PathBuf>,
 }
 
 impl Database {
@@ -20,14 +23,21 @@ impl Database {
             bufferpool: Arc::new(Mutex::new(BufferPool::default())),
             path: String::new(),
             table_id_iterator: 0..,
+            fallback_dir: None,
         }
     }
 
     pub fn create_table(&mut self, name: String, num_columns: usize, key_index: usize) {
+        if self.path.is_empty() {
+            let dir = std::env::temp_dir().join(format!("firstplacedb_{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&dir);
+            self.path = format!("{}/", dir.display());
+            self.fallback_dir = Some(dir);
+        }
+
         let mut table_path = self.path.clone();
         table_path.push_str(&name);
-        table_path.push_str("/");
-
+        table_path.push('/');
         let _ = std::fs::create_dir_all(&table_path);
 
         let table = Table::new(
@@ -40,7 +50,9 @@ impl Database {
 
         // Register name and context with the bufferpool so eviction can look them up
         self.bufferpool.lock().append_name(name.clone());
-        self.bufferpool.lock().append_context(table.table_ctx.clone());
+        self.bufferpool
+            .lock()
+            .append_context(table.table_ctx.clone());
 
         self.tables.insert(name, table);
     }
@@ -75,7 +87,9 @@ impl Database {
             .map_err(|_| DbError::ReadTableFailed())?;
 
         self.bufferpool.lock().append_name(name.to_string());
-        self.bufferpool.lock().append_context(table.table_ctx.clone());
+        self.bufferpool
+            .lock()
+            .append_context(table.table_ctx.clone());
 
         self.tables.insert(name.to_string(), table);
         Ok(())
@@ -85,7 +99,7 @@ impl Database {
         if !self.tables.contains_key(name) {
             let mut table_path = self.path.clone();
             table_path.push_str(name);
-            table_path.push_str("/");
+            table_path.push('/');
             self.read_table_from_disk(name, table_path)
                 .map_err(|_| DbError::ReadTableFailed())?;
         }
