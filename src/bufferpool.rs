@@ -135,7 +135,7 @@ impl BufferPool {
             path.push_str("bp_");
         }
         path.push_str(addr.collection_num.to_string().as_str());
-        path.push_str("_");
+        path.push('_');
         path.push_str(
             ((pid_val.abs() - 1) % (table_cxt.total_cols as i64))
                 .to_string()
@@ -237,7 +237,7 @@ impl BufferPool {
     }
 
     pub fn evict_all(&mut self) -> Result<(), BufferPoolError> {
-        while self.cache.len() != 0 {
+        while !self.cache.is_empty() {
             let (pid, page) = self.cache.pop_lru().unwrap();
             let table_ctx = self.table_contexts[pid.get_table_id()].clone();
             let addr = PhysicalAddress {
@@ -255,21 +255,6 @@ impl BufferPool {
         self.make_path(addr, pid, table_ctx)
             .map(|p| Path::new(&p).exists())
             .unwrap_or(false)
-    }
-
-    #[inline]
-    pub fn guarantee_writable_page(
-        &mut self,
-        pid: Pid,
-    ) -> Result<Pid, BufferPoolError> {
-        if self.cache.contains(&pid) {
-            return Ok(pid);
-        }
-        if self.is_full() {
-            self.evict()?;
-        }
-        self.cache.push(pid, Page::default());
-        Ok(pid)
     }
 
     #[inline]
@@ -302,7 +287,7 @@ impl BufferPool {
     ) -> Result<PhysicalAddress, BufferPoolError> {
         for (i, val) in all_data.into_iter().enumerate() {
             let pid = make_pid(i, page_location, table_ctx);
-            let pid = self.guarantee_writable_page(pid)?;
+            let pid = self.lazy_guarantee_page(&page_location.addr, pid, table_ctx)?;
             self.write_col(pid, val)
                 .map_err(|_| BufferPoolError::BufferPoolWriteFail)?;
         }
