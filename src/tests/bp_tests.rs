@@ -5,7 +5,6 @@ use crate::tests::setup_tests::{
 
 // can we pull tables from disk
 #[test]
-#[test]
 fn read_from_file_insert() {
     let (mut db, _dir) = setup_test_table("test", 3, 0);
     {
@@ -94,24 +93,26 @@ fn read_1000_updates_from_file() {
         let result = q.select(10, 0, &mask).unwrap();
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0], record(&[10,20 + 999, 30 + 999]));
+        assert_eq!(result[0], record(&[10, 20 + 999, 30 + 999]));
     }
 
     db.close().expect("close failed");
 }
 
+// Whoever did 1000 first doesn't know how to math
+// sum(1000-i for i in 0..1000) = 500,000 updates
 #[test]
 fn read_uneven_number_read_and_updates() {
     let (mut db, _dir) = setup_test_table("test", 3, 0);
     {
         let mut q = setup_query(&mut db).unwrap();
 
-        for i in 0..1000 {
+        for i in 0..100 {
             q.insert(vec![Some(i), Some(i + 1), Some(i + 2)]).unwrap();
         }
 
-        for i in 0..1000 {
-            for j in i..1000 {
+        for i in 0..100 {
+            for j in i..100 {
                 q.update(i, vec![None, Some(i + 1), Some(i + j)]).unwrap();
             }
         }
@@ -126,7 +127,7 @@ fn read_uneven_number_read_and_updates() {
         let result = q.select(10, 0, &mask).unwrap();
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0], vec![Some(10), Some(11), Some(1009)]);
+        assert_eq!(result[0], vec![Some(10), Some(10 + 1), Some(10 + 99)]);
     }
 
     db.close().expect("close failed");
