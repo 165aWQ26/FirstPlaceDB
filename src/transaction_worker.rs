@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use crate::table::Table;
 
+#[allow(dead_code)]
 pub fn create_merge_worker(table: Arc<Mutex<Table>>){
     //TODO: WRAP TABLE IN Arc<Mutex<Table>> AT QUERY/DB LEVEL
     // gives thread value ownership via move
@@ -12,7 +13,7 @@ pub fn create_merge_worker(table: Arc<Mutex<Table>>){
             if let Ok(mut t) = table.lock() {
                 if t.tail_count % 10 == 0 && t.tail_count > 0 && t.tail_count != last_merged_at {
                     last_merged_at = t.tail_count;
-                    t.merge();
+                    let _ = t.merge(); //todo: just ignored error for now
                 }
             }
         }

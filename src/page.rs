@@ -57,7 +57,7 @@ impl Page {
         self.data.iter()
     }
 
-    #[cfg(debug_assertions)]
+
     #[inline]
     #[allow(dead_code)] //Todo: Danny do we need this?
     pub fn len(&self) -> usize {

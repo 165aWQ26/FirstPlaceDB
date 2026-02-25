@@ -114,25 +114,22 @@ impl PageRanges {
             WhichRange::Tail => self.tail.next_addr(),
         };
         let page_location = PageLocation::new(addr, range);
-        self.bufferpool
-            .lock()
-            .append(all_data, &page_location, table_ctx)?;
+
+        //Lock once
+        let mut bp = self.bufferpool.lock();
+        bp.append(all_data, &page_location, table_ctx)?;
+
         Ok(addr)
     }
 
-    #[inline]
     pub fn write_indirection(
         &mut self,
         val: Option<i64>,
         page_location: &PageLocation,
         table_ctx: &TableContext,
     ) -> Result<(), PageError> {
-        self.bufferpool.lock().update_meta_col(
-            val,
-            MetaPage::Indirection,
-            page_location,
-            table_ctx,
-        )
+        let mut bp = self.bufferpool.lock();
+        bp.update_meta_col(val, MetaPage::Indirection, page_location, table_ctx)
     }
 
     #[inline]
@@ -155,9 +152,8 @@ impl PageRanges {
         page_location: &PageLocation,
         table_ctx: &TableContext,
     ) -> Result<Option<i64>, PageError> {
-        self.bufferpool
-            .lock()
-            .read_meta_col(col_type, page_location, table_ctx)
+        let mut bp = self.bufferpool.lock();
+        bp.read_meta_col(col_type, page_location, table_ctx)
     }
 }
 

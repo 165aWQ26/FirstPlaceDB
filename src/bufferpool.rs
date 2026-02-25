@@ -62,19 +62,12 @@ impl BufferPool {
         Ok(())
     }
 
-    #[inline]
-    pub fn read_col(
-        &mut self,
-        col: usize,
-        page_location: &PageLocation,
-        table_ctx: &TableContext,
-    ) -> Result<Option<i64>, PageError> {
+    pub fn read_col(&mut self, col: usize, page_location: &PageLocation, table_ctx: &TableContext)
+                    -> Result<Option<i64>, PageError>
+    {
         let pid = make_pid(col, page_location, table_ctx);
-        self.lazy_guarantee_page(&page_location.addr, pid, table_ctx)
-            .map_err(|_| PageError::IndexOutOfBounds(page_location.addr.offset))?;
-        self.cache
-            .get(&pid)
-            .unwrap()
+        self.get_or_load_page(&page_location.addr, pid, table_ctx)
+            .map_err(|_| PageError::IndexOutOfBounds(page_location.addr.offset))?
             .read(page_location.addr.offset)
     }
 
@@ -88,10 +81,15 @@ impl BufferPool {
     ) -> Result<(), PageError> {
         match col_type {
             MetaPage::Indirection => {
-                let col: usize = table_ctx.total_cols - Table::NUM_META_PAGES + col_type as usize;
+                let col: usize =
+                    table_ctx.total_cols - Table::NUM_META_PAGES + col_type as usize;
+
                 let pid = make_pid(col, page_location, table_ctx);
-                self.lazy_guarantee_page(&page_location.addr, pid, table_ctx)
+
+                // ensure page is loaded
+                self.get_or_load_page(&page_location.addr, pid, table_ctx)
                     .map_err(|_| PageError::IndexOutOfBounds(page_location.addr.offset))?;
+
                 let page = self.cache.get_mut(&pid).unwrap();
                 page.set_dirty(true);
                 page.update(page_location.addr.offset, val)?;
@@ -108,13 +106,13 @@ impl BufferPool {
         page_location: &PageLocation,
         table_ctx: &TableContext,
     ) -> Result<Option<i64>, PageError> {
-        let col: usize = table_ctx.total_cols - Table::NUM_META_PAGES + col_type as usize;
+        let col: usize =
+            table_ctx.total_cols - Table::NUM_META_PAGES + col_type as usize;
+
         let pid = make_pid(col, page_location, table_ctx);
-        self.lazy_guarantee_page(&page_location.addr, pid, table_ctx)
-            .map_err(|_| PageError::IndexOutOfBounds(page_location.addr.offset))?;
-        self.cache
-            .get(&pid)
-            .unwrap()
+
+        self.get_or_load_page(&page_location.addr, pid, table_ctx)
+            .map_err(|_| PageError::IndexOutOfBounds(page_location.addr.offset))?
             .read(page_location.addr.offset)
     }
 
@@ -262,24 +260,21 @@ impl BufferPool {
     }
 
     #[inline]
-    pub fn lazy_guarantee_page(
+    pub fn get_or_load_page(
         &mut self,
         addr: &PhysicalAddress,
         pid: Pid,
         table_ctx: &TableContext,
-    ) -> Result<Pid, BufferPoolError> {
-        if self.cache.contains(&pid) {
-            return Ok(pid);
+    ) -> Result<&Page, BufferPoolError> {
+        if !self.cache.contains(&pid) {
+            if self.on_disk(addr, pid, table_ctx) {
+                self.read_from_disk(addr, pid, table_ctx)?;
+            } else {
+                if self.is_full() { self.evict()?; }
+                self.cache.push(pid, Page::default());
+            }
         }
-        if self.on_disk(addr, pid, table_ctx) {
-            self.read_from_disk(addr, pid, table_ctx)?;
-            return Ok(pid);
-        }
-        if self.is_full() {
-            self.evict()?;
-        }
-        self.cache.push(pid, Page::default());
-        Ok(pid)
+        Ok(self.cache.get(&pid).unwrap()) //single get
     }
 
     #[inline]
@@ -291,10 +286,15 @@ impl BufferPool {
     ) -> Result<PhysicalAddress, BufferPoolError> {
         for (i, val) in all_data.into_iter().enumerate() {
             let pid = make_pid(i, page_location, table_ctx);
-            let pid = self.lazy_guarantee_page(&page_location.addr, pid, table_ctx)?;
-            self.write_col(pid, val)
-                .map_err(|_| BufferPoolError::BufferPoolWriteFail)?;
+
+            // ensure page is loaded
+            self.get_or_load_page(&page_location.addr, pid, table_ctx)?;
+
+            let page = self.cache.get_mut(&pid).unwrap();
+            page.set_dirty(true);
+            page.write(val)?;
         }
+
         Ok(page_location.addr)
     }
 }

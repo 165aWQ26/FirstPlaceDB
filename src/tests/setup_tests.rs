@@ -19,6 +19,7 @@ pub(crate) fn setup_test_table(
     (db, dir)
 }
 
+#[allow(dead_code)]
 pub(crate) fn setup_default_table() -> (Database, TempDir) {
     setup_test_table("test", 5, 0)
 }
