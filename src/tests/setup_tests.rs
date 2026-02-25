@@ -9,15 +9,14 @@ pub fn setup_db(num_columns: usize) -> Database {
         .arg("rm -rf ./ECS165/*")
         .status()
         .expect("Failed to execute command");
-    let num_columns = 3;
     let mut db = Database::new();
     db.open("./ECS165");
-    db.create_table(String::from("Grades"), num_columns, 0);
+    db.create_table(String::from("test"), num_columns, 0);
     db
 }
 
 pub fn setup_query(db: &'_ mut Database) -> Option<Query<'_>> {
-    if let Ok(Some(table)) = db.get_table(&String::from("Grades")) {
+    if let Ok(Some(table)) = db.get_table(&String::from("test")) {
         return Some(Query::new(table));
     }
     None
