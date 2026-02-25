@@ -26,12 +26,12 @@ fn read_from_file_insert() {
 }
 
 #[test]
-fn read_from_file_insert_1000() {
+fn read_from_file_insert_10000() {
     let mut db = setup_db(3);
     {
         let mut q = setup_query(&mut db).unwrap();
 
-        for i in 0..1000 {
+        for i in 0..10000 {
             q.insert(vec![Some(i), Some(i + 1), Some(i + 2)]).unwrap();
         }
     }
@@ -66,7 +66,7 @@ fn read_updates_from_file() {
         q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
         q.insert(vec![Some(20), Some(40), Some(60)]).unwrap();
 
-        q.update(10, vec![None, Some(21), Some(31)]).unwrap();
+        q.update(10, vec![None, None, Some(31)]).unwrap();
         q.update(20, vec![None, Some(41), Some(61)]).unwrap();
     }
 
@@ -84,10 +84,10 @@ fn read_updates_from_file() {
         let result2 = q.select(20, 0, &mask).unwrap();
 
         assert_eq!(result1.len(), 1);
-        assert_eq!(result1[0], vec![Some(10), Some(21), Some(31)]);
+        assert_eq!(result1[0], vec![Some(10), Some(20), Some(31)]);
 
         assert_eq!(result2.len(), 1);
-        assert_eq!(result2[0], vec![Some(10), Some(41), Some(61)]);
+        assert_eq!(result2[0], vec![Some(20), Some(41), Some(61)]);
     }
 
     db.close().expect("close failed");
@@ -158,6 +158,71 @@ fn read_uneven_number_read_and_updates() {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0], vec![Some(10), Some(11), Some(1009)]);
     }
+
+    db.close().expect("close failed");
+}
+
+#[test]
+fn read_select_version() {
+    let mut db = setup_db(3);
+    {
+        let mut q = setup_query(&mut db).unwrap();
+
+        q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
+        q.update(10,vec![None, Some(21), Some(31)]).unwrap();
+        q.update(10,vec![None, Some(22), Some(32)]).unwrap();
+        q.update(10,vec![None, Some(23), Some(33)]).unwrap();
+        q.update(10,vec![None, Some(24), Some(34)]).unwrap();
+        q.update(10,vec![None, Some(25), Some(35)]).unwrap();
+    }
+    db.close().expect("We have a problem.");
+
+    // see if we can pull the record from disk
+    db.open("./ECS165");
+    db.get_table("test").expect("andrew fucked something up");
+
+    // select the record that we pulled wow
+    let mask = [1i64, 1, 1];
+    let mut q = setup_query(&mut db).unwrap();
+    let result = q.select_version(10, 0, &mask, -2).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], vec![Some(10), Some(23), Some(33)]);
+
+    db.close().expect("close failed");
+}
+
+#[test]
+fn read_select_version_across_pages() {
+    let mut db = setup_db(3);
+    {
+        let mut q = setup_query(&mut db).unwrap();
+
+        q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
+        q.insert(vec![Some(11), Some(12), Some(13)]).unwrap();
+        q.update(10,vec![None, Some(21), Some(31)]).unwrap();
+        q.update(10,vec![None, Some(22), Some(32)]).unwrap();
+        q.update(10,vec![None, Some(23), Some(33)]).unwrap();
+        for i in 0..10000 {
+            q.update(11,vec![Some(i), Some(i + 1), Some(i + 2)]).unwrap();
+        }
+        q.update(10,vec![None, Some(24), Some(34)]).unwrap();
+        for i in 0..10000 {
+            q.update(11, vec![None, Some(12+i), Some(13+i)]).unwrap();
+        }
+        q.update(10,vec![None, Some(25), Some(35)]).unwrap();
+    }
+    db.close().expect("We have a problem.");
+
+    // see if we can pull the record from disk
+    db.open("./ECS165");
+    db.get_table("test").expect("andrew fucked something up");
+
+    // select the record that we pulled wow
+    let mask = [1i64, 1, 1];
+    let mut q = setup_query(&mut db).unwrap();
+    let result = q.select_version(10, 0, &mask, -2).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], vec![Some(10), Some(23), Some(33)]);
 
     db.close().expect("close failed");
 }
