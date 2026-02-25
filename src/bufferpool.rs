@@ -10,11 +10,11 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 
 pub enum MetaPage {
-    RidCol = 0,
-    IndirectionCol = 1,
-    SchemaEncodingCol = 2,
-    StartTimeCol = 3,
-    BaseRidCol = 4,
+    Rid = 0,
+    Indirection = 1,
+    SchemaEncoding = 2,
+    StartTime = 3,
+    BaseRid = 4,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -87,7 +87,7 @@ impl BufferPool {
         table_ctx: &TableContext,
     ) -> Result<(), PageError> {
         match col_type {
-            MetaPage::IndirectionCol => {
+            MetaPage::Indirection => {
                 let col: usize = table_ctx.total_cols - Table::NUM_META_PAGES + col_type as usize;
                 let pid = make_pid(col, page_location, table_ctx);
                 self.lazy_guarantee_page(&page_location.addr, pid, table_ctx)
@@ -193,9 +193,11 @@ impl BufferPool {
         while let Ok(()) = self.read_bytes(&mut buffer, &mut reader) {
             let value = i64::from_be_bytes(buffer);
             if value == i64::MAX {
-                page.write(None).map_err(|_| BufferPoolError::DiskReadFail)?;
+                page.write(None)
+                    .map_err(|_| BufferPoolError::DiskReadFail)?;
             } else {
-                page.write(Some(value)).map_err(|_| BufferPoolError::DiskReadFail)?;
+                page.write(Some(value))
+                    .map_err(|_| BufferPoolError::DiskReadFail)?;
             }
         }
         self.cache.push(pid, page);
@@ -228,9 +230,11 @@ impl BufferPool {
         let (pid, page) = self.cache.pop_lru().unwrap();
         let table_ctx = self.table_contexts[pid.get_table_id()].clone();
         if page.is_dirty() && !table_ctx.path.is_empty() {
-            let collection_num =
-                (pid.get_pid().unsigned_abs() as usize - 1) / table_ctx.total_cols;
-            let addr = PhysicalAddress { offset: 0, collection_num };
+            let collection_num = (pid.get_pid().unsigned_abs() as usize - 1) / table_ctx.total_cols;
+            let addr = PhysicalAddress {
+                offset: 0,
+                collection_num,
+            };
             self.write_to_disk(&page, &addr, pid, &table_ctx)?;
         }
         Ok(())
@@ -240,11 +244,11 @@ impl BufferPool {
         while !self.cache.is_empty() {
             let (pid, page) = self.cache.pop_lru().unwrap();
             let table_ctx = self.table_contexts[pid.get_table_id()].clone();
-            let addr = PhysicalAddress {
-                offset: 0,
-                collection_num: (pid.0.abs() - 1) as usize / table_ctx.total_cols,
-            };
-            if page.is_dirty() {
+            if page.is_dirty() && !table_ctx.path.is_empty() {
+                let addr = PhysicalAddress {
+                    offset: 0,
+                    collection_num: (pid.0.abs() - 1) as usize / table_ctx.total_cols,
+                };
                 self.write_to_disk(&page, &addr, pid, &table_ctx)?;
             }
         }
@@ -315,9 +319,13 @@ trait PidExt {
 
 impl PidExt for Pid {
     #[inline]
-    fn get_pid(&self) -> i64 { self.0 }
+    fn get_pid(&self) -> i64 {
+        self.0
+    }
     #[inline]
-    fn get_table_id(&self) -> usize { self.1 }
+    fn get_table_id(&self) -> usize {
+        self.1
+    }
 }
 
 pub fn make_pid(col: usize, page_location: &PageLocation, table_context: &TableContext) -> Pid {
@@ -327,15 +335,6 @@ pub fn make_pid(col: usize, page_location: &PageLocation, table_context: &TableC
     } else {
         (pid, table_context.table_id)
     }
-}
-
-pub fn increment_pid(pid: &mut Pid, step: i64) -> Result<Pid, BufferPoolError> {
-    match *pid {
-        p if p.0 > 0 => pid.0 += step,
-        p if p.0 < 0 => pid.0 -= step,
-        _ => return Err(BufferPoolError::ZeroPid),
-    }
-    Ok(*pid)
 }
 
 impl From<PageError> for BufferPoolError {
