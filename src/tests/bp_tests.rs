@@ -1,6 +1,6 @@
 use crate::tests::setup_tests::{
     assert_select_eq, assert_select_version_eq, bulk_insert, make_record, persistence_round_trip,
-    record, setup_query, setup_test_db, setup_test_table, sparse_update, updates_from,
+    record, setup_query, setup_test_table, sparse_update, updates_from,
 };
 
 // can we pull tables from disk
@@ -52,7 +52,6 @@ fn read_updates_from_file() {
     persistence_round_trip(&mut db);
 
     // select the record that we pulled wow
-    let mask = [1i64, 1, 1];
     {
         let mut q = setup_query(&mut db).unwrap();
         // let result1 = q.select(10, 0, &mask).unwrap();

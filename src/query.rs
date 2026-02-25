@@ -53,7 +53,7 @@ impl<'a> Query<'a> {
             .ok_or(DbError::KeyNotFound(key))?;
 
         //for rid in Rids
-        if self.table.is_deleted(rid)? {
+        if self.table.is_record_deleted(rid)? {
             return Err(DbError::KeyNotFound(key));
         }
         Ok(vec![self
@@ -70,7 +70,7 @@ impl<'a> Query<'a> {
     ) -> Result<Vec<Vec<Option<i64>>>, DbError> {
         let rid = self.table.rid_for_key(key)?;
 
-        if self.table.is_deleted(rid)? {
+        if self.table.is_record_deleted(rid)? {
             return Err(DbError::KeyNotFound(key));
         }
 
@@ -196,7 +196,7 @@ impl<'a> Query<'a> {
             let mut sum: i64 = 0;
 
             for rid in rids {
-                if self.table.is_deleted(rid)? {
+                if self.table.is_record_deleted(rid)? {
                     continue;
                 }
                 sum += self

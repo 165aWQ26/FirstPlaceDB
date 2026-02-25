@@ -27,7 +27,7 @@ fn read_latest_follows_update_chain() {
 
 #[test]
 fn read_latest_multiple_updates() {
-    let (mut db, _dir) = setup_test_table("test", 4,0);
+    let (mut db, _dir) = setup_test_table("test", 4, 0);
     let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(1), Some(2), Some(3), Some(4)]).unwrap();
 
@@ -43,7 +43,7 @@ fn read_latest_multiple_updates() {
 
 #[test]
 fn read_latest_projected() {
-    let (mut db, _dir) = setup_test_table("test", 4,0);
+    let (mut db, _dir) = setup_test_table("test", 4, 0);
     let mut q = setup_query(&mut db).unwrap();
     q.insert(vec![Some(1), Some(2), Some(3), Some(4)]).unwrap();
     q.update(1, vec![None, Some(99), None, None]).unwrap();

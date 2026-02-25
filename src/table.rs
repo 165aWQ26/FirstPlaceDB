@@ -520,7 +520,7 @@ impl Table {
     }
 
     /// Check if a base RID's latest tail has schema_encoding == None (deletion marker).
-    pub fn is_deleted(&mut self, rid: i64) -> Result<bool, DbError> {
+    pub fn is_record_deleted(&mut self, rid: i64) -> Result<bool, DbError> {
         let base_location = PageLocation::base(self.page_directory.get(rid)?);
         let indirection = self.page_ranges.read_meta_col(
             MetaPage::Indirection,
