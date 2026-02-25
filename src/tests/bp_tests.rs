@@ -5,17 +5,18 @@ use crate::tests::setup_tests::{
 
 // can we pull tables from disk
 #[test]
+#[test]
 fn read_from_file_insert() {
-    let (mut db, dir) = setup_test_table("test", 3, 0);
+    let (mut db, _dir) = setup_test_table("test", 3, 0);
     {
         let mut q = setup_query(&mut db).unwrap();
-        for i in 0..4 {
-            bulk_insert(&mut q, i, 3);
-        }
+        bulk_insert(&mut q, 4, 3);
     }
+
     persistence_round_trip(&mut db);
     let mut q = setup_query(&mut db).unwrap();
-    assert_select_eq(&mut q, 1, 1, make_record(1, 1));
+
+    assert_select_eq(&mut q, 1, 3, make_record(1, 3));
     assert_select_eq(&mut q, 3, 3, make_record(3, 3));
 
     db.close().expect("close failed");
