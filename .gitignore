@@ -234,3 +234,6 @@ __marimo__/
 
 # .DS_Store
 .DS_Store
+
+# The test database dirs
+Grades
