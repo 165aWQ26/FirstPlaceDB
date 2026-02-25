@@ -2,8 +2,8 @@ use crate::tests::setup_tests::{setup_query, setup_test_table};
 
 #[test]
 fn insert_and_select() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
-    let mut q = setup_query(&mut db).unwrap();
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
+    let mut q = setup_query(&mut db, name).unwrap();
 
     q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
 
@@ -19,8 +19,8 @@ fn insert_and_select() {
 
 #[test]
 fn insert_and_select_version_1() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
-    let mut q = setup_query(&mut db).unwrap();
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
+    let mut q = setup_query(&mut db, name).unwrap();
     q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
 
     q.update(10, vec![None, Some(2), Some(3)]).unwrap();
@@ -34,8 +34,8 @@ fn insert_and_select_version_1() {
 
 #[test]
 fn insert_and_select_version_2() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
-    let mut q = setup_query(&mut db).unwrap();
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
+    let mut q = setup_query(&mut db, name).unwrap();
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
 
     q.update(1, vec![None, None, Some(6)]).unwrap();
@@ -70,8 +70,8 @@ fn insert_and_select_version_2() {
 
 #[test]
 fn insert_duplicate_key_fails() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
-    let mut q = setup_query(&mut db).unwrap();
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
+    let mut q = setup_query(&mut db, name).unwrap();
     assert!(q.insert(vec![Some(1), Some(2), Some(3)]).unwrap());
     assert!(!q.insert(vec![Some(1), Some(5), Some(6)]).unwrap());
     db.close().expect("We have a problem");
@@ -79,8 +79,8 @@ fn insert_duplicate_key_fails() {
 
 #[test]
 fn update_and_select() {
-    let (mut db, _dir) = setup_test_table("test", 4, 0);
-    let mut q = setup_query(&mut db).unwrap();
+    let (mut db,name, _dir) = setup_test_table("test", 4, 0);
+    let mut q = setup_query(&mut db, name).unwrap();
     q.insert(vec![Some(1), Some(2), Some(3), Some(4)]).unwrap();
 
     // Update columns 1 and 3
@@ -94,8 +94,8 @@ fn update_and_select() {
 
 #[test]
 fn delete_removes_from_index() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
-    let mut q = setup_query(&mut db).unwrap();
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
+    let mut q = setup_query(&mut db, name).unwrap();
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
     q.delete(1).unwrap();
     assert!(q.table.indices[0].locate(1).is_none());
@@ -117,8 +117,8 @@ fn delete_removes_from_index() {
 
 #[test]
 fn sum_range() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
-    let mut q = setup_query(&mut db).unwrap();
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
+    let mut q = setup_query(&mut db, name).unwrap();
     q.insert(vec![Some(1), Some(10), Some(100)]).unwrap();
     q.insert(vec![Some(2), Some(20), Some(200)]).unwrap();
     q.insert(vec![Some(3), Some(30), Some(300)]).unwrap();
@@ -132,8 +132,8 @@ fn sum_range() {
 
 #[test]
 fn increment() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
-    let mut q = setup_query(&mut db).unwrap();
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
+    let mut q = setup_query(&mut db, name).unwrap();
     q.insert(vec![Some(1), Some(10), Some(100)]).unwrap();
 
     q.increment(1, 1).unwrap(); // col 1: 10 → 11
@@ -148,7 +148,7 @@ fn increment() {
     db.close().expect("We have a problem");
 }
 
-//Todo problems with binary comparisions. Just uncomment and you'll se
+//Todo problems with binary comparisons. Just uncomment and you'll se
 // Keep the original integration test
 // #[test]
 // fn quick_test_all() {
@@ -200,8 +200,8 @@ fn increment() {
 
 #[test]
 fn sum_version_1() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
-    let mut q = setup_query(&mut db).unwrap();
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
+    let mut q = setup_query(&mut db, name).unwrap();
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
     q.insert(vec![Some(5), Some(6), Some(7)]).unwrap();
     q.insert(vec![Some(2), Some(6), Some(8)]).unwrap();
@@ -219,8 +219,8 @@ fn sum_version_1() {
 
 #[test]
 fn sum_version_2() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
-    let mut q = setup_query(&mut db).unwrap();
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
+    let mut q = setup_query(&mut db, name).unwrap();
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
     q.insert(vec![Some(2), Some(6), Some(1)]).unwrap();
     q.insert(vec![Some(3), Some(10), Some(8)]).unwrap();
@@ -249,8 +249,8 @@ fn sum_version_2() {
 #[test]
 fn sum_version_3() {
     //Similar to previous but negatives are used
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
-    let mut q = setup_query(&mut db).unwrap();
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
+    let mut q = setup_query(&mut db, name).unwrap();
     q.insert(vec![Some(1), Some(52), Some(-3)]).unwrap();
     q.insert(vec![Some(2), Some(63), Some(-1)]).unwrap();
     q.insert(vec![Some(3), Some(210), Some(8)]).unwrap();
@@ -293,8 +293,8 @@ fn select_version_disjoint_column_updates() {
     // This will fail with per-column version counting (read_version_single)
     // because it independently goes back 1 relevant version for each column,
     // which for col 1 means going all the way back to base.
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
-    let mut q = setup_query(&mut db).unwrap();
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
+    let mut q = setup_query(&mut db, name).unwrap();
     q.insert(vec![Some(100), Some(10), Some(20)]).unwrap();
 
     // Update 1: only col 1 → tail schema 0b010
@@ -324,8 +324,8 @@ fn select_version_disjoint_column_updates() {
 
 #[test]
 fn test_version_single() {
-    let (mut db, _dir) = setup_test_table("test", 3, 0);
-    let mut q = setup_query(&mut db).unwrap();
+    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
+    let mut q = setup_query(&mut db, "test").unwrap();
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
     q.insert(vec![Some(5), Some(6), Some(7)]).unwrap();
     q.insert(vec![Some(2), Some(6), Some(8)]).unwrap();

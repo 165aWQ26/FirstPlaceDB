@@ -10,6 +10,7 @@ use std::sync::Arc;
 pub struct PageRange {
     next_addr: PhysicalAddressIterator,
     pub tps: Vec<i64>,
+    pub full_pages_since_merge: usize,
 }
 
 impl PageRange {
@@ -17,7 +18,12 @@ impl PageRange {
         Self {
             next_addr: PhysicalAddressIterator::default(),
             tps: vec![],
+            full_pages_since_merge: 0,
         }
+    }
+
+    pub fn reset_merge_counter(&mut self) {
+        self.full_pages_since_merge = 0;
     }
 
     pub fn next_addr(&mut self) -> PhysicalAddress {
@@ -73,6 +79,24 @@ impl PageRanges {
         self.append(data_cols, WhichRange::Base, table_ctx)
     }
 
+    //append_base but with explicit indirection and schema_encoding for
+    //use by merge. The paper requires that merge does not modify the Indirection
+    pub fn append_merged_base(
+        &mut self,
+        mut data_cols: Vec<Option<i64>>,
+        rid: i64,
+        indirection: i64,
+        schema_encoding: Option<i64>,
+        table_ctx: &TableContext,
+    ) -> Result<PhysicalAddress, DbError> {
+        data_cols.push(Some(rid));         //RID
+        data_cols.push(Some(indirection)); //indirection: not reset
+        data_cols.push(schema_encoding);   //encoding
+        data_cols.push(None);              //Start Time
+        data_cols.push(None);              //Base RID
+        self.append(data_cols, WhichRange::Base, table_ctx)
+    }
+
     pub fn append_tail(
         &mut self,
         mut data_cols: Vec<Option<i64>>,
@@ -111,7 +135,13 @@ impl PageRanges {
     ) -> Result<PhysicalAddress, DbError> {
         let addr = match range {
             WhichRange::Base => self.base.next_addr(),
-            WhichRange::Tail => self.tail.next_addr(),
+            WhichRange::Tail => {
+                let addr = self.tail.next_addr();
+                if addr.offset == Page::PAGE_SIZE - 1 {
+                    self.tail.full_pages_since_merge += 1;
+                }
+                addr
+            }
         };
         let page_location = PageLocation::new(addr, range);
 

@@ -13,29 +13,29 @@ pub(crate) fn setup_test_table(
     name: &str,
     num_columns: usize,
     key_index: usize,
-) -> (Database, TempDir) {
+) -> (Database, &str, TempDir) {
     let (mut db, dir) = setup_test_db();
     db.create_table(name.to_string(), num_columns, key_index);
-    (db, dir)
+    (db, name, dir)
 }
 
 #[allow(dead_code)]
-pub(crate) fn setup_default_table() -> (Database, TempDir) {
-    setup_test_table("test", 5, 0)
+pub(crate) fn setup_default_table(name: &str) -> (Database,&str, TempDir) {
+    setup_test_table(name, 5, 0)
 }
 
 /// Close db, then create a new one at the same path
-pub(crate) fn persistence_round_trip(db: &mut Database) {
+pub(crate) fn persistence_round_trip(db: &mut Database, name: &str) {
     db.close().expect("close failed");
     let path = db.path.clone();
     let mut fresh = Database::new();
     fresh.open(path.trim_end_matches('/'));
     *db = fresh;
-    db.get_table("test").expect("failed to reload table");
+    db.get_table(name).expect("failed to reload table");
 }
 
-pub(crate) fn setup_query(db: &mut Database) -> Option<Query<'_>> {
-    if let Ok(Some(table)) = db.get_table(&String::from("test")) {
+pub(crate) fn setup_query<'a>(db: &'a mut Database, name: &str) -> Option<Query<'a>> {
+    if let Ok(Some(table)) = db.get_table(name) {
         return Some(Query::new(table));
     }
     None

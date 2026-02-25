@@ -2,7 +2,7 @@
 /// Each test mirrors a specific Python tester to isolate the bug.
 use crate::db::Database;
 use crate::query::Query;
-
+use crate::tests::setup_tests::{setup_query, setup_test_table};
 // __main__.py — insert 10k then update loses evicted pages
 
 #[test]
@@ -39,10 +39,8 @@ fn repro_no_open_insert_then_update() {
 fn repro_no_open_insert_then_select_early_key() {
     // Mirrors m1_tester.py failure: 1000 inserts + updates, then
     // select on an early key whose base page got evicted
-    let mut db = Database::new();
-    db.create_table("Grades".to_string(), 5, 0);
-    let table = db.tables.get_mut("Grades").unwrap();
-    let mut q = Query::new(table);
+    let (mut table,name, _dir) = setup_test_table("Grades", 5, 0);
+    let mut q = setup_query(&mut table, name).unwrap();
 
     for i in 0..1000i64 {
         q.insert(vec![Some(i), Some(1), Some(2), Some(3), Some(4)])
