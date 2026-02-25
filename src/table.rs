@@ -273,7 +273,7 @@ impl Table {
 
         //Read indirection column
         let indirection = self.page_ranges.read_meta_col(
-            MetaPage::IndirectionCol,
+            MetaPage::Indirection,
             &base_location,
             &self.table_ctx,
         )?;
@@ -291,7 +291,7 @@ impl Table {
             let tail_location = PageLocation::tail(self.page_directory.get(current_tail_rid)?);
             let tail_schema = self
                 .page_ranges
-                .read_meta_col(MetaPage::SchemaEncodingCol, &tail_location, &self.table_ctx)?
+                .read_meta_col(MetaPage::SchemaEncoding, &tail_location, &self.table_ctx)?
                 .unwrap_or(0); // None = deletion tail, no columns updated
 
             //Columns updated in this tail but not yet seen in newer tails
@@ -314,7 +314,7 @@ impl Table {
 
             //Move to next (older) tail record
             let next_rid = self.page_ranges.read_meta_col(
-                MetaPage::IndirectionCol,
+                MetaPage::Indirection,
                 &tail_location,
                 &self.table_ctx,
             )?;
@@ -334,7 +334,7 @@ impl Table {
     pub fn read_latest_single(&mut self, rid: i64, col: usize) -> Result<Option<i64>, DbError> {
         let base_location = PageLocation::base(self.page_directory.get(rid)?);
         let indirection = self.page_ranges.read_meta_col(
-            MetaPage::IndirectionCol,
+            MetaPage::Indirection,
             &base_location,
             &self.table_ctx,
         )?;
@@ -347,7 +347,7 @@ impl Table {
                 let tail_location = PageLocation::tail(self.page_directory.get(current_tail_rid)?);
                 let tail_schema = self
                     .page_ranges
-                    .read_meta_col(MetaPage::SchemaEncodingCol, &tail_location, &self.table_ctx)?
+                    .read_meta_col(MetaPage::SchemaEncoding, &tail_location, &self.table_ctx)?
                     .unwrap_or(0); //None = deletion tail, no columns updated
 
                 if (tail_schema >> col) & 1 == 1 {
@@ -357,7 +357,7 @@ impl Table {
                 }
 
                 let next_rid = self.page_ranges.read_meta_col(
-                    MetaPage::IndirectionCol,
+                    MetaPage::Indirection,
                     &tail_location,
                     &self.table_ctx,
                 )?;
@@ -387,7 +387,7 @@ impl Table {
         // We want the tail at position `relative_version` (0-indexed from latest).
         let base_location = PageLocation::base(self.page_directory.get(rid)?);
         let indirection = self.page_ranges.read_meta_col(
-            MetaPage::IndirectionCol,
+            MetaPage::Indirection,
             &base_location,
             &self.table_ctx,
         )?;
@@ -401,7 +401,7 @@ impl Table {
                 let tail_location = PageLocation::tail(self.page_directory.get(current_tail_rid)?);
                 let tail_schema = self
                     .page_ranges
-                    .read_meta_col(MetaPage::SchemaEncodingCol, &tail_location, &self.table_ctx)?
+                    .read_meta_col(MetaPage::SchemaEncoding, &tail_location, &self.table_ctx)?
                     .unwrap_or(0); // None = deletion tail, no columns updated
 
                 if (tail_schema >> col) & 1 == 1 {
@@ -416,7 +416,7 @@ impl Table {
                 }
 
                 let next_rid = self.page_ranges.read_meta_col(
-                    MetaPage::IndirectionCol,
+                    MetaPage::Indirection,
                     &tail_location,
                     &self.table_ctx,
                 )?;
@@ -460,7 +460,7 @@ impl Table {
         // Collect all tail RIDs newest → oldest
         let mut tail_rids: Vec<i64> = Vec::new();
         let indirection = self.page_ranges.read_meta_col(
-            MetaPage::IndirectionCol,
+            MetaPage::Indirection,
             &base_location,
             &self.table_ctx,
         )?;
@@ -472,7 +472,7 @@ impl Table {
                 tail_rids.push(current);
                 let tail_location = PageLocation::tail(self.page_directory.get(current)?);
                 let next = self.page_ranges.read_meta_col(
-                    MetaPage::IndirectionCol,
+                    MetaPage::Indirection,
                     &tail_location,
                     &self.table_ctx,
                 )?;
@@ -499,7 +499,7 @@ impl Table {
             let tail_location = PageLocation::tail(self.page_directory.get(tail_rid)?);
             let tail_schema = self
                 .page_ranges
-                .read_meta_col(MetaPage::SchemaEncodingCol, &tail_location, &self.table_ctx)?
+                .read_meta_col(MetaPage::SchemaEncoding, &tail_location, &self.table_ctx)?
                 .unwrap_or(0);
             let new_cols = tail_schema & !accumulated_schema;
             for col in 0..num_data_cols {
@@ -523,7 +523,7 @@ impl Table {
     pub fn is_deleted(&mut self, rid: i64) -> Result<bool, DbError> {
         let base_location = PageLocation::base(self.page_directory.get(rid)?);
         let indirection = self.page_ranges.read_meta_col(
-            MetaPage::IndirectionCol,
+            MetaPage::Indirection,
             &base_location,
             &self.table_ctx,
         )?;
@@ -536,7 +536,7 @@ impl Table {
         let tail_rid = indirection.unwrap();
         let tail_location = PageLocation::tail(self.page_directory.get(tail_rid)?);
         let schema = self.page_ranges.read_meta_col(
-            MetaPage::SchemaEncodingCol,
+            MetaPage::SchemaEncoding,
             &tail_location,
             &self.table_ctx,
         )?;
@@ -559,7 +559,7 @@ impl Table {
             };
             let base_location = PageLocation::base(base_addr);
             let indirection = match self.page_ranges.read_meta_col(
-                MetaPage::IndirectionCol,
+                MetaPage::Indirection,
                 &base_location,
                 &self.table_ctx,
             ) {
@@ -577,7 +577,7 @@ impl Table {
             let tail_location = PageLocation::tail(tail_addr);
 
             let schema = match self.page_ranges.read_meta_col(
-                MetaPage::SchemaEncodingCol,
+                MetaPage::SchemaEncoding,
                 &tail_location,
                 &self.table_ctx,
             ) {
@@ -588,7 +588,7 @@ impl Table {
             if schema.is_none() {
                 self.bufferpool.lock().update_meta_col(
                     Option::from(-1),
-                    MetaPage::SchemaEncodingCol,
+                    MetaPage::SchemaEncoding,
                     &base_location,
                     &self.table_ctx,
                 )?;

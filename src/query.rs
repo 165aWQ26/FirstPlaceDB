@@ -94,7 +94,7 @@ impl<'a> Query<'a> {
             .table
             .page_ranges
             .read_meta_col(
-                MetaPage::IndirectionCol,
+                MetaPage::Indirection,
                 &base_location,
                 &self.table.table_ctx,
             )?
@@ -136,7 +136,7 @@ impl<'a> Query<'a> {
             &self.table.table_ctx,
         )?;
         self.table.tail_count+=1;
-        if self.table.tail_count % Query::DEFAULT_MERGE_THRESHOLD == 0 {
+        if self.table.tail_count.is_multiple_of(Query::DEFAULT_MERGE_THRESHOLD) {
             self.table.merge()?;
         }
 
@@ -155,7 +155,7 @@ impl<'a> Query<'a> {
             .table
             .page_ranges
             .read_meta_col(
-                MetaPage::IndirectionCol,
+                MetaPage::Indirection,
                 &base_location,
                 &self.table.table_ctx,
             )?
@@ -183,7 +183,7 @@ impl<'a> Query<'a> {
         )?;
 
         self.table.tail_count+=1;
-        if self.table.tail_count % Query::DEFAULT_MERGE_THRESHOLD == 0 {
+        if self.table.tail_count.is_multiple_of(Query::DEFAULT_MERGE_THRESHOLD) {
             self.table.merge()?;
         }
         Ok(true)

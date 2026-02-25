@@ -129,7 +129,7 @@ impl PageRanges {
     ) -> Result<(), PageError> {
         self.bufferpool.lock().update_meta_col(
             val,
-            MetaPage::IndirectionCol,
+            MetaPage::Indirection,
             page_location,
             table_ctx,
         )
