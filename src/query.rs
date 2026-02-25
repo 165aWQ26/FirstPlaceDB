@@ -135,6 +135,10 @@ impl<'a> Query<'a> {
             &base_location,
             &self.table.table_ctx,
         )?;
+        self.table.tail_count+=1;
+        if self.table.tail_count % Query::DEFAULT_MERGE_THRESHOLD == 0 {
+            self.table.merge()?;
+        }
 
         Ok(true)
     }
@@ -180,7 +184,7 @@ impl<'a> Query<'a> {
 
         self.table.tail_count+=1;
         if self.table.tail_count % Query::DEFAULT_MERGE_THRESHOLD == 0 {
-
+            self.table.merge()?;
         }
         Ok(true)
     }
