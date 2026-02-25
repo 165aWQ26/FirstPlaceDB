@@ -1,13 +1,5 @@
 #!/bin/bash
 
-# Default vals
-SUPPRESS_WARNINGS=false
-RUN_COUNT=1
-USE_RELEASE=true
-
-# scripts --> runs main a bunch of times
-PYTHON_SCRIPTS=("testers/__main__.py" "testers/m1_tester.py" "testers/m1_tester_new.py" "testers/m2_tester_part1.py" "testers/m2_tester_part1_new.py" "testers/m2_tester_part2.py" "testers/m2_tester_part2_new.py" "m2_extended.py")
-
 # Default values
 SUPPRESS_WARNINGS=false
 RUN_COUNT=1
@@ -93,3 +85,7 @@ uv run python "testers/m2_tester_part2.py"
 clean_data_dirs
 uv run python "testers/m2_tester_part1_new.py"
 uv run python "testers/m2_tester_part2_new.py"
+
+# m2 extended
+clean_data_dirs
+uv run python "testers/testers/m2_extended.py"
