@@ -1,17 +1,17 @@
 [package]
-name = "lstore-python"
+name = "first_place_db"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "lstore_python"
+name = "first_place_db"
 # "cdylib" is necessary to produce a shared library for Python to import from.
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# "extension-module" tells pyo3 we want to build an extension module (skips linking against libpython.so)
-# "abi3-py39" tells pyo3 (and maturin) to build using the stable ABI with minimum Python version 3.9
-bplustree = { git = "https://github.com/KentBeck/BPlusTree3" }
+concread = "0.5.10"
+lru = "0.16.3"
+parking_lot = "0.12.5"
 pyo3 = { version = "0.28.0", features = ["extension-module", "abi3-py39"] }
 rustc-hash = "2.1.1"
 
@@ -23,3 +23,7 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
+
+[profile.dev]
+panic = "unwind"
+debug = true

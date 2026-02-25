@@ -1,0 +1,52 @@
+use crate::bufferpool::BufferPoolError;
+use crate::page::PageError;
+use crate::table::TableError;
+
+use std::fmt;
+
+#[derive(Debug)]
+pub enum DbError {
+    BufferPool(BufferPoolError),
+    Page(PageError),
+    Table(TableError),
+    RecordNotFound(i64), // No such RID
+    KeyNotFound(i64),    // Index look up return ()
+    DuplicateKey(i64),   // Insertion is done with duplicate primary key
+    NullValue(usize),    // Column was None when value is expected
+    ReadTableFailed(),   // Cannot read table from disk
+    WriteTableFailed(),  // Cannot write table to disk
+}
+
+impl fmt::Display for DbError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DbError::BufferPool(e) => /* Todo: revert write!(f, "bufferpool error: {:?}", e) */ panic!("BufferPoolWriteFail"),
+            DbError::Table(e) => write!(f, "table error: {:?}", e),
+            DbError::Page(e) => write!(f, "page error: {:?}", e),
+            DbError::RecordNotFound(rid) => write!(f, "record not found: RID {}", rid),
+            DbError::KeyNotFound(key) => /*write!(f, "key not found: {}", key)*/ panic!("diddy"),
+            DbError::DuplicateKey(key) => write!(f, "duplicate key: {}", key),
+            DbError::NullValue(col) => write!(f, "unexpected null in column {}", col),
+            DbError::ReadTableFailed() => write!(f, "read table failed"),
+            DbError::WriteTableFailed() => write!(f, "write table failed"),
+        }
+    }
+}
+
+impl From<PageError> for DbError {
+    fn from(e: PageError) -> Self {
+        DbError::Page(e)
+    }
+}
+
+impl From<BufferPoolError> for DbError {
+    fn from(e: BufferPoolError) -> Self {
+        DbError::BufferPool(e)
+    }
+}
+
+impl From<TableError> for DbError {
+    fn from(e: TableError) -> Self {
+        DbError::Table(e)
+    }
+}

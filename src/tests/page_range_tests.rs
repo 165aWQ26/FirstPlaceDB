@@ -1,7 +1,7 @@
 // use crate::page_range::PageRanges;
 //
 // fn new_ranges(num_cols: usize) -> PageRanges {
-//     PageRanges::new(num_cols)
+//     PageRanges::default(num_cols)
 // }
 //
 // #[test]
