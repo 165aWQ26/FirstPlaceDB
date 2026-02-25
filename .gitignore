@@ -238,4 +238,6 @@ __marimo__/
 
 # The test database dirs
 Grades
-/bin/
+bin/
+
+htmlReport
