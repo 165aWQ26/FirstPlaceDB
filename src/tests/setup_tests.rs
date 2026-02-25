@@ -23,9 +23,13 @@ pub(crate) fn setup_default_table() -> (Database, TempDir) {
     setup_test_table("test", 5, 0)
 }
 
-/// Close query and reopen db
+/// Close db, then create a new one at the same path
 pub(crate) fn persistence_round_trip(db: &mut Database) {
     db.close().expect("close failed");
+    let path = db.path.clone();
+    let mut fresh = Database::new();
+    fresh.open(path.trim_end_matches('/'));
+    *db = fresh;
     db.get_table("test").expect("failed to reload table");
 }
 
