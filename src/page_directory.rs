@@ -1,13 +1,10 @@
 use crate::io_helper::write_i64;
 use crate::io_helper::read_usize;
-use crate::bufferpool::BufferPool;
 use crate::db_error::DbError;
 use crate::page_range::PhysicalAddress;
 use crate::table::{Table, TableError};
-use parking_lot::Mutex;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct PageDirectory {

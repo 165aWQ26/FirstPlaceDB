@@ -37,7 +37,7 @@ impl UniqueIndex {
             Entry::Occupied(_) => false,
         }
     }
-
+    #[allow(dead_code)]
     fn try_insert(&mut self, key: i64, rid: i64) -> bool {
         self.insert_unique(key, rid)
     }
