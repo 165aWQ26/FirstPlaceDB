@@ -241,3 +241,5 @@ Grades
 bin/
 
 htmlReport
+
+pyvenv.cfg

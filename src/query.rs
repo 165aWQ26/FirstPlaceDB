@@ -1,9 +1,10 @@
 use crate::db_error::DbError;
-use crate::table::Table;
+use crate::table::{Table, TableError};
 
 //May want to put MetaPage somewhere that isn't the bufferpool
 use crate::bufferpool::MetaPage;
 use crate::bufferpool_context::PageLocation;
+use crate::index::Index; // Why'd I need to import this type i thought that table had it
 
 pub struct Query<'a> {
     pub table: &'a mut Table,
@@ -25,11 +26,22 @@ impl<'a> Query<'a> {
 
     pub fn insert(&mut self, record: Vec<Option<i64>>) -> Result<bool, DbError> {
         let rid = self.table.rid.next().unwrap();
-        let key = record[self.table.key_index].ok_or(DbError::NullValue(self.table.key_index))?;
+        //let key = record[self.table.key_index].ok_or(DbError::NullValue(self.table.key_index))?;
 
-        // Single-traversal uniqueness check + insert
-        if !self.table.indices[self.table.key_index].insert_unique(key, rid) {
-            return Ok(false);
+        for (i, key) in record.iter().enumerate() {
+            let idx = &mut self.table.indices[i];
+            // very smart lil d
+            // Single-traversal uniqueness check + insert
+            match idx {
+                Index::Primary(p) => {
+                    if !p.insert_unique(key.unwrap(), rid) {
+                        return Ok(false)
+                    }
+                },
+                Index::Secondary(s) => {
+                    s.insert(key.unwrap(), rid)
+                }
+            };
         }
 
         // Write record (append_base handles all 4 metadata columns)
@@ -48,41 +60,51 @@ impl<'a> Query<'a> {
         search_key_index: usize,
         projected_columns_index: &[i64],
     ) -> Result<Vec<Vec<Option<i64>>>, DbError> {
-        let rid = self.table.indices[search_key_index]
-            .locate(key)
-            .ok_or(DbError::KeyNotFound(key))?;
+        // we make the one rid into a vector here but its only temporary... otherwise compiler complains about borrowing..?
+        let rids = match &self.table.indices[search_key_index] {
+            Index::Primary(p) => p.locate(key)
+                .map(|rid| vec![rid])
+                .ok_or(DbError::KeyNotFound(key))?,
+            Index::Secondary(s) => s.locate(key)
+                .ok_or(DbError::KeyNotFound(key))?,
+        };
 
-        //for rid in Rids
-        if self.table.is_record_deleted(rid)? {
-            return Err(DbError::KeyNotFound(key));
+        let mut result = Vec::with_capacity(rids.len());
+
+        for &rid in &rids {
+            if self.table.is_record_deleted(rid)? {
+                return Err(DbError::KeyNotFound(key));
+            }
+            result.push(self.table.read_latest_projected(projected_columns_index, rid)?);
         }
-        Ok(vec![self
-            .table
-            .read_latest_projected(projected_columns_index, rid)?])
+
+        Ok(result)
     }
+
 
     pub fn select_version(
         &mut self,
         key: i64,
-        _search_key_index: usize,
+        search_key_index: usize,
         projected_columns_index: &[i64],
         relative_version: i64,
     ) -> Result<Vec<Vec<Option<i64>>>, DbError> {
-        let rid = self.table.rid_for_key(key)?;
+        let rids = self.table.rids_for_key(key, search_key_index)?;
 
-        if self.table.is_record_deleted(rid)? {
-            return Err(DbError::KeyNotFound(key));
+        let mut result = Vec::with_capacity(rids.len());
+
+        for &rid in &rids {
+            if self.table.is_record_deleted(rid)? {
+                return Err(DbError::KeyNotFound(key));
+            }
+            result.push(self.table.read_version_projected(projected_columns_index, rid, relative_version)?);
         }
 
-        Ok(vec![self.table.read_version_projected(
-            projected_columns_index,
-            rid,
-            relative_version,
-        )?])
+        Ok(result)
     }
 
     pub fn update(&mut self, key: i64, record: Vec<Option<i64>>) -> Result<bool, DbError> {
-        let rid = match self.table.rid_for_key(key) {
+        let rid = match self.table.rid_for_unique_key(key) {
             Ok(rid) => rid,
             _ => return Ok(false),
         };
@@ -109,10 +131,39 @@ impl<'a> Query<'a> {
         }
 
         // TODO fix secondary indices
-        // remove the previous tail from the index
-        if let Some(new_key) = record[self.table.key_index] {
-            self.table.indices[self.table.key_index].remove(key, rid);
-            self.table.indices[self.table.key_index].insert_unique(new_key, rid);
+
+        // if let Some(new_key) = record[self.table.key_index] {
+        //     self.table.indices[self.table.key_index].remove(key);
+        //     self.table.indices[self.table.key_index].insert_unique(new_key, rid);
+        // }
+        // //
+
+        // old secondary_index compatible code.
+        let current_values = self.table.read_latest(rid)?;
+        for (i, key) in record.iter().enumerate() {
+            if i == self.table.key_index && record[i] != None {
+                return Err(DbError::DuplicateKey(key.unwrap()));
+            }
+
+            let idx = &mut self.table.indices[i];
+            match idx {
+                Index::Primary(p) => {
+                    if key.is_some() {
+                        if current_values[i].is_some() {
+                            p.remove(current_values[i].unwrap(), rid);
+                        }
+                        p.insert(key.ok_or(DbError::NullValue(0))?, rid);
+                    }
+                }
+                Index::Secondary(s) => {
+                    if key.is_some() {
+                        if current_values[i].is_some() {
+                            s.remove(current_values[i].unwrap(), rid);
+                        }
+                        s.insert(key.ok_or(DbError::NullValue(0))?, rid);
+                    }
+                }
+            }
         }
 
         let next_rid = self.table.rid.next().unwrap();
@@ -144,10 +195,16 @@ impl<'a> Query<'a> {
     }
 
     pub fn delete(&mut self, key: i64) -> Result<bool, DbError> {
-        let rid = self.table.rid_for_key(key)?;
+        let rid = self.table.rid_for_unique_key(key)?;
 
         // Only remove from primary key index; secondary indices are filtered lazily
-        self.table.indices[self.table.key_index].remove(key, rid);
+        let idx = &mut self.table.indices[self.table.key_index];
+        match idx {
+            Index::Primary(p) => {
+                p.remove(key, rid);
+            }
+            _ => { return Err(DbError::MismatchedIndex()) }
+        }
 
         let base_location = PageLocation::base(self.table.page_directory.get(rid)?);
 
@@ -189,23 +246,28 @@ impl<'a> Query<'a> {
     }
 
     pub fn sum(&mut self, start_range: i64, end_range: i64, col: usize) -> Result<i64, DbError> {
-        if let Some(rids) =
-            self.table.indices[self.table.key_index].locate_range(start_range, end_range)
-        {
-            let mut sum: i64 = 0;
+        match &self.table.indices[self.table.key_index] {
+            Index::Primary(p) => {
+                if let Some(rids) =
+                    p.locate_range(start_range, end_range)
+                {
+                    let mut sum: i64 = 0;
 
-            for rid in rids {
-                if self.table.is_record_deleted(rid)? {
-                    continue;
+                    for rid in rids {
+                        if self.table.is_record_deleted(rid)? {
+                            continue;
+                        }
+                        sum += self
+                            .table
+                            .read_latest_single(rid, col)?
+                            .ok_or(DbError::NullValue(col))?;
+                    }
+                    Ok(sum)
+                } else {
+                    Err(DbError::KeyNotFound(start_range))
                 }
-                sum += self
-                    .table
-                    .read_latest_single(rid, col)?
-                    .ok_or(DbError::NullValue(col))?;
-            }
-            Ok(sum)
-        } else {
-            Err(DbError::KeyNotFound(start_range))
+            },
+            Index::Secondary(_s) => { Err(DbError::Table(TableError::InvalidKeyIndex)) },
         }
     }
 
@@ -216,22 +278,28 @@ impl<'a> Query<'a> {
         col: usize,
         relative_version: i64,
     ) -> Result<i64, DbError> {
-        if let Some(rids) =
-            self.table.indices[self.table.key_index].locate_range(start_range, end_range)
-        {
-            // cumulative sum of all columns
-            let mut sum: i64 = 0;
+        match &self.table.indices[self.table.key_index] {
+            Index::Primary(p) => {
+                if let Some(rids) =
+                    p.locate_range(start_range, end_range)
+                {
+                    // cumulative sum of all columns
+                    let mut sum: i64 = 0;
 
-            for rid in rids {
-                sum += self
-                    .table
-                    .read_version_single(rid, col, relative_version)?
-                    .ok_or(DbError::NullValue(col))?;
-            }
-            Ok(sum)
-        } else {
-            Err(DbError::KeyNotFound(start_range))
+                    for rid in rids {
+                        sum += self
+                            .table
+                            .read_version_single(rid, col, relative_version)?
+                            .ok_or(DbError::NullValue(col))?;
+                    }
+                    Ok(sum)
+                } else {
+                    Err(DbError::KeyNotFound(start_range))
+                }
+            },
+            Index::Secondary(_s) => { Err(DbError::Table(TableError::InvalidKeyIndex)) },
         }
+
     }
 
     pub fn increment(&mut self, key: i64, col: usize) -> Result<bool, DbError> {
@@ -240,9 +308,7 @@ impl<'a> Query<'a> {
             return Ok(false);
         }
 
-        let rid = self.table.indices[self.table.key_index]
-            .locate(key)
-            .ok_or(DbError::KeyNotFound(key))?;
+        let rid = self.table.rid_for_unique_key(key)?;
 
         let mut record: Vec<Option<i64>> = vec![None; self.num_data_cols];
 
