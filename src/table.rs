@@ -1,7 +1,7 @@
 use crate::bufferpool::{BufferPool, MetaPage};
 use crate::bufferpool_context::{PageLocation, TableContext};
 use crate::db_error::DbError;
-use crate::index::{Index, Primary, Secondary};
+use crate::index::{Index, NonUniqueIndex, TableIndex, UniqueIndex};
 use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
 use parking_lot::Mutex;
@@ -29,6 +29,8 @@ pub struct Table {
 
     pub key_index: usize,
 
+    pub primary_index: UniqueIndex,
+
     pub indices: Vec<Index>,
 
     pub table_ctx: TableContext,
@@ -45,8 +47,15 @@ impl Table {
         bufferpool: Arc<Mutex<BufferPool>>,
         table_id: usize,
     ) -> Table {
-        //! Assume that we can only make one table for now. Bufferpool can't do more than one table.
-        //! Also the bufferpool reference allocation related to table should be done in db.create_table.
+        let indices = (0..num_columns)
+            .map(|col| -> Index {
+                if col == key_index {
+                    Index::Unique(UniqueIndex::new())
+                } else {
+                    Index::NonUnique(NonUniqueIndex::new())
+                }
+            })
+            .collect();
         Self {
             // Make default copy for PageRanges to use
             bufferpool: Arc::clone(&bufferpool),
@@ -57,20 +66,29 @@ impl Table {
             page_directory: PageDirectory::default(),
             rid: 0..,
             key_index,
-            indices: (0..num_columns)
-                .map(|col| -> Index {
-                    if col == key_index {
-                        Index::Primary(Primary::new())
-                    } else {
-                        Index::Secondary(Secondary::new())
-                    }
-                })
-                .collect(),
+            primary_index: UniqueIndex::new(),
+            indices,
             table_ctx: TableContext {
                 table_id,
                 total_cols: num_columns + Table::NUM_META_PAGES,
                 path: table_path,
             },
+        }
+    }
+
+    pub fn get_index(&self, col_idx: usize) -> &dyn TableIndex {
+        if col_idx == self.key_index {
+            &self.primary_index
+        } else {
+            &self.indices[col_idx]
+        }
+    }
+
+    pub fn get_index_mut(&mut self, col_idx: usize) -> &mut dyn TableIndex {
+        if col_idx == self.key_index {
+            &mut self.primary_index
+        } else {
+            &mut self.indices[col_idx]
         }
     }
     /// Returns all the columns of the record
@@ -92,102 +110,104 @@ impl Table {
 
         let mut writer = BufWriter::new(file);
 
-        self.bufferpool
-            .lock()
-            .write_i64(self.table_ctx.total_cols as i64, &mut writer)
+        let bp_lock = self.bufferpool.lock();
+
+        bp_lock.write_i64(self.table_ctx.total_cols as i64, &mut writer)
             .map_err(|_| TableError::WriteFail)?;
 
-        self.bufferpool
-            .lock()
-            .write_i64(self.key_index as i64, &mut writer)
+        bp_lock.write_i64(self.key_index as i64, &mut writer)
             .map_err(|_| TableError::WriteFail)?;
 
         // Persist RID counter (current value of the RangeFrom iterator)
-        self.bufferpool
-            .lock()
-            .write_i64(self.rid.start, &mut writer)
+        bp_lock.write_i64(self.rid.start, &mut writer)
             .map_err(|_| TableError::WriteFail)?;
 
         // Persist base page range iterator position
         let (base_off, base_col) = self.page_ranges.base.position();
-        self.bufferpool
-            .lock()
-            .write_i64(base_off as i64, &mut writer)
+        bp_lock.write_i64(base_off as i64, &mut writer)
             .map_err(|_| TableError::WriteFail)?;
-        self.bufferpool
-            .lock()
-            .write_i64(base_col as i64, &mut writer)
+        bp_lock.write_i64(base_col as i64, &mut writer)
             .map_err(|_| TableError::WriteFail)?;
 
         // Persist tail page range iterator position
         let (tail_off, tail_col) = self.page_ranges.tail.position();
-        self.bufferpool
-            .lock()
-            .write_i64(tail_off as i64, &mut writer)
+        bp_lock.write_i64(tail_off as i64, &mut writer)
             .map_err(|_| TableError::WriteFail)?;
-        self.bufferpool
-            .lock()
-            .write_i64(tail_col as i64, &mut writer)
+        bp_lock.write_i64(tail_col as i64, &mut writer)
             .map_err(|_| TableError::WriteFail)?;
 
-        // Persist primary key index
-        // let index = &self.indices[self.key_index];
-        // let entries: Vec<_> = index.iter().collect();
-        // self.bufferpool
-        //     .lock()
-        //     .write_i64(entries.len() as i64, &mut writer)
-        //     .map_err(|_| TableError::WriteFail)?;
-        // for (key, rid) in &entries {
-        //     self.bufferpool
-        //         .lock()
-        //         .write_i64(**key, &mut writer)
-        //         .map_err(|_| TableError::WriteFail)?;
-        //     self.bufferpool
-        //         .lock()
-        //         .write_i64(**rid, &mut writer)
-        //         .map_err(|_| TableError::WriteFail)?;
-        // }
+        // for index in self.indices.iter() {
+        //     // Calculate and write the length
+        //     let count: i64 = match index {
+        //         Index::Primary(p) => p.len() as i64,
+        //         Index::Secondary(s) => s.len() as i64,
+        //     };
         //
-        for index in self.indices.iter() {
-            // Calculate and write the length
-            let count: i64 = match index {
-                Index::Primary(p) => p.len() as i64,
-                Index::Secondary(s) => s.len() as i64,
-            };
+        //     self.bufferpool
+        //         .lock()
+        //         .write_i64(count, &mut writer)
+        //         .map_err(|_| TableError::WriteFail)?;
+        //
+        //     // Write all vector values
+        //     match index {
+        //         Index::Primary(p) => {
+        //             for (key, rid) in p.iter() {
+        //                 self.bufferpool
+        //                     .lock()
+        //                     .write_i64(*key, &mut writer)
+        //                     .map_err(|_| TableError::WriteFail)?;
+        //                 self.bufferpool
+        //                     .lock()
+        //                     .write_i64(*rid, &mut writer)
+        //                     .map_err(|_| TableError::WriteFail)?;
+        //             }
+        //         }
+        //         Index::Secondary(s) => {
+        //             for (key, rids) in s.iter() {
+        //                 self.bufferpool
+        //                     .lock()
+        //                     .write_i64(*key, &mut writer)
+        //                     .map_err(|_| TableError::WriteFail)?;
+        //
+        //                 // Write number of elements in the secondary vector
+        //                 self.bufferpool
+        //                     .lock()
+        //                     .write_i64(rids.len() as i64, &mut writer)
+        //                     .map_err(|_| TableError::WriteFail)?;
+        //
+        //                 for rid in rids {
+        //                     self.bufferpool
+        //                         .lock()
+        //                         .write_i64(*rid, &mut writer)
+        //                         .map_err(|_| TableError::WriteFail)?;
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
-            self.bufferpool
-                .lock()
-                .write_i64(count, &mut writer)
+        let num_data_cols = self.table_ctx.total_cols - Table::NUM_META_PAGES;
+        for i in 0..num_data_cols {
+            let index = self.get_index(i);
+            let count = index.len() as i64;
+
+            let bp_lock = self.bufferpool.lock();
+            bp_lock.write_i64(count, &mut writer)
                 .map_err(|_| TableError::WriteFail)?;
 
-            // Write all vector values
-            match index {
-                Index::Primary(p) => {
-                    for (key, rid) in p.iter() {
-                        self.bufferpool
-                            .lock()
-                            .write_i64(*key, &mut writer).map_err(|_| TableError::WriteFail)?;
-                        self.bufferpool
-                            .lock()
-                            .write_i64(*rid, &mut writer).map_err(|_| TableError::WriteFail)?;
-                    }
+            if i == self.key_index {
+                for (k, r) in self.primary_index.iter() {
+                    bp_lock.write_i64(k, &mut writer).map_err(|_| TableError::WriteFail)?;
+                    bp_lock.write_i64(r, &mut writer).map_err(|_| TableError::WriteFail)?;
                 }
-                Index::Secondary(s) => {
-                    for (key, rids) in s.iter() {
-                        self.bufferpool
-                            .lock()
-                            .write_i64(*key, &mut writer)
-                            .map_err(|_| TableError::WriteFail)?;
-
-                        // Write number of elements in the secondary vector
-                        self.bufferpool
-                            .lock()
-                            .write_i64(rids.len() as i64, &mut writer).map_err(|_| TableError::WriteFail)?;
-
+            } else {
+                // Pattern matching here just for posterity
+                if let Index::NonUnique(s) = &self.indices[i] {
+                    for (k, rids) in s.iter() {
+                        self.bufferpool.lock().write_i64(k, &mut writer).map_err(|_| TableError::WriteFail)?;
+                        self.bufferpool.lock().write_i64(rids.len() as i64, &mut writer).map_err(|_| TableError::WriteFail)?;
                         for rid in rids {
-                            self.bufferpool.lock()
-                                .write_i64(*rid, &mut writer)
-                                .map_err(|_| TableError::WriteFail)?;
+                            self.bufferpool.lock().write_i64(*rid, &mut writer).map_err(|_| TableError::WriteFail)?;
                         }
                     }
                 }
@@ -198,9 +218,7 @@ impl Table {
 
         //Persist TPS
         let tps = &self.page_ranges.base.tps;
-        self.bufferpool
-            .lock()
-            .write_i64(tps.len() as i64, &mut writer)
+        bp_lock.write_i64(tps.len() as i64, &mut writer)
             .map_err(|_| TableError::WriteFail)?;
         for &watermark in tps {
             self.bufferpool
@@ -236,13 +254,14 @@ impl Table {
             .map_err(|_| TableError::ReadFail)?;
 
         // INTITIALIZE TABLE INDICES?
-        self.indices = (0..self.table_ctx.total_cols - Self::NUM_META_PAGES).map(|col| -> Index {
-            if col == self.key_index {
-                Index::Primary(Primary::new())
-            } else {
-                Index::Secondary(Secondary::new())
-            }
-        })
+        self.indices = (0..self.table_ctx.total_cols - Self::NUM_META_PAGES)
+            .map(|col| -> Index {
+                if col == self.key_index {
+                    Index::Primary(UniqueIndex::new())
+                } else {
+                    Index::Secondary(Secondary::new())
+                }
+            })
             .collect();
 
         // Restore RID counter
@@ -305,14 +324,14 @@ impl Table {
         //     }
         //
         // }
-        for i in 0..self.table_ctx.total_cols - Table::NUM_META_PAGES{
+        for i in 0..self.table_ctx.total_cols - Table::NUM_META_PAGES {
             let index_count = self
                 .bufferpool
                 .lock()
                 .read_usize(&mut buffer, &mut reader)
                 .map_err(|_| TableError::ReadFail)?;
 
-            if i == self.key_index{
+            if i == self.key_index {
                 for _ in 0..index_count {
                     let key = self
                         .bufferpool
@@ -327,30 +346,33 @@ impl Table {
                     let idx = &mut self.indices[self.key_index]; //
                     match idx {
                         Index::Primary(p) => {
-                            p.insert_unique(key, rid);  // Always primary
+                            p.insert_unique(key, rid); // Always primary
                         }
-                        Index::Secondary(_s) => { return Err(TableError::ReadFail); }
+                        Index::Secondary(_s) => {
+                            return Err(TableError::ReadFail);
+                        }
                     }
                 }
-            }
-            else{
+            } else {
                 for _ in 0..index_count {
                     let key = self
                         .bufferpool
                         .lock()
                         .read_usize(&mut buffer, &mut reader)
                         .map_err(|_| TableError::ReadFail)? as i64;
-                    let num_rids = self
-                        .bufferpool
-                        .lock()
-                        .read_usize(&mut buffer, &mut reader)
-                        .map_err(|_| TableError::ReadFail)? as i64;
-                    let idx = &mut self.indices[i];
-                    for _ in 0..num_rids {
-                        let curr_rid = self.bufferpool
+                    let num_rids =
+                        self.bufferpool
                             .lock()
                             .read_usize(&mut buffer, &mut reader)
                             .map_err(|_| TableError::ReadFail)? as i64;
+                    let idx = &mut self.indices[i];
+                    for _ in 0..num_rids {
+                        let curr_rid = self
+                            .bufferpool
+                            .lock()
+                            .read_usize(&mut buffer, &mut reader)
+                            .map_err(|_| TableError::ReadFail)?
+                            as i64;
                         match idx {
                             Index::Secondary(s) => {
                                 s.insert(key, curr_rid);
@@ -403,10 +425,8 @@ impl Table {
     pub fn rid_for_unique_key(&self, key: i64) -> Result<i64, DbError> {
         let idx = &self.indices[self.key_index];
         match idx {
-            Index::Primary(p) => {
-                p.locate(key).ok_or(DbError::KeyNotFound(key))
-            }
-            Index::Secondary(_s) => { Err(DbError::MismatchedIndex())}
+            Index::Primary(p) => p.locate(key).ok_or(DbError::KeyNotFound(key)),
+            Index::Secondary(_s) => Err(DbError::MismatchedIndex()),
         }
     }
 
@@ -414,12 +434,8 @@ impl Table {
     pub fn rids_for_key(&self, key: i64, search_key_index: usize) -> Result<Vec<i64>, DbError> {
         let idx = &self.indices[search_key_index];
         match idx {
-            Index::Secondary(s) => {
-                s.locate(key).ok_or(DbError::KeyNotFound(key))
-            }
-            Index::Primary(p) => {
-                Ok(vec![p.locate(key).unwrap()])
-            }
+            Index::Secondary(s) => s.locate(key).ok_or(DbError::KeyNotFound(key)),
+            Index::Primary(p) => Ok(vec![p.locate(key).unwrap()]),
         }
     }
 
@@ -433,24 +449,24 @@ impl Table {
         let base_location = PageLocation::base(base_addr);
         let num_data_cols = self.table_ctx.total_cols - Table::NUM_META_PAGES;
 
-        let mut bp = self.bufferpool.lock();
+        let mut bp_lock = self.bufferpool.lock();
 
-        let indirection = bp.read_meta_col(
-            MetaPage::Indirection,
-            &base_location,
-            &self.table_ctx,
-        )?;
+        let indirection =
+            bp_lock.read_meta_col(MetaPage::Indirection, &base_location, &self.table_ctx)?;
 
         if indirection.is_none() || indirection == Some(rid) {
             // No tails - read all data columns from base
             return Ok((0..num_data_cols)
-                .map(|col| bp.read_col(col, &base_location, &self.table_ctx))
+                .map(|col| bp_lock.read_col(col, &base_location, &self.table_ctx))
                 .collect::<Result<_, _>>()?);
         }
 
         let indirection_rid = indirection.unwrap();
         let collection = base_addr.collection_num;
-        let tps_watermark = self.page_ranges.base.tps
+        let tps_watermark = self
+            .page_ranges
+            .base
+            .tps
             .get(collection)
             .copied()
             .unwrap_or(i64::MIN);
@@ -458,7 +474,7 @@ impl Table {
         // TPS short-circuit: base already holds consolidated values
         if indirection_rid <= tps_watermark {
             return Ok((0..num_data_cols)
-                .map(|col| bp.read_col(col, &base_location, &self.table_ctx))
+                .map(|col| bp_lock.read_col(col, &base_location, &self.table_ctx))
                 .collect::<Result<_, _>>()?);
         }
 
@@ -470,14 +486,14 @@ impl Table {
 
         loop {
             let tail_location = PageLocation::tail(self.page_directory.get(current_tail_rid)?);
-            let tail_schema = bp
+            let tail_schema = bp_lock
                 .read_meta_col(MetaPage::SchemaEncoding, &tail_location, &self.table_ctx)?
                 .unwrap_or(0);
 
             let new_cols = tail_schema & !resolved;
             for col in 0..num_data_cols {
                 if (new_cols >> col) & 1 == 1 {
-                    result[col] = bp.read_col(col, &tail_location, &self.table_ctx)?;
+                    result[col] = bp_lock.read_col(col, &tail_location, &self.table_ctx)?;
                 }
             }
             resolved |= tail_schema;
@@ -487,13 +503,10 @@ impl Table {
                 return Ok(result);
             }
 
-            let next_rid = bp.read_meta_col(
-                MetaPage::Indirection,
-                &tail_location,
-                &self.table_ctx,
-            )?;
+            let next_rid =
+                bp_lock.read_meta_col(MetaPage::Indirection, &tail_location, &self.table_ctx)?;
             match next_rid {
-                Some(next) if next == rid => break,          // reached original base
+                Some(next) if next == rid => break, // reached original base
                 Some(next) if next <= tps_watermark => break, // reached merged region
                 Some(next) => current_tail_rid = next,
                 None => break,
@@ -503,7 +516,7 @@ impl Table {
         // Read only unresolved columns from base
         for col in 0..num_data_cols {
             if (resolved >> col) & 1 == 0 {
-                result[col] = bp.read_col(col, &base_location, &self.table_ctx)?;
+                result[col] = bp_lock.read_col(col, &base_location, &self.table_ctx)?;
             }
         }
 
@@ -514,44 +527,40 @@ impl Table {
         let base_addr = self.page_directory.get(rid)?;
         let base_location = PageLocation::base(base_addr);
 
-        let mut bp = self.bufferpool.lock();
+        let mut bp_lock = self.bufferpool.lock();
 
-        let indirection = bp.read_meta_col(
-            MetaPage::Indirection,
-            &base_location,
-            &self.table_ctx,
-        )?;
+        let indirection =
+            bp_lock.read_meta_col(MetaPage::Indirection, &base_location, &self.table_ctx)?;
 
         if let Some(tail_rid) = indirection
             && tail_rid != rid
         {
             // TPS short-circuit: base is already consolidated up to watermark.
             let collection = base_addr.collection_num;
-            let tps_watermark = self.page_ranges.base.tps
+            let tps_watermark = self
+                .page_ranges
+                .base
+                .tps
                 .get(collection)
                 .copied()
                 .unwrap_or(i64::MIN);
             if tail_rid <= tps_watermark {
-                return Ok(bp.read_col(col, &base_location, &self.table_ctx)?);
+                return Ok(bp_lock.read_col(col, &base_location, &self.table_ctx)?);
             }
 
             let mut current_tail_rid = tail_rid;
             loop {
-                let tail_location =
-                    PageLocation::tail(self.page_directory.get(current_tail_rid)?);
-                let tail_schema = bp
+                let tail_location = PageLocation::tail(self.page_directory.get(current_tail_rid)?);
+                let tail_schema = bp_lock
                     .read_meta_col(MetaPage::SchemaEncoding, &tail_location, &self.table_ctx)?
                     .unwrap_or(0);
 
                 if (tail_schema >> col) & 1 == 1 {
-                    return Ok(bp.read_col(col, &tail_location, &self.table_ctx)?);
+                    return Ok(bp_lock.read_col(col, &tail_location, &self.table_ctx)?);
                 }
 
-                let next_rid = bp.read_meta_col(
-                    MetaPage::Indirection,
-                    &tail_location,
-                    &self.table_ctx,
-                )?;
+                let next_rid =
+                    bp_lock.read_meta_col(MetaPage::Indirection, &tail_location, &self.table_ctx)?;
                 match next_rid {
                     Some(next) if next == rid => break,
                     Some(next) if next <= tps_watermark => break,
@@ -560,7 +569,7 @@ impl Table {
                 }
             }
         }
-        Ok(bp.read_col(col, &base_location, &self.table_ctx)?)
+        Ok(bp_lock.read_col(col, &base_location, &self.table_ctx)?)
     }
 
     pub fn read_version_single(
@@ -576,7 +585,10 @@ impl Table {
         let base_addr = self.page_directory.get(rid)?;
         let base_location = PageLocation::base(base_addr);
         let collection = base_addr.collection_num;
-        let tps_watermark = self.page_ranges.base.tps
+        let tps_watermark = self
+            .page_ranges
+            .base
+            .tps
             .get(collection)
             .copied()
             .unwrap_or(i64::MIN);
@@ -648,13 +660,15 @@ impl Table {
         let base_addr = self.page_directory.get(rid)?;
         let base_location = PageLocation::base(base_addr);
         let collection = base_addr.collection_num;
-        let tps_watermark = self.page_ranges.base.tps
+        let tps_watermark = self
+            .page_ranges
+            .base
+            .tps
             .get(collection)
             .copied()
             .unwrap_or(i64::MIN);
 
         let tails_to_skip = (-relative_version).max(0) as usize;
-
 
         let mut tail_rids: Vec<i64> = Vec::new();
         let indirection = self.page_ranges.read_meta_col(
@@ -685,7 +699,9 @@ impl Table {
         }
 
         // Start with base record
-        let mut result = self.page_ranges.read(&base_location.addr, &self.table_ctx)?;
+        let mut result = self
+            .page_ranges
+            .read(&base_location.addr, &self.table_ctx)?;
 
         // Skip the newest tails, then apply the rest newest --> oldest
         let relevant = if tails_to_skip >= tail_rids.len() {
@@ -705,9 +721,9 @@ impl Table {
             let new_cols = tail_schema & !accumulated_schema;
             for col in 0..num_data_cols {
                 if (new_cols >> col) & 1 == 1 {
-                    result[col] = self
-                        .page_ranges
-                        .read_single(col, &tail_location, &self.table_ctx)?;
+                    result[col] =
+                        self.page_ranges
+                            .read_single(col, &tail_location, &self.table_ctx)?;
                 }
             }
             accumulated_schema |= tail_schema;
@@ -738,7 +754,10 @@ impl Table {
 
         // Check if record has been merged (indirection_rid <= TPS).
         let collection = base_addr.collection_num;
-        let tps_watermark = self.page_ranges.base.tps
+        let tps_watermark = self
+            .page_ranges
+            .base
+            .tps
             .get(collection)
             .copied()
             .unwrap_or(i64::MIN);
@@ -763,11 +782,9 @@ impl Table {
     }
 
     pub fn merge(&mut self) -> Result<(), DbError> {
-        match &self.indices[self.key_index]{
+        match &self.indices[self.key_index] {
             Index::Primary(p) => {
-                let base_rids: Vec<i64> = p.iter()
-                    .map(|(_, &rid)| rid)
-                    .collect();
+                let base_rids: Vec<i64> = p.iter().map(|(_, &rid)| rid).collect();
 
                 let num_data_cols = self.table_ctx.total_cols - Table::NUM_META_PAGES;
 
@@ -828,7 +845,7 @@ impl Table {
                     let new_addr = self.page_ranges.append_merged_base(
                         consolidated_data,
                         base_rid,
-                        indirection,   // preserved — merge never modifies indirection
+                        indirection, // preserved — merge never modifies indirection
                         schema_encoding,
                         &self.table_ctx,
                     )?;
@@ -851,7 +868,7 @@ impl Table {
                 self.page_ranges.tail.reset_merge_counter();
                 Ok(())
             }
-            Index::Secondary(_s) => {Err(DbError::MismatchedIndex())}
+            Index::Secondary(_s) => Err(DbError::MismatchedIndex()),
         }
     }
 }

@@ -63,9 +63,9 @@ impl<'a> Query<'a> {
         let rids = match &self.table.indices[search_key_index] {
             Index::Primary(p) => p.locate(key)
                 .map(|rid| vec![rid])
-                .ok_or(DbError::KeyNotFound(key))?,
+                .ok_or_default(),
             Index::Secondary(s) => s.locate(key)
-                .ok_or(DbError::KeyNotFound(key))?,
+                .ok_or_default(),
         };
 
         let mut result = Vec::with_capacity(rids.len());
