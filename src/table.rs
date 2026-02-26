@@ -283,60 +283,63 @@ impl Table {
     pub fn read_latest(&mut self, rid: i64) -> Result<Vec<Option<i64>>, DbError> {
         let base_addr = self.page_directory.get(rid)?;
         let base_location = PageLocation::base(base_addr);
-        let mut result = self.read(rid)?;
+        let num_data_cols = self.table_ctx.total_cols - Table::NUM_META_PAGES;
 
-        let indirection = self.page_ranges.read_meta_col(
+        let mut bp = self.bufferpool.lock();
+
+        let indirection = bp.read_meta_col(
             MetaPage::Indirection,
             &base_location,
             &self.table_ctx,
         )?;
 
         if indirection.is_none() || indirection == Some(rid) {
-            return Ok(result);
+            // No tails - read all data columns from base
+            return Ok((0..num_data_cols)
+                .map(|col| bp.read_col(col, &base_location, &self.table_ctx))
+                .collect::<Result<_, _>>()?);
         }
 
         let indirection_rid = indirection.unwrap();
-
-        //TPS short-circui
-        //page, the base already holds the consolidated values — no tail walk needed.
         let collection = base_addr.collection_num;
-        if let Some(&tps) = self.page_ranges.base.tps.get(collection) {
-            if indirection_rid <= tps {
-                return Ok(result);
-            }
-        }
-
-        // Walk only the unmerged portion of the tail chain (tails newer than TPS).
         let tps_watermark = self.page_ranges.base.tps
             .get(collection)
             .copied()
             .unwrap_or(i64::MIN);
 
+        // TPS short-circuit: base already holds consolidated values
+        if indirection_rid <= tps_watermark {
+            return Ok((0..num_data_cols)
+                .map(|col| bp.read_col(col, &base_location, &self.table_ctx))
+                .collect::<Result<_, _>>()?);
+        }
+
+        // Walk tails first
+        let all_cols_mask = (1i64 << num_data_cols) - 1;
+        let mut resolved: i64 = 0;
+        let mut result: Vec<Option<i64>> = vec![None; num_data_cols];
         let mut current_tail_rid = indirection_rid;
-        let mut accumulated_schema: i64 = 0;
 
         loop {
             let tail_location = PageLocation::tail(self.page_directory.get(current_tail_rid)?);
-            let tail_schema = self
-                .page_ranges
+            let tail_schema = bp
                 .read_meta_col(MetaPage::SchemaEncoding, &tail_location, &self.table_ctx)?
                 .unwrap_or(0);
 
-            let new_cols = tail_schema & !accumulated_schema;
-            for (col, val) in result
-                .iter_mut()
-                .enumerate()
-                .take(self.table_ctx.total_cols - Table::NUM_META_PAGES)
-            {
+            let new_cols = tail_schema & !resolved;
+            for col in 0..num_data_cols {
                 if (new_cols >> col) & 1 == 1 {
-                    *val = self
-                        .page_ranges
-                        .read_single(col, &tail_location, &self.table_ctx)?;
+                    result[col] = bp.read_col(col, &tail_location, &self.table_ctx)?;
                 }
             }
-            accumulated_schema |= tail_schema;
+            resolved |= tail_schema;
 
-            let next_rid = self.page_ranges.read_meta_col(
+            // Early exit: all data columns already resolved from tails
+            if resolved & all_cols_mask == all_cols_mask {
+                return Ok(result);
+            }
+
+            let next_rid = bp.read_meta_col(
                 MetaPage::Indirection,
                 &tail_location,
                 &self.table_ctx,
@@ -349,13 +352,23 @@ impl Table {
             }
         }
 
+        // Read only unresolved columns from base
+        for col in 0..num_data_cols {
+            if (resolved >> col) & 1 == 0 {
+                result[col] = bp.read_col(col, &base_location, &self.table_ctx)?;
+            }
+        }
+
         Ok(result)
     }
 
     pub fn read_latest_single(&mut self, rid: i64, col: usize) -> Result<Option<i64>, DbError> {
         let base_addr = self.page_directory.get(rid)?;
         let base_location = PageLocation::base(base_addr);
-        let indirection = self.page_ranges.read_meta_col(
+
+        let mut bp = self.bufferpool.lock();
+
+        let indirection = bp.read_meta_col(
             MetaPage::Indirection,
             &base_location,
             &self.table_ctx,
@@ -364,32 +377,29 @@ impl Table {
         if let Some(tail_rid) = indirection
             && tail_rid != rid
         {
-            // TPS short-circuit: base is already consolidated up to the watermark.
+            // TPS short-circuit: base is already consolidated up to watermark.
             let collection = base_addr.collection_num;
             let tps_watermark = self.page_ranges.base.tps
                 .get(collection)
                 .copied()
                 .unwrap_or(i64::MIN);
             if tail_rid <= tps_watermark {
-                return self.page_ranges.read_single(col, &base_location, &self.table_ctx);
+                return Ok(bp.read_col(col, &base_location, &self.table_ctx)?);
             }
 
             let mut current_tail_rid = tail_rid;
             loop {
                 let tail_location =
                     PageLocation::tail(self.page_directory.get(current_tail_rid)?);
-                let tail_schema = self
-                    .page_ranges
+                let tail_schema = bp
                     .read_meta_col(MetaPage::SchemaEncoding, &tail_location, &self.table_ctx)?
                     .unwrap_or(0);
 
                 if (tail_schema >> col) & 1 == 1 {
-                    return self
-                        .page_ranges
-                        .read_single(col, &tail_location, &self.table_ctx);
+                    return Ok(bp.read_col(col, &tail_location, &self.table_ctx)?);
                 }
 
-                let next_rid = self.page_ranges.read_meta_col(
+                let next_rid = bp.read_meta_col(
                     MetaPage::Indirection,
                     &tail_location,
                     &self.table_ctx,
@@ -402,8 +412,7 @@ impl Table {
                 }
             }
         }
-        self.page_ranges
-            .read_single(col, &base_location, &self.table_ctx)
+        Ok(bp.read_col(col, &base_location, &self.table_ctx)?)
     }
 
     pub fn read_version_single(
@@ -414,8 +423,8 @@ impl Table {
     ) -> Result<Option<i64>, DbError> {
         // relative_version: 0 = latest, -1 = one update before latest, etc.
         // We traverse tail chain from newest to oldest.
-        // Each tail that updates `col` counts as one version step.
-        // We want the tail at position `relative_version` (0-indexed from latest).
+        // tail that updates col counts as one version step.
+        // want the tail at position relative_version
         let base_addr = self.page_directory.get(rid)?;
         let base_location = PageLocation::base(base_addr);
         let collection = base_addr.collection_num;
@@ -458,13 +467,13 @@ impl Table {
                 )?;
                 match next_rid {
                     Some(next) if next == rid => break,
-                    Some(next) if next <= tps_watermark => break, // merged region — base is the floor
+                    Some(next) if next <= tps_watermark => break, // merged region - base is the floor
                     Some(next) => current_tail_rid = next,
                     None => break,
                 }
             }
         }
-        // Fell off the chain or reached TPS — consolidated base is the oldest version.
+        // Fell off the chain or reached TPS - consolidated base is oldest version.
         self.page_ranges
             .read_single(col, &base_location, &self.table_ctx)
     }
@@ -498,7 +507,7 @@ impl Table {
 
         let tails_to_skip = (-relative_version).max(0) as usize;
 
-        // Collect unmerged tail RIDs newest → oldest (stop at TPS watermark)
+
         let mut tail_rids: Vec<i64> = Vec::new();
         let indirection = self.page_ranges.read_meta_col(
             MetaPage::Indirection,
@@ -527,12 +536,12 @@ impl Table {
             }
         }
 
-        // Start with base record (consolidated up to TPS, or original if never merged)
+        // Start with base record
         let mut result = self.page_ranges.read(&base_location.addr, &self.table_ctx)?;
 
-        // Skip the newest `tails_to_skip` tails, then apply the rest newest → oldest
+        // Skip the newest tails, then apply the rest newest --> oldest
         let relevant = if tails_to_skip >= tail_rids.len() {
-            &tail_rids[tail_rids.len()..] // empty — return base
+            &tail_rids[tail_rids.len()..] // empty - return base
         } else {
             &tail_rids[tails_to_skip..]
         };
@@ -563,13 +572,6 @@ impl Table {
             .collect())
     }
 
-    /// Check if a base RID's record has been deleted.
-    ///
-    /// Two cases:
-    /// 1. Pre-merge: indirection points to a deletion tail (schema_encoding == None).
-    /// 2. Post-merge: the consolidated base page itself has schema_encoding == None
-    ///    (per paper footnote 9), AND indirection_rid <= TPS (meaning the deletion
-    ///    has been merged in). In this case we check the base directly.
     pub fn is_record_deleted(&mut self, rid: i64) -> Result<bool, DbError> {
         let base_addr = self.page_directory.get(rid)?;
         let base_location = PageLocation::base(base_addr);
@@ -581,12 +583,12 @@ impl Table {
         )?;
 
         let indirection_rid = match indirection {
-            None | Some(_) if indirection == Some(rid) => return Ok(false), // fresh base, no tails
+            None | Some(_) if indirection == Some(rid) => return Ok(false), // no tails
             Some(ind) => ind,
             None => return Ok(false),
         };
 
-        // Check if this record has been merged (indirection_rid <= TPS).
+        // Check if record has been merged (indirection_rid <= TPS).
         let collection = base_addr.collection_num;
         let tps_watermark = self.page_ranges.base.tps
             .get(collection)
@@ -594,7 +596,7 @@ impl Table {
             .unwrap_or(i64::MIN);
 
         if indirection_rid <= tps_watermark {
-            // Post-merge: check schema_encoding on the consolidated base page.
+            // check schema_encoding on the consolidated base page.
             let base_schema = self.page_ranges.read_meta_col(
                 MetaPage::SchemaEncoding,
                 &base_location,
@@ -603,7 +605,6 @@ impl Table {
             return Ok(base_schema.is_none());
         }
 
-        // Pre-merge: check schema_encoding on the latest tail.
         let tail_location = PageLocation::tail(self.page_directory.get(indirection_rid)?);
         let schema = self.page_ranges.read_meta_col(
             MetaPage::SchemaEncoding,
@@ -653,24 +654,10 @@ impl Table {
                 Err(_) => continue,
             };
 
-            // Build consolidated data columns.
-            //
-            // For deleted records the paper (footnote 9) says: fill data columns with
-            // null and preserve the Indirection column so version reads can still walk
-            // the tail chain to reach earlier (pre-deletion) versions of the record.
-            // We do NOT remove deleted records from the page directory.
-            //
-            // For updated records: read_latest resolves the full tail chain.
-            //
-            // In both cases we use append_merged_base which sets indirection directly
-            // to the value from the old base page. The paper is explicit that the merge
-            // process never modifies the Indirection column.
             let (consolidated_data, schema_encoding) = if latest_schema.is_none() {
                 // Deleted: null data, schema_encoding = None (deletion marker on base)
                 (vec![None; num_data_cols], None)
             } else {
-                // Updated: latest values, schema_encoding = Some(0) (reads don't use
-                // base schema_encoding, only tail schema_encoding matters for reads)
                 let latest = self.read_latest(base_rid)?;
                 (latest[..num_data_cols].to_vec(), Some(0i64))
             };
@@ -678,15 +665,15 @@ impl Table {
             let new_addr = self.page_ranges.append_merged_base(
                 consolidated_data,
                 base_rid,
-                indirection,   // preserved — merge never modifies indirection
+                indirection,   // preserved - merge never modifies indirection
                 schema_encoding,
                 &self.table_ctx,
             )?;
 
-            // Step 4: update page directory to point to the new consolidated page.
+            // update page directory to point to the new consolidated page.
             self.page_directory.add(base_rid, new_addr);
 
-            // Update TPS watermark for this base collection.
+            // Update TPS
             // TPS = highest tail RID merged into this collection's base pages.
             // Readers use this to short-circuit the tail walk when
             // indirection_rid <= TPS (base already has the consolidated value).
