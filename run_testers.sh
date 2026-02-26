@@ -68,6 +68,7 @@ clean_m2_extended_dir() {
 }
 
 #! m2 part2 depends on part1's persisted data, so they must be run in unison
+ __main__.py
 clean_data_dirs
 for ((i = 1; i <= RUN_COUNT; i++)); do
 	uv run python "testers/__main__.py"
