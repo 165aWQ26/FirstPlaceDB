@@ -35,7 +35,7 @@ pub struct BufferPool {
 }
 
 impl BufferPool {
-    pub const NUMBER_OF_FRAMES: usize = 10000;
+    pub const NUMBER_OF_FRAMES: usize = 32;
 
     #[inline]
     pub fn is_full(&self) -> bool {

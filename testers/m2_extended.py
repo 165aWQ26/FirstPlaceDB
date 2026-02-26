@@ -110,7 +110,7 @@ def run_tests():
     try:
         test_table.index.create_index(2)
         res = reorganize_result(query_ct.select(1, 2, [1, 1, 1, 1, 1]))
-        if (len(res) == 4 and 
+        if (len(res) == 4 and
             fixed_records[0] in res and fixed_records[1] in res and 
             fixed_records[5] in res and fixed_records[7] in res):
             m_tests[test_name] = {"status": "Passed", "message": "Select with index: expected records found."}

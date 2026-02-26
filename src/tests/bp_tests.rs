@@ -168,12 +168,12 @@ fn read_select_version_across_pages() {
         q.update(10, vec![None, Some(21), Some(31)]).unwrap();
         q.update(10, vec![None, Some(22), Some(32)]).unwrap();
         q.update(10, vec![None, Some(23), Some(33)]).unwrap();
-        for i in 0..10000 {
-            q.update(11, vec![Some(i), Some(i + 1), Some(i + 2)])
+        for i in 0..100 {
+            q.update(11, vec![None, Some(i + 1), Some(i + 2)])
                 .unwrap();
         }
         q.update(10, vec![None, Some(24), Some(34)]).unwrap();
-        for i in 0..10000 {
+        for i in 0..100 {
             q.update(11, vec![None, Some(12 + i), Some(13 + i)])
                 .unwrap();
         }

@@ -15,6 +15,7 @@ pub enum DbError {
     NullValue(usize),    // Column was None when value is expected
     ReadTableFailed(),   // Cannot read table from disk
     WriteTableFailed(),  // Cannot write table to disk
+    MismatchedIndex(),   // Used the wrong index type (primary as opposed to secondary, etc.)
 }
 
 impl fmt::Display for DbError {
@@ -29,6 +30,7 @@ impl fmt::Display for DbError {
             DbError::NullValue(col) => write!(f, "unexpected null in column {}", col),
             DbError::ReadTableFailed() => write!(f, "read table failed"),
             DbError::WriteTableFailed() => write!(f, "write table failed"),
+            DbError::MismatchedIndex() => write!(f, "used incorrect index type"),
         }
     }
 }

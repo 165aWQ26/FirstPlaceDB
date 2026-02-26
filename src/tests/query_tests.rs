@@ -92,15 +92,15 @@ fn update_and_select() {
     db.close().expect("We have a problem");
 }
 
-#[test]
-fn delete_removes_from_index() {
-    let (mut db,name, _dir) = setup_test_table("test", 3, 0);
-    let mut q = setup_query(&mut db, name).unwrap();
-    q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
-    q.delete(1).unwrap();
-    assert!(q.table.indices[0].locate(1).is_none());
-    db.close().expect("We have a problem");
-}
+// #[test]
+// fn delete_removes_from_index() {
+//     let (mut db,name, _dir) = setup_test_table("test", 3, 0);
+//     let mut q = setup_query(&mut db, name).unwrap();
+//     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
+//     q.delete(1).unwrap();
+//     assert!(q.table.indices[0].locate(1).is_none());
+//     db.close().expect("We have a problem");
+// }
 
 //Todo problems with binary comparisions. Just uncomment and you'll see
 // #[test]

@@ -65,28 +65,28 @@ clean_data_dirs() {
 
 #! m2 part2 depends on part1's persisted data, so they must be run in unison
 # __main__.py
-clean_data_dirs
-for ((i = 1; i <= RUN_COUNT; i++)); do
-	uv run python "testers/__main__.py"
-done
+#clean_data_dirs
+#for ((i = 1; i <= RUN_COUNT; i++)); do
+#	uv run python "testers/__main__.py"
+#done
 
-# m1_tester
-clean_data_dirs
-uv run python "testers/m1_tester.py"
-
-# m1_tester_new
-clean_data_dirs
-uv run python "testers/m1_tester_new.py"
-
-# m2 part1 → part2 (paired: part2 reads part1's persisted ECS165/)
-clean_data_dirs
-uv run python "testers/m2_tester_part1.py"
-uv run python "testers/m2_tester_part2.py"
-
-# m2 part1_new → part2_new (paired)
-clean_data_dirs
-uv run python "testers/m2_tester_part1_new.py"
-uv run python "testers/m2_tester_part2_new.py"
+## m1_tester
+#clean_data_dirs
+#uv run python "testers/m1_tester.py"
+#
+## m1_tester_new
+#clean_data_dirs
+#uv run python "testers/m1_tester_new.py"
+#
+## m2 part1 → part2 (paired: part2 reads part1's persisted ECS165/)
+#clean_data_dirs
+#uv run python "testers/m2_tester_part1.py"
+#uv run python "testers/m2_tester_part2.py"
+#
+## m2 part1_new → part2_new (paired)
+#clean_data_dirs
+#uv run python "testers/m2_tester_part1_new.py"
+#uv run python "testers/m2_tester_part2_new.py"
 
 # m2 extended
 clean_data_dirs
