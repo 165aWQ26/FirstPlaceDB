@@ -90,4 +90,4 @@ uv run python "testers/m2_tester_part2_new.py"
 
 # m2 extended
 clean_data_dirs
-uv run python "testers/testers/m2_extended.py"
+uv run python "testers/m2_extended.py"
