@@ -4,7 +4,7 @@ use crate::table::Table;
 //May want to put MetaPage somewhere that isn't the bufferpool
 use crate::bufferpool::MetaPage;
 use crate::bufferpool_context::PageLocation;
-use crate::index::{Index, TableIndex};
+use crate::index::TableIndex;
 
 pub struct Query<'a> {
     pub table: &'a mut Table,
@@ -58,8 +58,11 @@ impl<'a> Query<'a> {
         search_key_index: usize,
         projected_columns_index: &[i64],
     ) -> Result<Vec<Vec<Option<i64>>>, DbError> {
-        let rids = self.table.locate(key, search_key_index)?;
+        let rids = self.table.locate(key, search_key_index).unwrap_or_default();
 
+        if rids.is_empty() {
+            return Ok(Vec::new());
+        }
         let mut result = Vec::with_capacity(rids.len());
 
         for rid in rids {
@@ -113,14 +116,15 @@ impl<'a> Query<'a> {
             .table
             .page_ranges
             .read_meta_col(MetaPage::Indirection, &base_location, &self.table.table_ctx)?
-            .ok_or(DbError::NullValue(404))?;
+            .ok_or(DbError::NullValue(404)).unwrap_or_default();
 
         // Check pk update
         if record[self.table.key_index].is_some() {
-            return Err(DbError::DuplicateKey(key));
+            // return Err(DbError::DuplicateKey(key))
+            return Ok(false);
         }
 
-        let current_values = self.table.read_latest(rid)?;
+        let current_values = self.table.read_latest(rid).unwrap_or_default();
 
         for (i, key_opt) in record.iter().enumerate() {
             if i == self.table.key_index {
@@ -186,7 +190,7 @@ impl<'a> Query<'a> {
             .table
             .page_ranges
             .read_meta_col(MetaPage::Indirection, &base_location, &self.table.table_ctx)?
-            .ok_or(DbError::NullValue(404))?;
+            .ok_or(DbError::NullValue(404)).unwrap_or_default();
 
         // Append deletion tail (schema_encoding = None marks deletion)
         let next_rid = self.table.rid.next().unwrap();
