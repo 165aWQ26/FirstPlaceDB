@@ -178,15 +178,7 @@ impl<'a> Query<'a> {
 
     pub fn delete(&mut self, key: i64) -> Result<bool, DbError> {
         let rid = self.table.locate_primary(key)?;
-
-        // Only remove from primary key index; secondary indices are filtered lazily
-        let idx = &mut self.table.indices[self.table.key_index];
-        match idx {
-            Index::Unique(p) => {
-                p.remove(key, rid);
-            }
-            _ => return Err(DbError::MismatchedIndex()),
-        }
+        self.table.primary_index.remove(key, rid);
 
         let base_location = PageLocation::base(self.table.page_directory.get(rid)?);
 

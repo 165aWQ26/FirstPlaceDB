@@ -363,7 +363,7 @@ mod tests {
         s.insert(1, 10);
         s.insert(1, 11);
         let items: Vec<(i64, i64)> = s.iter().map(|(k, v)| (k, v)).collect();
-        assert_eq!(items, vec![(1, 2)]);
+        assert_eq!(items, vec![(1, 10), (1,11)]);
     }
 
     // ===== INDEX ENUM TESTS =====

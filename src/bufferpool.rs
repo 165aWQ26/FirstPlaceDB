@@ -302,7 +302,7 @@ impl BufferPool {
 impl Default for BufferPool {
     fn default() -> Self {
         Self {
-            cache: LruCache::new(NonZeroUsize::new(BufferPool::NUMBER_OF_FRAMES).unwrap()),
+            cache: LruCache::new(NonZeroUsize::new(BufferPool::NUMBER_OF_FRAMES /*Todo: for test only*/).unwrap()),
             table_names: vec![],
             table_contexts: vec![],
         }

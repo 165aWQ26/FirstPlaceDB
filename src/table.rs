@@ -6,8 +6,10 @@ use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
 use parking_lot::Mutex;
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{BufReader, BufWriter};
 use std::sync::Arc;
+use crate::io_helper;
+use crate::io_helper::{read_i64, read_usize};
 
 #[derive(Debug)]
 pub enum TableError {
@@ -15,30 +17,6 @@ pub enum TableError {
     InvalidKeyIndex,
     WriteFail,
     ReadFail,
-}
-
-pub(crate) fn write_i64(
-    val: impl Into<Option<i64>>,
-    writer: &mut BufWriter<File>,
-) -> Result<(), TableError> {
-    const SENTINEL: i64 = i64::MAX;
-    let bytes = match val.into() {
-        Some(val) => val.to_be_bytes(),
-        None => SENTINEL.to_be_bytes(),
-    };
-    writer.write_all(&bytes).map_err(|_| TableError::WriteFail)
-}
-
-pub(crate) fn read_i64(buf: &mut [u8; 8], reader: &mut BufReader<File>) -> Result<i64, TableError> {
-    reader.read_exact(buf).map_err(|_| TableError::ReadFail)?;
-    Ok(i64::from_be_bytes(*buf))
-}
-
-pub(crate) fn read_usize(
-    buf: &mut [u8; 8],
-    reader: &mut BufReader<File>,
-) -> Result<usize, TableError> {
-    Ok(read_i64(buf, reader)? as usize)
 }
 
 #[derive(Clone)]
@@ -123,241 +101,140 @@ impl Table {
 
     pub fn write_page_directory(&self, writer: &mut BufWriter<File>) -> Result<(), TableError> {
         self.page_directory
-            .write_to_disk(writer, Arc::clone(&self.bufferpool))
+            .write_to_disk(writer)
     }
 
     pub fn write_to_disk(&self, path: String) -> Result<(), TableError> {
-        let mut file_path: String = path;
+        let mut file_path = path;
         file_path.push_str("table_data");
 
         let file = File::create(&file_path).map_err(|_| TableError::InvalidPath)?;
+        let mut w = BufWriter::new(file);
 
-        let mut writer = BufWriter::new(file);
+        // 1-3: scalars
+        io_helper::write_i64(self.table_ctx.total_cols as i64, &mut w)?;
+        io_helper::write_i64(self.key_index as i64, &mut w)?;
+        io_helper::write_i64(self.rid.start, &mut w)?;
 
-        let bp_lock = self.bufferpool.lock();
-
-        bp_lock
-            .write_i64(self.table_ctx.total_cols as i64, &mut writer)
-            .map_err(|_| TableError::WriteFail)?;
-
-        bp_lock
-            .write_i64(self.key_index as i64, &mut writer)
-            .map_err(|_| TableError::WriteFail)?;
-
-        // Persist RID counter (current value of the RangeFrom iterator)
-        bp_lock
-            .write_i64(self.rid.start, &mut writer)
-            .map_err(|_| TableError::WriteFail)?;
-
-        // Persist base page range iterator position
+        // 4-7: page range positions
         let (base_off, base_col) = self.page_ranges.base.position();
-        bp_lock
-            .write_i64(base_off as i64, &mut writer)
-            .map_err(|_| TableError::WriteFail)?;
-        bp_lock
-            .write_i64(base_col as i64, &mut writer)
-            .map_err(|_| TableError::WriteFail)?;
+        io_helper::write_i64(base_off as i64, &mut w)?;
+        io_helper::write_i64(base_col as i64, &mut w)?;
 
-        // Persist tail page range iterator position
         let (tail_off, tail_col) = self.page_ranges.tail.position();
-        bp_lock
-            .write_i64(tail_off as i64, &mut writer)
-            .map_err(|_| TableError::WriteFail)?;
-        bp_lock
-            .write_i64(tail_col as i64, &mut writer)
-            .map_err(|_| TableError::WriteFail)?;
+        io_helper::write_i64(tail_off as i64, &mut w)?;
+        io_helper::write_i64(tail_col as i64, &mut w)?;
 
         let num_data_cols = self.table_ctx.total_cols - Table::NUM_META_PAGES;
         for i in 0..num_data_cols {
-            let index = self.get_index(i);
-            let count = index.len() as i64;
-
-            bp_lock
-                .write_i64(count, &mut writer)
-                .map_err(|_| TableError::WriteFail)?;
-
             if i == self.key_index {
+                io_helper::write_i64(self.primary_index.len() as i64, &mut w)?;
                 for (k, r) in self.primary_index.iter() {
-                    bp_lock
-                        .write_i64(k, &mut writer)
-                        .map_err(|_| TableError::WriteFail)?;
-                    bp_lock
-                        .write_i64(r, &mut writer)
-                        .map_err(|_| TableError::WriteFail)?;
+                    io_helper::write_i64(k, &mut w)?;
+                    io_helper::write_i64(r, &mut w)?;
                 }
-            } else {
-                // Pattern matching here just for posterity
-                if let Index::NonUnique(s) = &self.indices[i] {
-                    for (k, rids) in s.iter_raw() {
-                        bp_lock
-                            .write_i64(*k, &mut writer)
-                            .map_err(|_| TableError::WriteFail)?;
-                        bp_lock
-                            .write_i64(rids.len() as i64, &mut writer)
-                            .map_err(|_| TableError::WriteFail)?;
-                        for rid in rids {
-                            bp_lock
-                                .write_i64(*rid, &mut writer)
-                                .map_err(|_| TableError::WriteFail)?;
-                        }
+            } else if let Index::NonUnique(s) = &self.indices[i] {
+                io_helper::write_i64(s.len() as i64, &mut w)?; // number of distinct keys
+                for (k, rids) in s.iter_raw() {
+                    io_helper::write_i64(*k, &mut w)?;
+                    io_helper::write_i64(rids.len() as i64, &mut w)?;
+                    for rid in rids {
+                        io_helper::write_i64(*rid, &mut w)?;
                     }
                 }
+            } else {
+                io_helper::write_i64(0i64, &mut w)?; // Unique non-primary — shouldn't occur
             }
         }
 
-        self.write_page_directory(&mut writer)?;
-
-        //Persist TPS
-        let tps = &self.page_ranges.base.tps;
-        bp_lock
-            .write_i64(tps.len() as i64, &mut writer)
+        self.page_directory
+            .write_to_disk(&mut w)
             .map_err(|_| TableError::WriteFail)?;
-        for &watermark in tps {
-            self.bufferpool
-                .lock()
-                .write_i64(watermark, &mut writer)
-                .map_err(|_| TableError::WriteFail)?;
+
+        let tps = &self.page_ranges.base.tps;
+        io_helper::write_i64(tps.len() as i64, &mut w)?;
+        for &wm in tps {
+            io_helper::write_i64(wm, &mut w)?;
         }
 
         Ok(())
     }
 
     pub fn read_from_disk(&mut self, path: String) -> Result<(), TableError> {
-        let mut file_path: String = path.clone();
+        let mut file_path = path;
         file_path.push_str("table_data");
 
         let file = File::open(&file_path).map_err(|_| TableError::InvalidPath)?;
-
         let mut reader = BufReader::new(file);
+        let mut buf = [0u8; 8];
 
-        let mut buffer = [0u8; 8];
-
-        let mut bp_lock = self.bufferpool.lock();
-
-        //Todo: Make sure this returns total num cols including metacols!
-        self.table_ctx.total_cols = bp_lock
-            .read_usize(&mut buffer, &mut reader)
-            .map_err(|_| TableError::ReadFail)?;
-
-        self.key_index = bp_lock
-            .read_usize(&mut buffer, &mut reader)
-            .map_err(|_| TableError::ReadFail)?;
+        self.table_ctx.total_cols = read_usize(&mut buf, &mut reader)?;
+        self.key_index             = read_usize(&mut buf, &mut reader)?;
+        let rid_start              = read_i64(&mut buf, &mut reader)?;
+        self.rid                   = rid_start..;
 
         let num_data_cols = self.table_ctx.total_cols - Self::NUM_META_PAGES;
 
-        self.primary_index = UniqueIndex::new(); // Reset primary
+
+        let base_off = read_usize(&mut buf, &mut reader)?;
+        let base_col = read_usize(&mut buf, &mut reader)?;
+        self.page_ranges.base.set_position(base_off, base_col);
+
+        let tail_off = read_usize(&mut buf, &mut reader)?;
+        let tail_col = read_usize(&mut buf, &mut reader)?;
+        self.page_ranges.tail.set_position(tail_off, tail_col);
+
+
+        self.primary_index = UniqueIndex::new();
         self.indices = (0..num_data_cols)
             .map(|col| {
+                // indices[key_index] must be Unique to match how Table::new() sets it up,
+                // so any code that pattern-matches on it directly doesn't get MismatchedIndex.
                 if col == self.key_index {
-                    Index::NonUnique(NonUniqueIndex::new())
+                    Index::Unique(UniqueIndex::new())
                 } else {
                     Index::NonUnique(NonUniqueIndex::new())
                 }
             })
             .collect();
 
-        let rid_start = bp_lock
-            .read_usize(&mut buffer, &mut reader)
-            .map_err(|_| TableError::ReadFail)? as i64;
-        self.rid = rid_start..;
-
         for i in 0..num_data_cols {
-            let index_count = self
-                .bufferpool
-                .lock()
-                .read_usize(&mut buffer, &mut reader)
-                .map_err(|_| TableError::ReadFail)?;
+            let count = read_usize(&mut buf, &mut reader)?;
 
             if i == self.key_index {
-                // Populate Primary Index
-                for _ in 0..index_count {
-                    let key = self
-                        .bufferpool
-                        .lock()
-                        .read_usize(&mut buffer, &mut reader)
-                        .map_err(|_| TableError::ReadFail)? as i64;
-                    let rid = self
-                        .bufferpool
-                        .lock()
-                        .read_usize(&mut buffer, &mut reader)
-                        .map_err(|_| TableError::ReadFail)? as i64;
+                for _ in 0..count {
+                    let key = read_i64(&mut buf, &mut reader)?;
+                    let rid = read_i64(&mut buf, &mut reader)?;
                     self.primary_index.insert_unique(key, rid);
                 }
-            } else {
-                // Populate Secondary Index
-                // We know it is NonUnique based on our initialization logic
-                if let Index::NonUnique(s) = &mut self.indices[i] {
-                    for _ in 0..index_count {
-                        let key = self
-                            .bufferpool
-                            .lock()
-                            .read_usize(&mut buffer, &mut reader)
-                            .map_err(|_| TableError::ReadFail)?
-                            as i64;
-                        let num_rids = self
-                            .bufferpool
-                            .lock()
-                            .read_usize(&mut buffer, &mut reader)
-                            .map_err(|_| TableError::ReadFail)?
-                            as i64;
-                        for _ in 0..num_rids {
-                            let rid = self
-                                .bufferpool
-                                .lock()
-                                .read_usize(&mut buffer, &mut reader)
-                                .map_err(|_| TableError::ReadFail)?
-                                as i64;
-                            s.insert(key, rid);
-                        }
+            } else if let Index::NonUnique(s) = &mut self.indices[i] {
+                for _ in 0..count {
+                    let key      = read_i64(&mut buf, &mut reader)?;
+                    let num_rids = read_usize(&mut buf, &mut reader)?;
+                    for _ in 0..num_rids {
+                        let rid = read_i64(&mut buf, &mut reader)?;
+                        s.insert(key, rid);
                     }
                 }
             }
         }
 
-        // Restore RID counter
-        let rid_start = bp_lock
-            .read_usize(&mut buffer, &mut reader)
-            .map_err(|_| TableError::ReadFail)? as i64;
-        self.rid = rid_start..;
-
-        // Restore base page range iterator position
-        let base_off = bp_lock
-            .read_usize(&mut buffer, &mut reader)
-            .map_err(|_| TableError::ReadFail)?;
-        let base_col = bp_lock
-            .read_usize(&mut buffer, &mut reader)
-            .map_err(|_| TableError::ReadFail)?;
-        self.page_ranges.base.set_position(base_off, base_col);
-
-        // Restore tail page range iterator position
-        let tail_off = bp_lock
-            .read_usize(&mut buffer, &mut reader)
-            .map_err(|_| TableError::ReadFail)?;
-        let tail_col = bp_lock
-            .read_usize(&mut buffer, &mut reader)
-            .map_err(|_| TableError::ReadFail)?;
-        self.page_ranges.tail.set_position(tail_off, tail_col);
 
         self.page_directory
-            .read_from_disk(&mut buffer, &mut reader, self.bufferpool.clone())?;
-
-        // Restore TPS watermarks
-        let tps_len = bp_lock
-            .read_usize(&mut buffer, &mut reader)
+            .read_from_disk(&mut buf, &mut reader)
             .map_err(|_| TableError::ReadFail)?;
 
+
+        let tps_len = read_usize(&mut buf, &mut reader)?;
         self.page_ranges.base.tps = Vec::with_capacity(tps_len);
         for _ in 0..tps_len {
-            let watermark = self
-                .bufferpool
-                .lock()
-                .read_usize(&mut buffer, &mut reader)
-                .map_err(|_| TableError::ReadFail)? as i64;
-            self.page_ranges.base.tps.push(watermark);
+            let wm = read_i64(&mut buf, &mut reader)?;
+            self.page_ranges.base.tps.push(wm);
         }
 
         Ok(())
     }
+
 
     /// Like read but you choose col
     pub fn read_single(

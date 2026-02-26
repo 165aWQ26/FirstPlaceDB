@@ -1,5 +1,5 @@
-use crate::table::write_i64;
-use crate::table::read_usize;
+use crate::io_helper::write_i64;
+use crate::io_helper::read_usize;
 use crate::bufferpool::BufferPool;
 use crate::db_error::DbError;
 use crate::page_range::PhysicalAddress;

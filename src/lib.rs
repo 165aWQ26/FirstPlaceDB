@@ -17,6 +17,7 @@ mod bindings;
 mod bufferpool_context;
 mod transaction;
 mod transaction_worker;
+mod io_helper;
 
 /// A Python module implemented in Rust. The name of this module must match
 /// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
