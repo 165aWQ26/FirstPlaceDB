@@ -45,7 +45,6 @@ impl<'a> Query<'a> {
         }
 
         // Write record (append_base handles all 4 metadata columns)
-
         let address = self
             .table
             .page_ranges

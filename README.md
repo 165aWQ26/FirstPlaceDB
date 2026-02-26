@@ -13,7 +13,11 @@ uv sync
 uv run maturin develop --release
 
 ## Run the code
-uv run python NAME_OF THE TEST FILE
+uv run python <NAME_OF THE TEST FILE>
+
+OR
+
+./run_testers.sh # Runs all Python Testers
 
 ## Build
 
