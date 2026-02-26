@@ -1,3 +1,5 @@
+use crate::table::write_i64;
+use crate::table::read_usize;
 use crate::bufferpool::BufferPool;
 use crate::db_error::DbError;
 use crate::page_range::PhysicalAddress;
@@ -51,7 +53,6 @@ impl PageDirectory {
     pub fn write_to_disk(
         &self,
         writer: &mut BufWriter<File>,
-        bufferpool: Arc<Mutex<BufferPool>>,
     ) -> Result<(), TableError> {
         let entries: Vec<_> = self
             .directory
@@ -60,52 +61,27 @@ impl PageDirectory {
             .filter_map(|(i, addr)| addr.map(|a| (i, a)))
             .collect();
 
-        bufferpool
-            .lock()
-            .write_i64(entries.len() as i64, writer)
-            .map_err(|_| TableError::WriteFail)?;
+        write_i64(entries.len() as i64, writer)?;
 
         for (rid, addr) in entries {
-            bufferpool
-                .lock()
-                .write_i64(rid as i64, writer)
-                .map_err(|_| TableError::WriteFail)?;
-            bufferpool
-                .lock()
-                .write_i64(addr.collection_num as i64, writer)
-                .map_err(|_| TableError::WriteFail)?;
-            bufferpool
-                .lock()
-                .write_i64(addr.offset as i64, writer)
-                .map_err(|_| TableError::WriteFail)?;
+            write_i64(rid as i64, writer)?;
+            write_i64(addr.collection_num as i64, writer)?;
+            write_i64(addr.offset as i64, writer)?;
         }
         Ok(())
     }
 
     pub fn read_from_disk(
         &mut self,
-        buffer: &mut [u8],
+        buffer: &mut [u8; 8],
         reader: &mut BufReader<File>,
-        bufferpool: Arc<Mutex<BufferPool>>,
     ) -> Result<(), TableError> {
-        let count = bufferpool
-            .lock()
-            .read_usize(buffer, reader)
-            .map_err(|_| TableError::ReadFail)?;
+        let count = read_usize(buffer, reader)?;
 
         for _ in 0..count {
-            let rid = bufferpool
-                .lock()
-                .read_usize(buffer, reader)
-                .map_err(|_| TableError::ReadFail)?;
-            let collection_num = bufferpool
-                .lock()
-                .read_usize(buffer, reader)
-                .map_err(|_| TableError::ReadFail)?;
-            let offset = bufferpool
-                .lock()
-                .read_usize(buffer, reader)
-                .map_err(|_| TableError::ReadFail)?;
+            let rid = read_usize(buffer, reader)?;
+            let collection_num = read_usize(buffer, reader)?;
+            let offset = read_usize(buffer, reader)?;
 
             let addr = PhysicalAddress {
                 offset,
