@@ -241,3 +241,5 @@ Grades
 bin/
 
 htmlReport
+lib64
+cspell.json
