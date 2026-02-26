@@ -2,8 +2,8 @@
 // B+ Tree wrapper for mapping primary/secondary keys -> vector of RIDs
 // M1: primary key only (BTreeMap<i64, i64>)
 // M2: restore secondary indices — switch back to BTreeMap<i64, Vec<i64>> or similar
-use std::collections::{BTreeMap, BTreeSet};
 use crate::index::Index::{NonUnique, Unique};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub trait TableIndex {
     fn insert(&mut self, key: i64, val: i64);
@@ -27,7 +27,7 @@ impl UniqueIndex {
     pub fn new() -> Self {
         Self::default()
     }
-    fn insert_unique(&mut self, key: i64, rid: i64) -> bool {
+    pub(crate) fn insert_unique(&mut self, key: i64, rid: i64) -> bool {
         use std::collections::btree_map::Entry;
         match self.index.entry(key) {
             Entry::Vacant(e) => {
@@ -72,6 +72,9 @@ impl NonUniqueIndex {
     pub fn new() -> Self {
         Self::default()
     }
+    pub fn iter_raw(&self) -> std::collections::btree_map::Iter<'_, i64, BTreeSet<i64>> {
+        self.index.iter()
+    }
 }
 impl TableIndex for NonUniqueIndex {
     fn insert(&mut self, key: i64, val: i64) {
@@ -104,7 +107,11 @@ impl TableIndex for NonUniqueIndex {
     }
 
     fn iter(&self) -> Box<dyn Iterator<Item = (i64, i64)> + '_> {
-        Box::new(self.index.iter().map(|(k, v)| (*k, v.len() as i64)))
+        Box::new(
+            self.index
+                .iter()
+                .flat_map(|(&k, rids)| rids.iter().map(move |&rid| (k, rid))),
+        )
     }
 }
 
@@ -118,42 +125,42 @@ impl TableIndex for Index {
     fn insert(&mut self, key: i64, val: i64) {
         match self {
             Unique(idx) => idx.insert(key, val),
-            NonUnique (idx)=> idx.insert(key, val),
+            NonUnique(idx) => idx.insert(key, val),
         }
     }
 
     fn remove(&mut self, key: i64, val: i64) {
         match self {
             Unique(idx) => idx.remove(key, val),
-            NonUnique (idx)=> idx.remove(key, val),
+            NonUnique(idx) => idx.remove(key, val),
         }
     }
 
     fn locate(&self, key: i64) -> Vec<i64> {
         match self {
             Unique(idx) => idx.locate(key),
-            NonUnique (idx)=> idx.locate(key),
+            NonUnique(idx) => idx.locate(key),
         }
     }
 
     fn locate_range(&self, begin: i64, end: i64) -> Vec<i64> {
         match self {
             Unique(idx) => idx.locate_range(begin, end),
-            NonUnique (idx)=> idx.locate_range(begin, end),
+            NonUnique(idx) => idx.locate_range(begin, end),
         }
     }
 
     fn len(&self) -> usize {
         match self {
             Unique(idx) => idx.len(),
-            NonUnique (idx)=> idx.len(),
+            NonUnique(idx) => idx.len(),
         }
     }
 
     fn iter(&self) -> Box<dyn Iterator<Item = (i64, i64)> + '_> {
         match self {
             Unique(idx) => idx.iter(),
-            NonUnique (idx)=> idx.iter(),
+            NonUnique(idx) => idx.iter(),
         }
     }
 }
@@ -163,7 +170,6 @@ mod tests {
     use super::*;
 
     // ===== unique TESTS =====
-
 
     #[test]
     fn test_unique_new_is_empty() {

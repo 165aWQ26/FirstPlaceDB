@@ -1,10 +1,10 @@
 use crate::db_error::DbError;
-use crate::table::{Table, TableError};
+use crate::table::Table;
 
 //May want to put MetaPage somewhere that isn't the bufferpool
 use crate::bufferpool::MetaPage;
 use crate::bufferpool_context::PageLocation;
-use crate::index::Index; // Why'd I need to import this type i thought that table had it
+use crate::index::{Index, TableIndex};
 
 pub struct Query<'a> {
     pub table: &'a mut Table,
@@ -26,22 +26,21 @@ impl<'a> Query<'a> {
 
     pub fn insert(&mut self, record: Vec<Option<i64>>) -> Result<bool, DbError> {
         let rid = self.table.rid.next().unwrap();
-        //let key = record[self.table.key_index].ok_or(DbError::NullValue(self.table.key_index))?;
+        let pk_val =
+            record[self.table.key_index].ok_or(DbError::NullValue(self.table.key_index))?;
+        if !self.table.primary_index.insert_unique(pk_val, rid) {
+            return Ok(false); // Duplicate primary key
+        }
 
-        for (i, key) in record.iter().enumerate() {
-            let idx = &mut self.table.indices[i];
-            // very smart lil d
-            // Single-traversal uniqueness check + insert
-            match idx {
-                Index::Primary(p) => {
-                    if !p.insert_unique(key.unwrap(), rid) {
-                        return Ok(false)
-                    }
-                },
-                Index::Secondary(s) => {
-                    s.insert(key.unwrap(), rid)
-                }
-            };
+        for (i, key_opt) in record.iter().enumerate() {
+            if i == self.table.key_index {
+                continue; // Already handled
+            }
+
+            if let Some(key) = key_opt {
+                // Use unified accessor to insert into secondary indices
+                self.table.get_index_mut(i).insert(*key, rid);
+            }
         }
 
         // Write record (append_base handles all 4 metadata columns)
@@ -59,27 +58,22 @@ impl<'a> Query<'a> {
         search_key_index: usize,
         projected_columns_index: &[i64],
     ) -> Result<Vec<Vec<Option<i64>>>, DbError> {
-        // we make the one rid into a vector here but its only temporary... otherwise compiler complains about borrowing..?
-        let rids = match &self.table.indices[search_key_index] {
-            Index::Primary(p) => p.locate(key)
-                .map(|rid| vec![rid])
-                .ok_or_default(),
-            Index::Secondary(s) => s.locate(key)
-                .ok_or_default(),
-        };
+        let rids = self.table.locate(key, search_key_index)?;
 
         let mut result = Vec::with_capacity(rids.len());
 
-        for &rid in &rids {
+        for rid in rids {
             if self.table.is_record_deleted(rid)? {
-                return Err(DbError::KeyNotFound(key));
+                continue;
             }
-            result.push(self.table.read_latest_projected(projected_columns_index, rid)?);
+            result.push(
+                self.table
+                    .read_latest_projected(projected_columns_index, rid)?,
+            );
         }
 
         Ok(result)
     }
-
 
     pub fn select_version(
         &mut self,
@@ -88,22 +82,26 @@ impl<'a> Query<'a> {
         projected_columns_index: &[i64],
         relative_version: i64,
     ) -> Result<Vec<Vec<Option<i64>>>, DbError> {
-        let rids = self.table.rids_for_key(key, search_key_index)?;
+        let rids = self.table.locate(key, search_key_index)?;
 
         let mut result = Vec::with_capacity(rids.len());
 
-        for &rid in &rids {
+        for rid in rids {
             if self.table.is_record_deleted(rid)? {
-                return Err(DbError::KeyNotFound(key));
+                continue;
             }
-            result.push(self.table.read_version_projected(projected_columns_index, rid, relative_version)?);
+            result.push(self.table.read_version_projected(
+                projected_columns_index,
+                rid,
+                relative_version,
+            )?);
         }
 
         Ok(result)
     }
 
     pub fn update(&mut self, key: i64, record: Vec<Option<i64>>) -> Result<bool, DbError> {
-        let rid = match self.table.rid_for_unique_key(key) {
+        let rid = match self.table.locate_primary(key) {
             Ok(rid) => rid,
             _ => return Ok(false),
         };
@@ -114,12 +112,33 @@ impl<'a> Query<'a> {
         let current_indirection = self
             .table
             .page_ranges
-            .read_meta_col(
-                MetaPage::Indirection,
-                &base_location,
-                &self.table.table_ctx,
-            )?
+            .read_meta_col(MetaPage::Indirection, &base_location, &self.table.table_ctx)?
             .ok_or(DbError::NullValue(404))?;
+
+        // Check pk update
+        if record[self.table.key_index].is_some() {
+            return Err(DbError::DuplicateKey(key));
+        }
+
+        let current_values = self.table.read_latest(rid)?;
+
+        for (i, key_opt) in record.iter().enumerate() {
+            if i == self.table.key_index {
+                continue;
+            }
+
+            if let Some(new_key) = key_opt {
+                let old_key_opt = current_values[i];
+
+                let index = self.table.get_index_mut(i);
+
+                if let Some(old_key) = old_key_opt {
+                    index.remove(old_key, rid);
+                }
+
+                index.insert(*new_key, rid);
+            }
+        }
 
         // Build schema encoding for this tail record
         let mut schema_encoding: i64 = 0;
@@ -129,45 +148,8 @@ impl<'a> Query<'a> {
             }
         }
 
-        // TODO fix secondary indices
-
-        // if let Some(new_key) = record[self.table.key_index] {
-        //     self.table.indices[self.table.key_index].remove(key);
-        //     self.table.indices[self.table.key_index].insert_unique(new_key, rid);
-        // }
-        // //
-
-        // old secondary_index compatible code.
-        let current_values = self.table.read_latest(rid)?;
-        for (i, key) in record.iter().enumerate() {
-            if i == self.table.key_index && record[i] != None {
-                return Err(DbError::DuplicateKey(key.unwrap()));
-            }
-
-            let idx = &mut self.table.indices[i];
-            match idx {
-                Index::Primary(p) => {
-                    if key.is_some() {
-                        if current_values[i].is_some() {
-                            p.remove(current_values[i].unwrap(), rid);
-                        }
-                        p.insert(key.ok_or(DbError::NullValue(0))?, rid);
-                    }
-                }
-                Index::Secondary(s) => {
-                    if key.is_some() {
-                        if current_values[i].is_some() {
-                            s.remove(current_values[i].unwrap(), rid);
-                        }
-                        s.insert(key.ok_or(DbError::NullValue(0))?, rid);
-                    }
-                }
-            }
-        }
-
-        let next_rid = self.table.rid.next().unwrap();
-
         // Append tail record
+        let next_rid = self.table.rid.next().unwrap();
         let address = self.table.page_ranges.append_tail(
             record,
             next_rid,
@@ -186,6 +168,7 @@ impl<'a> Query<'a> {
             &self.table.table_ctx,
         )?;
 
+        // Merge check
         if self.table.page_ranges.tail.full_pages_since_merge >= Query::DEFAULT_MERGE_THRESHOLD {
             self.table.merge()?;
         }
@@ -194,15 +177,15 @@ impl<'a> Query<'a> {
     }
 
     pub fn delete(&mut self, key: i64) -> Result<bool, DbError> {
-        let rid = self.table.rid_for_unique_key(key)?;
+        let rid = self.table.locate_primary(key)?;
 
         // Only remove from primary key index; secondary indices are filtered lazily
         let idx = &mut self.table.indices[self.table.key_index];
         match idx {
-            Index::Primary(p) => {
+            Index::Unique(p) => {
                 p.remove(key, rid);
             }
-            _ => { return Err(DbError::MismatchedIndex()) }
+            _ => return Err(DbError::MismatchedIndex()),
         }
 
         let base_location = PageLocation::base(self.table.page_directory.get(rid)?);
@@ -210,11 +193,7 @@ impl<'a> Query<'a> {
         let current_indirection = self
             .table
             .page_ranges
-            .read_meta_col(
-                MetaPage::Indirection,
-                &base_location,
-                &self.table.table_ctx,
-            )?
+            .read_meta_col(MetaPage::Indirection, &base_location, &self.table.table_ctx)?
             .ok_or(DbError::NullValue(404))?;
 
         // Append deletion tail (schema_encoding = None marks deletion)
@@ -245,29 +224,26 @@ impl<'a> Query<'a> {
     }
 
     pub fn sum(&mut self, start_range: i64, end_range: i64, col: usize) -> Result<i64, DbError> {
-        match &self.table.indices[self.table.key_index] {
-            Index::Primary(p) => {
-                if let Some(rids) =
-                    p.locate_range(start_range, end_range)
-                {
-                    let mut sum: i64 = 0;
+        let rids = self
+            .table
+            .primary_index
+            .locate_range(start_range, end_range);
 
-                    for rid in rids {
-                        if self.table.is_record_deleted(rid)? {
-                            continue;
-                        }
-                        sum += self
-                            .table
-                            .read_latest_single(rid, col)?
-                            .ok_or(DbError::NullValue(col))?;
-                    }
-                    Ok(sum)
-                } else {
-                    Err(DbError::KeyNotFound(start_range))
-                }
-            },
-            Index::Secondary(_s) => { Err(DbError::Table(TableError::InvalidKeyIndex)) },
+        if rids.is_empty() {
+            return Err(DbError::KeyNotFound(start_range));
         }
+
+        let mut sum: i64 = 0;
+        for rid in rids {
+            if self.table.is_record_deleted(rid)? {
+                continue;
+            }
+            sum += self
+                .table
+                .read_latest_single(rid, col)?
+                .ok_or(DbError::NullValue(col))?;
+        }
+        Ok(sum)
     }
 
     pub fn sum_version(
@@ -277,28 +253,23 @@ impl<'a> Query<'a> {
         col: usize,
         relative_version: i64,
     ) -> Result<i64, DbError> {
-        match &self.table.indices[self.table.key_index] {
-            Index::Primary(p) => {
-                if let Some(rids) =
-                    p.locate_range(start_range, end_range)
-                {
-                    // cumulative sum of all columns
-                    let mut sum: i64 = 0;
+        let rids = self
+            .table
+            .primary_index
+            .locate_range(start_range, end_range);
 
-                    for rid in rids {
-                        sum += self
-                            .table
-                            .read_version_single(rid, col, relative_version)?
-                            .ok_or(DbError::NullValue(col))?;
-                    }
-                    Ok(sum)
-                } else {
-                    Err(DbError::KeyNotFound(start_range))
-                }
-            },
-            Index::Secondary(_s) => { Err(DbError::Table(TableError::InvalidKeyIndex)) },
+        if rids.is_empty() {
+            return Err(DbError::KeyNotFound(start_range));
         }
 
+        let mut sum: i64 = 0;
+        for rid in rids {
+            sum += self
+                .table
+                .read_version_single(rid, col, relative_version)?
+                .ok_or(DbError::NullValue(col))?;
+        }
+        Ok(sum)
     }
 
     pub fn increment(&mut self, key: i64, col: usize) -> Result<bool, DbError> {
@@ -307,7 +278,8 @@ impl<'a> Query<'a> {
             return Ok(false);
         }
 
-        let rid = self.table.rid_for_unique_key(key)?;
+        // Use locate_primary for single RID
+        let rid = self.table.locate_primary(key)?;
 
         let mut record: Vec<Option<i64>> = vec![None; self.num_data_cols];
 
