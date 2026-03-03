@@ -29,14 +29,14 @@ pub struct PidRange {
     end: usize, //exclusive
 }
 pub struct PidRangeIterator {
-    current: PidRange,
+    start: usize,
     pages_per_collection: usize,
 }
 
 impl PidRangeIterator {
     pub fn new(pages_per_collection: usize) -> Self {
         Self {
-            current: PidRange::default(),
+            start: 0,
             pages_per_collection,
         }
     }
@@ -46,14 +46,14 @@ impl Iterator for PidRangeIterator {
     type Item = PidRange;
     fn next(&mut self) -> Option<Self::Item> {
 
-        let end = self.current.start + self.pages_per_collection;
+        let end = self.start + self.pages_per_collection;
 
         let range = PidRange {
-            start: self.current.start,
+            start: self.start,
             end,
         };
 
-        self.current.start = end;
+        self.start = end;
         Some(range)
     }
 }
