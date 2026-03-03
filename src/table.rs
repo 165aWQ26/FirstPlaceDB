@@ -13,12 +13,15 @@ pub struct Table {
 
     pub rid: std::ops::RangeFrom<i64>,
 
-    pub num_columns: usize,
+    pub num_data_columns: usize,
 
     pub key_index: usize,
 
     pub indices: Vec<Index>,
 
+    pub table_id: usize,
+
+    pub num_total_cols: usize,
 }
 
 impl Table {
@@ -29,15 +32,19 @@ impl Table {
         table_name: String,
         num_columns: usize,
         key_index: usize,
+        table_id: usize,
     ) -> Table {
+        let num_total_cols = num_columns + Table::NUM_META_PAGES;
         Self {
             name: table_name,
-            page_ranges: PageRanges::new(num_columns),
+            page_ranges: PageRanges::new(num_total_cols, table_id),
             page_directory: PageDirectory::default(),
             rid: 0..,
             key_index,
-            num_columns,
+            num_data_columns: num_columns,
             indices: (0..1).map(|_| Index::new()).collect(),
+            table_id,
+            num_total_cols
         }
     }
     /// Returns all the columns of the record
@@ -86,7 +93,7 @@ impl Table {
                     // Columns updated in this tail but not yet seen in newer tail
                     let new_cols = tail_schema & !accumulated_schema;
 
-                    for col in 0..self.num_columns {
+                    for col in 0..self.num_data_columns {
                         if (new_cols >> col) & 1 == 1 {
                             result[col] = self.page_ranges.read_single(col, &tail_addr, WhichRange::Tail)?;
                         }

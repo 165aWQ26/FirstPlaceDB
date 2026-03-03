@@ -1,4 +1,6 @@
+use std::thread::current;
 use crate::error::DbError;
+use crate::iterators::{PhysicalAddress, PhysicalAddressIterator, PidRange, PidRangeIterator};
 use crate::page::{Page, PageError};
 use crate::page_collection::{MetaPage, PageCollection};
 use crate::table::Table;
@@ -7,6 +9,7 @@ pub struct PageRange {
     range: Vec<PageCollection>,
     next_addr: PhysicalAddressIterator,
     pages_per_collection: usize,
+    table_id: usize,
 }
 
 impl PageRange {
@@ -15,28 +18,30 @@ impl PageRange {
     pub const PROJECTED_NUM_PAGE_COLLECTIONS: usize =
         (Table::PROJECTED_NUM_RECORDS + Page::PAGE_SIZE - 1) / Page::PAGE_SIZE;
 
-    pub fn new(data_pages_per_collection: usize) -> Self {
-        let pages_per_collection = data_pages_per_collection + Table::NUM_META_PAGES;
-        let mut init_range: Vec<PageCollection> =
-            Vec::with_capacity(PageRange::PROJECTED_NUM_PAGE_COLLECTIONS);
-        init_range.push(PageCollection::new(pages_per_collection));
+    pub fn new(pages_per_collection: usize, first_pid: PidRange, table_id: usize) -> Self {
+        let mut init_range: Vec<PageCollection> = Vec::with_capacity(PageRange::PROJECTED_NUM_PAGE_COLLECTIONS);
+        init_range.push(PageCollection::new(first_pid, table_id));
 
         Self {
             range: init_range,
             next_addr: PhysicalAddressIterator::default(),
             pages_per_collection,
+            table_id,
         }
     }
 
     //Append assumes metadata has been pre-calculated (allData)
     //All it does is write to the current offset
     //allData cols must be in correct places
-    pub fn append(&mut self, all_data: Vec<Option<i64>>) -> Result<PhysicalAddress, DbError> {
+    //Idk how to format closures
+    fn append<F>(&mut self, all_data: Vec<Option<i64>>, pid_alloc_closure: &mut F) -> Result<PhysicalAddress, DbError>
+        where F: FnMut() -> PidRange,
+    {
         //get next addr
         let addr = self.next_addr.next().unwrap();
 
         //Lazily create page collection and associated pages
-        self.lazy_create_page_collection(addr.collection_num);
+        self.lazy_create_page_collection(addr.collection_num, pid_alloc_closure);
 
         let collection = &mut self.range[addr.collection_num];
         for (i, data) in all_data.iter().enumerate() {
@@ -49,10 +54,14 @@ impl PageRange {
     }
 
     //iterators make this so cleannnnn
-    fn lazy_create_page_collection(&mut self, page: usize) {
+    fn lazy_create_page_collection<F>(&mut self, page: usize, alloc_pid: &mut F)
+    where
+        F: FnMut() -> PidRange,
+    {
         while self.range.len() <= page {
+            let next_pid = alloc_pid();
             self.range
-                .push(PageCollection::new(self.pages_per_collection));
+                .push(PageCollection::new(next_pid, self.table_id));
         }
     }
 
@@ -111,13 +120,16 @@ pub enum WhichRange {
 pub struct PageRanges {
     tail: PageRange,
     base: PageRange,
+    pid_iter: PidRangeIterator,
 }
 
 impl PageRanges {
-    pub fn new(pages_per_collection: usize) -> Self {
+    pub fn new(pages_per_collection: usize, table_id: usize) -> Self {
+        let mut PidRangeIterator = PidRangeIterator::new(pages_per_collection);
         Self {
-            tail: PageRange::new(pages_per_collection),
-            base: PageRange::new(pages_per_collection),
+            tail: PageRange::new(pages_per_collection, PidRangeIterator.next().unwrap(), table_id),
+            base: PageRange::new(pages_per_collection, PidRangeIterator.next().unwrap(), table_id),
+            pid_iter: PidRangeIterator,
         }
     }
 
@@ -131,7 +143,8 @@ impl PageRanges {
         data_cols.push(Some(rid)); // indirection (self for new base record)
         data_cols.push(Some(0)); // schema_encoding (no updates)
         data_cols.push(None);
-        self.base.append(data_cols)
+        let mut alloc_pid = || self.pid_iter.next().unwrap();
+        self.base.append(data_cols, &mut alloc_pid)
     }
 
     // For updates: caller provides indirection (previous version) and schema_encoding (which cols updated)
@@ -146,7 +159,8 @@ impl PageRanges {
         data_cols.push(Some(indirection)); // indirection (points to prev version)
         data_cols.push(schema_encoding); // schema_encoding: None = deletion, Some(bitmask) = update
         data_cols.push(None);
-        self.tail.append(data_cols)
+        let mut alloc_pid = || self.pid_iter.next().unwrap();
+        self.tail.append(data_cols, &mut alloc_pid)
     }
 
     #[inline]
@@ -170,17 +184,6 @@ impl PageRanges {
     ) -> Result<Option<i64>, DbError> {
         self.tail.read_single(column, addr)
     }
-
-    //
-    // #[inline]
-    // pub fn write_single(
-    //     &mut self,
-    //     col: usize,
-    //     addr: &PhysicalAddress,
-    //     val: Option<i64>,
-    // ) -> Result<(), PageError> {
-    //     self.base.write_meta_col(col, addr, val)
-    // }
 
     #[inline]
     pub fn write_indirection(
@@ -218,28 +221,3 @@ impl PageRanges {
     }
 }
 
-//Possibly put here & below into its own file
-//This iterator automatically manages where you write to.
-#[derive(Hash, Eq, PartialEq, Copy, Clone, Debug, Default)]
-pub struct PhysicalAddress {
-    pub(crate) offset: usize,
-    pub(crate) collection_num: usize,
-}
-
-#[derive(Default)]
-pub struct PhysicalAddressIterator {
-    current: PhysicalAddress,
-}
-
-impl Iterator for PhysicalAddressIterator {
-    type Item = PhysicalAddress;
-    fn next(&mut self) -> Option<Self::Item> {
-        let addr = self.current;
-        self.current.offset += 1;
-        if self.current.offset >= Page::PAGE_SIZE {
-            self.current.offset = 0;
-            self.current.collection_num += 1;
-        }
-        Some(addr)
-    }
-}

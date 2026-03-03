@@ -1,3 +1,4 @@
+use crate::iterators::PidRange;
 use crate::page::{Page, PageError};
 use crate::table::Table;
 
@@ -9,28 +10,31 @@ pub enum MetaPage {
     StartTimeCol = 3,
 }
 
-
-//In general this structure will make a lot of assumptions about the data that is passed (not good for modularity but wtv).
-//For now we assume metadata is appended after data
-//When writing getters and setters we will have to assume a position of each meta_col.
 pub struct PageCollection {
-    pages: Vec<Page>,
+    pid_range: PidRange,
+    table_id: usize,
 }
 impl PageCollection {
-    pub fn new(pages_per_collection: usize) -> PageCollection {
+    pub fn new(pid_range: PidRange, table_id: usize) -> PageCollection {
         Self {
-            pages: vec![Page::default(); pages_per_collection], //Creates actual pages
+            pid_range,
+            table_id,
         }
     }
 
+    //Todo: delete all my comments when done please!
     #[inline]
     pub fn write_col(&mut self, col: usize, val: Option<i64>) -> Result<(), PageError> {
-        self.pages[col].write(val)
+        //write an individual column by getting start + col, table_id from bufferpool, then writing to the page.
+        //This works because our pages are append only (no need to remember what offset to write to --> always write to the end)
+        //self.pages[col].write(val)
     }
 
     #[inline]
     pub fn read_col(&self, col: usize, offset: usize) -> Result<Option<i64>, PageError> {
-        self.pages[col].read(offset)
+        //write an individual column by getting start + col, table_id from bufferpool, then reading the page at offset.
+
+        //self.pages[col].read(offset)
     }
 
     #[inline]

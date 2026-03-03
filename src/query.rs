@@ -144,7 +144,7 @@ impl Query {
 
         // Append deletion tail (schema_encoding = None marks deletion)
         let next_rid = self.table.rid.next().unwrap();
-        let tail_record = vec![None; self.table.num_columns];
+        let tail_record = vec![None; self.table.num_data_columns];
         let address =
             self.table
                 .page_ranges
@@ -208,7 +208,7 @@ impl Query {
 
     pub fn increment(&mut self, key: i64, col: usize) -> Result<bool, DbError> {
         // Reject primary key or metadata column increments
-        if col == self.table.key_index || col >= self.table.num_columns {
+        if col == self.table.key_index || col >= self.table.num_data_columns {
             return Ok(false);
         }
 
@@ -216,7 +216,7 @@ impl Query {
             .locate(key)
             .ok_or(DbError::KeyNotFound(key))?;
 
-        let mut record: Vec<Option<i64>> = vec![None; self.table.num_columns];
+        let mut record: Vec<Option<i64>> = vec![None; self.table.num_data_columns];
 
         let temp = self
             .table

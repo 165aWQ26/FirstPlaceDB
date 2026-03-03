@@ -1,5 +1,5 @@
 use crate::error::DbError;
-use crate::page_range::PhysicalAddress;
+use crate::iterators::PhysicalAddress;
 use crate::table::Table;
 
 pub struct PageDirectory {
