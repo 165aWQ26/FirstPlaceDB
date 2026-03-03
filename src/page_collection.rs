@@ -66,4 +66,20 @@ impl PageCollection {
     pub fn read_meta_col(&self, offset: usize, col_type: MetaPage) -> Result<Option<i64>, PageError> {
         self.meta_record(col_type).read(offset)
     }
+
+    pub fn get_page(&self, col: usize) -> Result<&Page, PageError> {
+        let pid = Pid::new(col + self.pid_range.start, self.table_id);
+        //Todo: Whoops this can't be done here
+    }
+}
+
+pub struct Pid {
+    page_num: usize,
+    table_id: usize,
+}
+
+impl Pid {
+    pub fn new(page_num: usize, table_id: usize) -> Pid {
+        Pid { page_num, table_id }
+    }
 }

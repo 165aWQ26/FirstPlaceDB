@@ -25,7 +25,7 @@ impl Iterator for PhysicalAddressIterator {
 
 #[derive(Default)]
 pub struct PidRange {
-    start: usize, //inclusive
+    pub(crate) start: usize, //inclusive
     end: usize, //exclusive
 }
 pub struct PidRangeIterator {
