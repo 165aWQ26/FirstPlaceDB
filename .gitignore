@@ -233,5 +233,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 # .DS_Store
-.DS_Store# Created by venv; see https://docs.python.org/3/library/venv.html
-*
+.DS_Store
+.venv
+cspell.json
+.python-version
