@@ -1,8 +1,9 @@
+use std::sync::mpsc::Sender;
 use std::thread::current;
 use crate::error::DbError;
 use crate::iterators::{PhysicalAddress, PhysicalAddressIterator, PidRange, PidRangeIterator};
 use crate::page::{Page, PageError};
-use crate::page_collection::{MetaPage, PageCollection};
+use crate::page_collection::{MetaPage, PageCollection, Pid};
 use crate::table::Table;
 
 pub struct PageRange {
@@ -10,6 +11,7 @@ pub struct PageRange {
     next_addr: PhysicalAddressIterator,
     pages_per_collection: usize,
     table_id: usize,
+    buffer_pool_req_sender: Sender<Pid>
 }
 
 impl PageRange {
@@ -18,15 +20,16 @@ impl PageRange {
     pub const PROJECTED_NUM_PAGE_COLLECTIONS: usize =
         (Table::PROJECTED_NUM_RECORDS + Page::PAGE_SIZE - 1) / Page::PAGE_SIZE;
 
-    pub fn new(pages_per_collection: usize, first_pid: PidRange, table_id: usize) -> Self {
+    pub fn new(pages_per_collection: usize, first_pid: PidRange, table_id: usize, buffer_pool_req_sender: Sender<Pid>) -> Self {
         let mut init_range: Vec<PageCollection> = Vec::with_capacity(PageRange::PROJECTED_NUM_PAGE_COLLECTIONS);
-        init_range.push(PageCollection::new(first_pid, table_id));
+        init_range.push(PageCollection::new(first_pid, table_id, buffer_pool_req_sender.clone()));
 
         Self {
             range: init_range,
             next_addr: PhysicalAddressIterator::default(),
             pages_per_collection,
             table_id,
+            buffer_pool_req_sender
         }
     }
 
@@ -61,7 +64,7 @@ impl PageRange {
         while self.range.len() <= page {
             let next_pid = alloc_pid();
             self.range
-                .push(PageCollection::new(next_pid, self.table_id));
+                .push(PageCollection::new(next_pid, self.table_id, self.buffer_pool_req_sender.clone()));
         }
     }
 
@@ -124,11 +127,11 @@ pub struct PageRanges {
 }
 
 impl PageRanges {
-    pub fn new(pages_per_collection: usize, table_id: usize) -> Self {
+    pub fn new(pages_per_collection: usize, table_id: usize, buffer_pool_req_sender: Sender<Pid>) -> Self {
         let mut PidRangeIterator = PidRangeIterator::new(pages_per_collection);
         Self {
-            tail: PageRange::new(pages_per_collection, PidRangeIterator.next().unwrap(), table_id),
-            base: PageRange::new(pages_per_collection, PidRangeIterator.next().unwrap(), table_id),
+            tail: PageRange::new(pages_per_collection, PidRangeIterator.next().unwrap(), table_id, buffer_pool_req_sender.clone()),
+            base: PageRange::new(pages_per_collection, PidRangeIterator.next().unwrap(), table_id, buffer_pool_req_sender.clone()),
             pid_iter: PidRangeIterator,
         }
     }

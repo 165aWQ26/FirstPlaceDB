@@ -1,6 +1,7 @@
+use std::sync::mpsc::Sender;
 use crate::error::DbError;
 use crate::index::Index;
-use crate::page_collection::MetaPage;
+use crate::page_collection::{MetaPage, Pid};
 use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
 
@@ -33,18 +34,19 @@ impl Table {
         num_columns: usize,
         key_index: usize,
         table_id: usize,
+        buffer_pool_req_sender: Sender<Pid>,
     ) -> Table {
         let num_total_cols = num_columns + Table::NUM_META_PAGES;
         Self {
             name: table_name,
-            page_ranges: PageRanges::new(num_total_cols, table_id),
+            page_ranges: PageRanges::new(num_total_cols, table_id, buffer_pool_req_sender),
             page_directory: PageDirectory::default(),
             rid: 0..,
             key_index,
             num_data_columns: num_columns,
             indices: (0..1).map(|_| Index::new()).collect(),
             table_id,
-            num_total_cols
+            num_total_cols,
         }
     }
     /// Returns all the columns of the record

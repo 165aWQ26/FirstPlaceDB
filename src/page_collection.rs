@@ -1,3 +1,4 @@
+use std::sync::mpsc::{Receiver, Sender, channel};
 use crate::iterators::PidRange;
 use crate::page::{Page, PageError};
 use crate::table::Table;
@@ -10,15 +11,25 @@ pub enum MetaPage {
     StartTimeCol = 3,
 }
 
+pub enum Operation {
+    Write,
+    Read,
+}
+
 pub struct PageCollection {
     pid_range: PidRange,
     table_id: usize,
+    buffer_pool_req_sender: Sender<Pid>,
+    buffer_pool_write_back_channel: Channel,
 }
+
 impl PageCollection {
-    pub fn new(pid_range: PidRange, table_id: usize) -> PageCollection {
+    pub fn new(pid_range: PidRange, table_id: usize, buffer_pool_req_sender: Sender<Pid>) -> PageCollection {
         Self {
             pid_range,
             table_id,
+            buffer_pool_req_sender,
+            buffer_pool_write_back_channel: Channel::default(),
         }
     }
 
@@ -68,8 +79,12 @@ impl PageCollection {
     }
 
     pub fn get_page(&self, col: usize) -> Result<&Page, PageError> {
-        let pid = Pid::new(col + self.pid_range.start, self.table_id);
-        //Todo: Whoops this can't be done here
+        let pid = Pid::new(col + self.pid_range.start, self.table_id, rx);
+    }
+
+    pub fn create_request(&self, page_num: usize, data: Option<i64>, operation: Operation) -> BufferPoolRequest {
+        let pid = Pid::new(page_num, self.table_id);
+        BufferPoolRequest::new(pid, data, operation, self.buffer_pool_write_back_channel.tx.clone())
     }
 }
 
@@ -81,5 +96,30 @@ pub struct Pid {
 impl Pid {
     pub fn new(page_num: usize, table_id: usize) -> Pid {
         Pid { page_num, table_id }
+    }
+}
+
+pub struct BufferPoolRequest {
+    pid: Pid,
+    data: Option<i64>,
+    operation: Operation,
+    write_back: Sender<Option<i64>>,
+}
+
+impl BufferPoolRequest {
+    pub fn new(pid: Pid, data: Option<i64>, operation: Operation, write_back: Sender<Option<i64>>) -> BufferPoolRequest {
+        BufferPoolRequest { pid, data, operation, write_back }
+    }
+}
+
+pub struct Channel {
+    rx: Receiver<Option<i64>>,
+    tx: Sender<Option<i64>>,
+}
+
+impl Default for Channel {
+    fn default() -> Self {
+        let (tx, rx) = channel::<Option<i64>>();
+        Self { rx, tx }
     }
 }
