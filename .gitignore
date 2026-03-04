@@ -237,3 +237,14 @@ __marimo__/
 .venv
 cspell.json
 .python-version
+
+# Testor generated dir
+MT/
+M2/
+CT/
+
+# windows lock file
+.lock
+
+# Coverage report
+htmlReport/
