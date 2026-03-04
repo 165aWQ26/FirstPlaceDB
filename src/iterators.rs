@@ -1,4 +1,9 @@
+use std::sync::RwLock;
+use dashmap::DashMap;
 use crate::page::Page;
+use crate::page_collection::Pid;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 
 #[derive(Hash, Eq, PartialEq, Copy, Clone, Debug, Default)]
 pub struct PhysicalAddress {
@@ -26,7 +31,7 @@ impl Iterator for PhysicalAddressIterator {
 #[derive(Default)]
 pub struct PidRange {
     pub(crate) start: usize, //inclusive
-    end: usize, //exclusive
+    pub(crate) end: usize, //exclusive
 }
 pub struct PidRangeIterator {
     start: usize,
@@ -55,5 +60,50 @@ impl Iterator for PidRangeIterator {
 
         self.start = end;
         Some(range)
+    }
+}
+
+pub struct BufferPoolFrameMap {
+    map: DashMap<Pid, RwLock<Frame>>,
+    current: BufferPoolIterator,
+    frames: Vec<RwLock<Frame>>,
+}
+
+impl BufferPoolFrameMap {
+
+    fn new(frames: Vec<RwLock<Frame>>) -> Self {
+        Self {
+            frames,
+            current: BufferPoolIterator::default(),
+            map: DashMap::new(),
+        }
+    }
+    pub fn insert(&self, pid: Pid) {
+        self.map.insert(pid, self.frames[self.current.next()]);
+    }
+
+    pub fn remove(&self, pid: Pid) {
+        self.map.remove(&pid);
+    }
+}
+
+#[derive(Default)]
+pub struct BufferPoolIterator {
+    current: AtomicUsize,
+}
+
+
+impl BufferPoolIterator {
+    pub fn new() -> Self {
+        Self {
+            current: AtomicUsize::new(0),
+        }
+    }
+
+    //The current value is the only thing being changed in parallel, we don't care that the modulo
+    //is not atomic.
+    //AtomicUsize wraps on usize overflow & modulo of a power of 2 is always cheap.
+    pub fn next(&self) -> usize {
+        self.current.fetch_add(1, Ordering::SeqCst) % //Todo declare this macro in bufferpool
     }
 }

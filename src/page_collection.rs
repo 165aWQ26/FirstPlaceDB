@@ -1,4 +1,6 @@
-use crate::iterators::PidRange;
+use std::sync::Arc;
+use dashmap::DashMap;
+use crate::iterators::{BufferPoolFrameMap, PidRange};
 use crate::page::{Page, PageError};
 use crate::table::Table;
 
@@ -13,12 +15,18 @@ pub enum MetaPage {
 pub struct PageCollection {
     pid_range: PidRange,
     table_id: usize,
+    bp_lookup_map: Arc<BufferPoolFrameMap>
 }
 impl PageCollection {
-    pub fn new(pid_range: PidRange, table_id: usize) -> PageCollection {
+    pub fn new(pid_range: PidRange, table_id: usize, bp_lookup_map: Arc<BufferPoolFrameMap>) -> PageCollection {
+        for x in pid_range.start..pid_range.end {
+            bp_lookup_map.insert(Pid::new(x, table_id.clone()))
+        }
+
         Self {
             pid_range,
             table_id,
+            bp_lookup_map,
         }
     }
 
@@ -73,6 +81,8 @@ impl PageCollection {
     }
 }
 
+
+#[derive(Hash, Eq, PartialEq)]
 pub struct Pid {
     page_num: usize,
     table_id: usize,

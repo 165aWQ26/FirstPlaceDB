@@ -14,6 +14,7 @@ crate-type = ["cdylib", "rlib"]
 bplustree = { git = "https://github.com/KentBeck/BPlusTree3" }
 pyo3 = { version = "0.28.0", features = ["extension-module", "abi3-py39"] }
 rustc-hash = "2.1.1"
+dashmap = "7.0.0-rc2"
 
 [build-dependencies]
 pyo3-build-config = "0.28.0"

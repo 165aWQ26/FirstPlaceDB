@@ -1,6 +1,9 @@
+use std::sync::Arc;
+use dashmap::DashMap;
 use crate::error::DbError;
 use crate::index::Index;
-use crate::page_collection::MetaPage;
+use crate::iterators::BufferPoolFrameMap;
+use crate::page_collection::{MetaPage, Pid};
 use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
 
@@ -33,11 +36,12 @@ impl Table {
         num_columns: usize,
         key_index: usize,
         table_id: usize,
+        bp_lookup_map: Arc<BufferPoolFrameMap>
     ) -> Table {
         let num_total_cols = num_columns + Table::NUM_META_PAGES;
         Self {
             name: table_name,
-            page_ranges: PageRanges::new(num_total_cols, table_id),
+            page_ranges: PageRanges::new(num_total_cols, table_id, bp_lookup_map),
             page_directory: PageDirectory::default(),
             rid: 0..,
             key_index,
