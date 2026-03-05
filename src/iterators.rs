@@ -1,10 +1,5 @@
-use std::sync::RwLock;
-use dashmap::DashMap;
 use crate::page::Page;
-use crate::page_collection::Pid;
 use std::sync::atomic::{AtomicUsize, Ordering};
-
-
 #[derive(Hash, Eq, PartialEq, Copy, Clone, Debug, Default)]
 pub struct PhysicalAddress {
     pub(crate) offset: usize,
@@ -60,30 +55,6 @@ impl Iterator for PidRangeIterator {
 
         self.start = end;
         Some(range)
-    }
-}
-
-pub struct BufferPoolFrameMap {
-    map: DashMap<Pid, RwLock<Frame>>,
-    current: BufferPoolIterator,
-    frames: Vec<RwLock<Frame>>,
-}
-
-impl BufferPoolFrameMap {
-
-    fn new(frames: Vec<RwLock<Frame>>) -> Self {
-        Self {
-            frames,
-            current: BufferPoolIterator::default(),
-            map: DashMap::new(),
-        }
-    }
-    pub fn insert(&self, pid: Pid) {
-        self.map.insert(pid, self.frames[self.current.next()]);
-    }
-
-    pub fn remove(&self, pid: Pid) {
-        self.map.remove(&pid);
     }
 }
 
