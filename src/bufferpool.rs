@@ -9,6 +9,7 @@ use std::sync::Arc;
 pub type FrameId = usize;
 pub type DefaultEvictionState = EvictionState<ArcPolicy>;
 pub type DefaultBufferPool = BufferPool<ArcPolicy>;
+pub const BP_CAP: usize = 32;
 
 pub struct Frame {
     page: RwLock<Page>,
@@ -17,7 +18,7 @@ pub struct Frame {
 }
 
 impl Frame {
-    pub fn empty() -> Self {
+    pub fn new() -> Self {
         Self {
             page: RwLock::new(Page::default()),
             dirty: AtomicBool::new(false),
@@ -101,14 +102,15 @@ pub struct BufferPool<P: EvictionPolicy + Send + 'static> {
 }
 
 impl<P: EvictionPolicy + Send + 'static> BufferPool<P> {
-    pub fn new(capacity: usize, disk_manager: DiskManager) -> DefaultBufferPool {
+    pub fn new(disk_manager: DiskManager) -> DefaultBufferPool {
         Self {
             page_table: DashMap::new(),
-            frames: Vec::with_capacity(capacity),
+            frames: (0..BP_CAP).map(|_| Frame::new()).collect(),
             eviction: Mutex::new(EvictionState::new()),
             disk_manager,
         }
     }
+
     pub fn read(&self, pid: Pid, offset: usize) -> Result<Option<i64>, BufferPoolError> {
         let fid = self.resolve_or_load(pid)?;
         Ok(self.frames[fid].read(offset)?)
@@ -139,6 +141,15 @@ impl<P: EvictionPolicy + Send + 'static> BufferPool<P> {
         }
         Ok(())
     }
+
+    /* Notes
+
+    Try to make it RwLock the eviction policy with on_access being read only
+        This would allow us to simplify logic.
+
+    Move the free list check into the eviction policy
+     */
+
 
     fn resolve_or_load(&self, pid: Pid) -> Result<FrameId, BufferPoolError> {
         // Case 1: cache hit
