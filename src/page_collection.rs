@@ -82,7 +82,7 @@ impl PageCollection {
 }
 
 
-#[derive(Hash, Eq, PartialEq)]
+#[derive(Hash, Eq, PartialEq, Copy, Clone)]
 pub struct Pid {
     page_num: usize,
     table_id: usize,
