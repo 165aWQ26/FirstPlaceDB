@@ -20,7 +20,7 @@ pub struct PageCollection {
 impl PageCollection {
     pub fn new(pid_range: PidRange, table_id: usize, bp_lookup_map: Arc<BufferPoolFrameMap>) -> PageCollection {
         for x in pid_range.start..pid_range.end {
-            bp_lookup_map.insert(Pid::new(x, table_id.clone()))
+            bp_lookup_map.insert(Pid::new(x, table_id))
         }
 
         Self {

@@ -129,11 +129,11 @@ pub struct PageRanges {
 
 impl PageRanges {
     pub fn new(pages_per_collection: usize, table_id: usize, bp_lookup_map: Arc<BufferPoolFrameMap>) -> Self {
-        let mut PidRangeIterator = PidRangeIterator::new(pages_per_collection);
+        let mut pid_range_iter = PidRangeIterator::new(pages_per_collection);
         Self {
-            tail: PageRange::new(pages_per_collection, PidRangeIterator.next().unwrap(), table_id, bp_lookup_map.clone()),
-            base: PageRange::new(pages_per_collection, PidRangeIterator.next().unwrap(), table_id, bp_lookup_map),
-            pid_iter: PidRangeIterator,
+            tail: PageRange::new(pages_per_collection, pid_range_iter.next().unwrap(), table_id, bp_lookup_map.clone()),
+            base: PageRange::new(pages_per_collection, pid_range_iter.next().unwrap(), table_id, bp_lookup_map),
+            pid_iter: pid_range_iter,
         }
     }
 
