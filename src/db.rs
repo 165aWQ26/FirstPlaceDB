@@ -3,7 +3,6 @@ use rustc_hash::FxHashMap;
 use crate::table::Table;
 use dashmap::DashMap;
 use std::sync::Arc;
-use crate::iterators::BufferPoolFrameMap;
 use crate::page::Page;
 use crate::page_collection::Pid;
 
