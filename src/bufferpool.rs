@@ -16,10 +16,17 @@ pub const BP_CAP: usize = 32;
 pub struct Frame {
     page: RwLock<Page>,
     //Todo: you don't always write back dirty pages.
-    //I think a disconnect was that you are using this to check if you should evict... wrong idea
+    //I think a disconnect was that you are using this to check if you should evict/if a frame was already evicted... wrong idea
     //This only checks if you write back on evict.
     //This is why i had some atomic bool in an array in eviction policy that is like is_evicted.
-    //It is possible I misinterpreted what you were saying.
+    //atomic bool set back after eviction is complete.
+    //Flow --> eviction call --> evict picks frame --> checks bool array --> if double evict run eviction again
+    // else --> set bool --> return frame to evict --> when eviction is done --> reset bool.
+    //I have no idea how eviction policy works and locking prob makes this a non-issue.
+    //In general the double evict would be very rare so calling the eviction policy again is not a big deal.
+    //If we could not lock eviction policy when checking on_access that would be good.
+    // You also reset the dirty bit, BUT this is a different concern & only if the page is actually dirty.
+    //It is very possible I misinterpreted what you were saying.
     dirty: AtomicBool,
     pid: RwLock<Option<Pid>>,
 }
