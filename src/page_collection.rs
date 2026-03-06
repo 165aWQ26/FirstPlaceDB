@@ -32,6 +32,11 @@ impl PageCollection {
     //Todo: delete all my comments when done please!
     #[inline]
     pub fn write_col(&mut self, col: usize, val: Option<i64>) -> Result<(), PageError> {
+       //todo: IMPORTANT IMPORTANT This function must return where it wrote to.
+        //My iterator logic will need a refactor... so sad
+        //Page collections can still be assigned with the same logic but must be made thread safe (atomics?)
+        //Offset may not always be correct but internally maintaining it ensures that you won't assign too many values to a page.
+        
         //write an individual column by getting start + col, table_id from bufferpool, then writing to the page.
         //This works because our pages are append only (no need to remember what offset to write to --> always write to the end)
         //self.pages[col].write(val)
