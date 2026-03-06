@@ -57,24 +57,3 @@ impl Iterator for PidRangeIterator {
         Some(range)
     }
 }
-
-#[derive(Default)]
-pub struct BufferPoolIterator {
-    current: AtomicUsize,
-}
-
-
-impl BufferPoolIterator {
-    pub fn new() -> Self {
-        Self {
-            current: AtomicUsize::new(0),
-        }
-    }
-
-    //The current value is the only thing being changed in parallel, we don't care that the modulo
-    //is not atomic.
-    //AtomicUsize wraps on usize overflow & modulo of a power of 2 is always cheap.
-    pub fn next(&self) -> usize {
-        self.current.fetch_add(1, Ordering::SeqCst) % //Todo declare this macro in bufferpool
-    }
-}

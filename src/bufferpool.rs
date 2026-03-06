@@ -15,13 +15,21 @@ pub const BP_CAP: usize = 32;
 
 pub struct Frame {
     page: RwLock<Page>,
+    //Todo: you don't always write back dirty pages.
+    //I think a disconnect was that you are using this to check if you should evict... wrong idea
+    //This only checks if you write back on evict.
+    //This is why i had some atomic bool in an array in eviction policy that is like is_evicted.
+    //It is possible I misinterpreted what you were saying.
     dirty: AtomicBool,
     pid: RwLock<Option<Pid>>,
 }
 
 impl Frame {
+    //todo: why are you calling the constructor empty?
+    //You only make frames once
     pub fn empty() -> Self {
         Self {
+            //todo there should be one lock on page and pid
             page: RwLock::new(Page::default()),
             dirty: AtomicBool::new(false),
             pid: RwLock::new(None),
@@ -106,6 +114,9 @@ impl<P: EvictionPolicy + Send + 'static> BufferPool<P> {
         }
     }
 
+    //todo: when writing close table later, consider the race condition where a write occurs after
+    //this function scans the bp. Need to hold write locks on everything before proceeding and reject
+    //essentially this function on its own does not guarentee a fully flushed bp.
     pub fn evict_all(&self) -> Result<(), BufferPoolError> {
         let dirty_pids = self
             .page_table
@@ -156,6 +167,11 @@ impl<P: EvictionPolicy + Send + 'static> BufferPool<P> {
         Ok(())
     }
 
+    //Todo: You are not giving the worker a way to return any result.
+    //A pattern I used was sending a different tx channel to the worker and keeping the rx.
+    //So two channels: one for bp (tx) --> worker (rx) passed on construction and one for worker (tx) -> bp (rx) passed
+    // on function call.
+    //There may be a better way to do this.
     pub fn flush_pages(&self, pids: Vec<Pid>) -> Result<(), BufferPoolError> {
         let (tx, rx) = mpsc::sync_channel(1);
         self.bg_tx
@@ -167,6 +183,11 @@ impl<P: EvictionPolicy + Send + 'static> BufferPool<P> {
         rx.recv().map_err(|_| BufferPoolError::BackgroundWorkerDead)
     }
 
+    //Todo: You are not giving the worker a way to return any result.
+    //A pattern I used was sending a different tx channel to the worker and keeping the rx.
+    //So two channels: one for bp (tx) --> worker (rx) passed on construction and one for worker (tx) -> bp (rx) passed
+    // on function call.
+    //There may be a better way to do this.
     pub fn flush_async(&self, pids: Vec<Pid>) -> Result<(), BufferPoolError> {
         self.bg_tx
             .send(BufferPoolOp::FlushDirty {
@@ -176,6 +197,7 @@ impl<P: EvictionPolicy + Send + 'static> BufferPool<P> {
             .map_err(|_| BufferPoolError::BackgroundWorkerDead)
     }
 
+    //Todo: A thought,
     fn flush_frame(&self, pid: Pid, fid: FrameId) -> Result<(), BufferPoolError> {
         if self.frames[fid].is_dirty() {
             let page = self.frames[fid].get_page_copy();
@@ -187,10 +209,10 @@ impl<P: EvictionPolicy + Send + 'static> BufferPool<P> {
 
     /* Notes
 
-    Try to make it RwLock the eviction policy with on_access being read only
+    todo Try to make it RwLock the eviction policy with on_access being read only
         This would allow us to simplify logic.
 
-    Move the free list check into the eviction policy
+    todo Move the free list check into the eviction policy
      */
 
 
