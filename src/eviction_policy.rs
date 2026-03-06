@@ -1,0 +1,164 @@
+use lstore_python::page_collection::Pid;
+use lru::LruCache;
+use crate::bufferpool::pid::Pid;
+use crate::page_collection::Pid;
+
+pub trait EvictionPolicy {
+    fn on_access(&mut self, pid: Pid);
+    fn on_insert(&mut self, pid: Pid) -> Option<Pid>;
+}
+
+pub struct ArcPolicy {
+    t1: LruCache<Pid, ()>,
+    t2: LruCache<Pid, ()>,
+    b1: LruCache<Pid, ()>,
+    b2: LruCache<Pid, ()>,
+
+    p: usize,
+
+    capacity: usize,
+
+    ghost_cap: usize,
+}
+
+impl ArcPolicy {
+    pub fn new(capacity: usize) -> Self {
+        Self::with_ghost_cap(capacity, capacity)
+    }
+
+    pub fn with_ghost_cap(capacity: usize, ghost_cap: usize) -> Self {
+        Self {
+            t1: LruCache::unbounded(),
+            t2: LruCache::unbounded(),
+            b1: LruCache::unbounded(),
+            b2: LruCache::unbounded(),
+            p: 0,
+            capacity,
+            ghost_cap,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.t1.len() + self.t2.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn replace(&mut self, prefer_t2: bool) -> Option<Pid> {
+        let evict_t1 = !self.t1.is_empty()
+            && (self.t1.len() > self.p || (self.t1.len() == self.p && !prefer_t2));
+
+        if evict_t1 {
+            let (victim, _) = self.t1.pop_lru().unwrap();
+            Some(victim)
+        } else if !self.t2.is_empty() {
+            let (victim, _) = self.t2.pop_lru().unwrap();
+            self.push_b2(victim);
+            Some(victim)
+        } else if !self.t1.is_empty() {
+            let (victim, _) = self.t1.pop_lru().unwrap();
+            self.push_b1(victim);
+            Some(victim)
+        } else {
+            None
+        }
+    }
+
+    fn push_b1(&mut self, pid: Pid) {
+        if self.b1.len() >= self.ghost_cap {
+            self.b1.pop_lru();
+        }
+        self.b1.push(pid, ());
+    }
+
+    fn push_b2(&mut self, pid: Pid) {
+        if self.b2.len() >= self.ghost_cap {
+            self.b2.pop_lru();
+        }
+        self.b2.push(pid, ());
+    }
+
+    fn remove_b1(&mut self, pid: Pid) {
+        self.b1.pop(&pid);
+    }
+
+    fn remove_b2(&mut self, pid: Pid) {
+        self.b2.pop(&pid);
+    }
+
+    fn trim_ghosts(&mut self) {
+        if self.b1.len() >= self.b2.len() {
+            self.b1.pop_lru();
+        } else {
+            self.b2.pop_lru();
+        }
+    }
+}
+
+impl EvictionPolicy for ArcPolicy {
+    fn on_access(&mut self, pid: Pid) {
+        if self.t1.pop(&pid).is_some() {
+            self.t2.push(pid, ());
+        } else if self.t2.contains(&pid) {
+            self.t2.promote(&pid);
+        }
+    }
+
+    fn on_insert(&mut self, pid: Pid) -> Option<Pid> {
+        let cache_size = self.t1.len() + self.t2.len();
+
+        if self.b1.contains(&pid) {
+            let delta = if !self.b1.is_empty() {
+                (self.b2.len() / self.b1.len()).max(1)
+            } else {
+                1
+            };
+            self.p = (self.p + delta).min(self.capacity);
+
+            let victim = if cache_size >= self.capacity {
+                self.replace(false)
+            } else {
+                None
+            };
+            self.remove_b1(pid);
+            self.t2.push(pid, ());
+            return victim;
+        }
+
+        if self.b2.contains(&pid) {
+            let delta = if !self.b2.is_empty() {
+                (self.b1.len() / self.b2.len()).max(1)
+            } else {
+                1
+            };
+            self.p = self.p.saturating_sub(delta);
+
+            let victim = if cache_size >= self.capacity {
+                self.replace(true)
+            } else {
+                None
+            };
+            self.remove_b2(pid);
+            self.t2.push(pid, ());
+            return victim;
+        }
+
+        let victim = if cache_size >= self.capacity {
+            if self.t1.len() < self.capacity {
+                let v = self.replace(false);
+                if self.b1.len() + self.b2.len() >= self.ghost_cap {
+                    self.trim_ghosts();
+                }
+                v
+            } else {
+                self.t1.pop_lru().map(|(pid, _)| pid)
+            }
+        } else {
+            None
+        };
+
+        self.t1.push(pid, ());
+        victim
+    }
+}
