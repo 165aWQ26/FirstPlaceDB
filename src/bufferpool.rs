@@ -15,18 +15,16 @@ pub const BP_CAP: usize = 32;
 
 pub struct Frame {
     page: RwLock<Page>,
-    //Todo: you don't always write back dirty pages.
+    //Todo: you don't always write back dirty pages & either your explanation was bad or I misunderstood.
     //I think a disconnect was that you are using this to check if you should evict/if a frame was already evicted... wrong idea
     //This only checks if you write back on evict.
-    //This is why i had some atomic bool in an array in eviction policy that is like is_evicted.
-    //atomic bool set back after eviction is complete.
-    //Flow --> eviction call --> evict picks frame --> checks bool array --> if double evict run eviction again
-    // else --> set bool --> return frame to evict --> when eviction is done --> reset bool.
-    //I have no idea how eviction policy works and locking prob makes this a non-issue.
-    //In general the double evict would be very rare so calling the eviction policy again is not a big deal.
-    //If we could not lock eviction policy when checking on_access that would be good.
-    // You also reset the dirty bit, BUT this is a different concern & only if the page is actually dirty.
-    //It is very possible I misinterpreted what you were saying.
+    //You should have pin count on each frame too
+    //Possible race condition: between when fid is returned in load and when the locks are acquired.
+    //Consider: cache t1: hit --> return fid --> interrput
+    //                t2: cache miss --> evict --> picks fid --> acquires lock --> writes new value releases lock.
+    //                t1: resume --> incorrect read
+    //                Logical Sol: Maintain a pin count on a frame.
+
     dirty: AtomicBool,
     pid: RwLock<Option<Pid>>,
 }
@@ -225,7 +223,9 @@ impl<P: EvictionPolicy + Send + 'static> BufferPool<P> {
 
     fn resolve_or_load(&self, pid: Pid) -> Result<FrameId, BufferPoolError> {
         // Case 1: cache hit
+
         if let Some(entry) = self.page_table.get(&pid) {
+            //todo: eviction lock should be held here otherwise race condition.
             let fid = *entry;
             self.eviction.lock().policy.on_access(pid);
             return Ok(fid);
