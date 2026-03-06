@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::thread::current;
 use dashmap::DashMap;
 use crate::error::DbError;
-use crate::iterators::{BufferPoolFrameMap, PhysicalAddress, PhysicalAddressIterator, PidRange, PidRangeIterator};
+use crate::iterators::{PhysicalAddress, PhysicalAddressIterator, PidRange, PidRangeIterator};
 use crate::page::{Page, PageError};
 use crate::page_collection::{MetaPage, PageCollection, Pid};
 use crate::table::Table;
