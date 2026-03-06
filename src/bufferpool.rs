@@ -1,88 +1,100 @@
+use crate::disk_manager::{DiskError, DiskManager};
 use crate::eviction_policy::{ArcPolicy, EvictionPolicy};
 use crate::page::{Page, PageError};
-use crate::disk_manager::{DiskManager,DiskError};
+use crate::page_collection::Pid;
 use dashmap::DashMap;
 use parking_lot::{Mutex, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread;
-use crate::page_collection::Pid;
 
 pub type FrameId = usize;
 pub type DefaultEvictionState = EvictionState<ArcPolicy>;
 pub type DefaultBufferPool = BufferPool<ArcPolicy>;
 pub const BP_CAP: usize = 32;
 
+struct InnerFrame {
+    page: Page,
+    pid: Option<Pid>
+}
+
+
 pub struct Frame {
-    page: RwLock<Page>,
     //Todo: you don't always write back dirty pages & either your explanation was bad or I misunderstood.
     //I think a disconnect was that you are using this to check if you should evict/if a frame was already evicted... wrong idea
     //This only checks if you write back on evict.
     //You should have pin count on each frame too
     //Possible race condition: between when fid is returned in load and when the locks are acquired.
-    //Consider: cache t1: hit --> return fid --> interrput
+    //Consider: cache t1: hit --> return fid --> interrupt
     //                t2: cache miss --> evict --> picks fid --> acquires lock --> writes new value releases lock.
     //                t1: resume --> incorrect read
     //                Logical Sol: Maintain a pin count on a frame.
 
     dirty: AtomicBool,
-    pid: RwLock<Option<Pid>>,
+    inner: RwLock<InnerFrame>
 }
 
 impl Frame {
     //todo: why are you calling the constructor empty?
     //You only make frames once
-    pub fn empty() -> Self {
+    pub fn new() -> Self {
         Self {
             //todo there should be one lock on page and pid
-            page: RwLock::new(Page::default()),
             dirty: AtomicBool::new(false),
-            pid: RwLock::new(None),
+            inner: RwLock::new(InnerFrame {
+                page: Default::default(),
+                pid: None
+            })
         }
     }
 
     pub fn load(&self, pid: Pid, page: Page) {
-        *self.pid.write() = Some(pid);
-        *self.page.write() = page;
+        let mut guard = self.inner.write();
+        guard.page = page;
+        guard.pid = Some(pid);
         self.dirty.store(false, Ordering::Release);
     }
 
     pub fn init(&self, pid: Pid) {
-        *self.pid.write() = Some(pid);
-        *self.page.write() = Page::default();
+        let mut guard = self.inner.write();
+        guard.pid = Some(pid);
+        guard.page = Page::default();
         self.dirty.store(false, Ordering::Release);
     }
 
     pub fn read(&self, offset: usize) -> Result<Option<i64>, PageError> {
-        let page = self.page.read();
-        page.read(offset)
+        let guard = self.inner.read();
+        guard.page.read(offset)
     }
 
     pub fn write(&self, value: Option<i64>) -> Result<(), PageError> {
-        let mut page = self.page.write();
-        page.write(value)?;
+        let mut guard = self.inner.write();
+        guard.page.write(value)?;
         self.dirty.store(true, Ordering::Release);
         Ok(())
     }
 
     pub fn update(&self, offset: usize, value: Option<i64>) -> Result<(), PageError> {
-        let mut page = self.page.write();
-        page.update(offset, value)?;
+        let mut guard = self.inner.write();
+        guard.page.update(offset, value)?;
         self.dirty.store(true, Ordering::Release);
         Ok(())
     }
 
     pub fn get_page_copy(&self) -> Page {
-        self.page.read().clone()
+        let guard = self.inner.write();
+        guard.page.clone()
     }
 
     pub fn release(&self) {
-        *self.pid.write() = None;
+        let mut guard = self.inner.write();
+        guard.pid = None;
         self.dirty.store(false, Ordering::Release);
     }
 
     pub fn has_capacity(&self) -> bool {
-        self.page.read().has_capacity()
+        let guard = self.inner.read();
+        guard.page.has_capacity()
     }
 
     pub fn is_dirty(&self) -> bool {
