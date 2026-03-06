@@ -1,8 +1,7 @@
-use std::sync::Arc;
-use dashmap::DashMap;
-use crate::iterators::{BufferPoolFrameMap, PidRange};
+use crate::iterators::PidRange;
 use crate::page::{Page, PageError};
 use crate::table::Table;
+use std::sync::Arc;
 
 #[repr(usize)]
 pub enum MetaPage {
@@ -83,9 +82,10 @@ impl PageCollection {
 
 
 #[derive(Hash, Eq, PartialEq, Copy, Clone)]
+#[derive(Debug)]
 pub struct Pid {
-    page_num: usize,
-    table_id: usize,
+    pub(crate) page_num: usize,
+    pub(crate) table_id: usize,
 }
 
 impl Pid {
