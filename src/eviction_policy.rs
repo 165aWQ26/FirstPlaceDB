@@ -1,27 +1,22 @@
-use lstore_python::page_collection::Pid;
 use lru::LruCache;
-use crate::bufferpool::pid::Pid;
-use crate::page_collection::Pid;
+use crate::bufferpool::FrameId;
 
-pub trait EvictionPolicy {
-    fn on_access(&mut self, pid: Pid);
-    fn on_insert(&mut self, pid: Pid) -> Option<Pid>;
-}
-
-pub struct ArcPolicy {
-    t1: LruCache<Pid, ()>,
-    t2: LruCache<Pid, ()>,
-    b1: LruCache<Pid, ()>,
-    b2: LruCache<Pid, ()>,
+pub struct EvictionPolicy {
+    t1: LruCache<FrameId, ()>,
+    t2: LruCache<FrameId, ()>,
+    b1: LruCache<FrameId, ()>,
+    b2: LruCache<FrameId, ()>,
 
     p: usize,
 
     capacity: usize,
 
     ghost_cap: usize,
+
+    frames: Vec<FrameId>,
 }
 
-impl ArcPolicy {
+impl EvictionPolicy {
     pub fn new(capacity: usize) -> Self {
         Self::with_ghost_cap(capacity, capacity)
     }
@@ -45,7 +40,7 @@ impl ArcPolicy {
         self.len() == 0
     }
 
-    fn replace(&mut self, prefer_t2: bool) -> Option<Pid> {
+    fn replace(&mut self, prefer_t2: bool) -> Option<FrameId> {
         let evict_t1 = !self.t1.is_empty()
             && (self.t1.len() > self.p || (self.t1.len() == self.p && !prefer_t2));
 
@@ -65,26 +60,26 @@ impl ArcPolicy {
         }
     }
 
-    fn push_b1(&mut self, pid: Pid) {
+    fn push_b1(&mut self, frameId: FrameId) {
         if self.b1.len() >= self.ghost_cap {
             self.b1.pop_lru();
         }
-        self.b1.push(pid, ());
+        self.b1.push(frameId, ());
     }
 
-    fn push_b2(&mut self, pid: Pid) {
+    fn push_b2(&mut self, frameId: FrameId) {
         if self.b2.len() >= self.ghost_cap {
             self.b2.pop_lru();
         }
-        self.b2.push(pid, ());
+        self.b2.push(frameId, ());
     }
 
-    fn remove_b1(&mut self, pid: Pid) {
-        self.b1.pop(&pid);
+    fn remove_b1(&mut self, frameId: FrameId) {
+        self.b1.pop(&frameId);
     }
 
-    fn remove_b2(&mut self, pid: Pid) {
-        self.b2.pop(&pid);
+    fn remove_b2(&mut self, frameId: FrameId) {
+        self.b2.pop(&frameId);
     }
 
     fn trim_ghosts(&mut self) {
@@ -94,21 +89,19 @@ impl ArcPolicy {
             self.b2.pop_lru();
         }
     }
-}
 
-impl EvictionPolicy for ArcPolicy {
-    fn on_access(&mut self, pid: Pid) {
-        if self.t1.pop(&pid).is_some() {
-            self.t2.push(pid, ());
-        } else if self.t2.contains(&pid) {
-            self.t2.promote(&pid);
+    fn on_access(&mut self, frameId: FrameId) {
+        if self.t1.pop(&frameId).is_some() {
+            self.t2.push(frameId, ());
+        } else if self.t2.contains(&frameId) {
+            self.t2.promote(&frameId);
         }
     }
 
-    fn on_insert(&mut self, pid: Pid) -> Option<Pid> {
+    fn on_insert(&mut self, frameId: FrameId) -> Option<FrameId> {
         let cache_size = self.t1.len() + self.t2.len();
 
-        if self.b1.contains(&pid) {
+        if self.b1.contains(&frameId) {
             let delta = if !self.b1.is_empty() {
                 (self.b2.len() / self.b1.len()).max(1)
             } else {
@@ -121,12 +114,12 @@ impl EvictionPolicy for ArcPolicy {
             } else {
                 None
             };
-            self.remove_b1(pid);
-            self.t2.push(pid, ());
+            self.remove_b1(frameId);
+            self.t2.push(frameId, ());
             return victim;
         }
 
-        if self.b2.contains(&pid) {
+        if self.b2.contains(&frameId) {
             let delta = if !self.b2.is_empty() {
                 (self.b1.len() / self.b2.len()).max(1)
             } else {
@@ -139,8 +132,8 @@ impl EvictionPolicy for ArcPolicy {
             } else {
                 None
             };
-            self.remove_b2(pid);
-            self.t2.push(pid, ());
+            self.remove_b2(frameId);
+            self.t2.push(frameId, ());
             return victim;
         }
 
@@ -152,13 +145,13 @@ impl EvictionPolicy for ArcPolicy {
                 }
                 v
             } else {
-                self.t1.pop_lru().map(|(pid, _)| pid)
+                self.t1.pop_lru().map(|(frameId, _)| frameId)
             }
         } else {
             None
         };
 
-        self.t1.push(pid, ());
+        self.t1.push(frameId, ());
         victim
     }
 }

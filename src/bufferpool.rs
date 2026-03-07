@@ -1,7 +1,7 @@
 use crate::disk_manager::{DiskError, DiskManager};
 use crate::eviction_policy::{ArcPolicy, EvictionPolicy};
 use crate::page::{Page, PageError};
-use crate::page_collection::Pid;
+use crate::page_collection::PageId;
 use dashmap::DashMap;
 use parking_lot::{Mutex, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,7 +15,7 @@ pub const BP_CAP: usize = 32;
 
 struct InnerFrame {
     page: Page,
-    pid: Option<Pid>
+    pid: Option<PageId>
 }
 
 
@@ -35,8 +35,6 @@ pub struct Frame {
 }
 
 impl Frame {
-    //todo: why are you calling the constructor empty?
-    //You only make frames once
     pub fn new() -> Self {
         Self {
             //todo there should be one lock on page and pid
@@ -67,9 +65,9 @@ impl Frame {
         guard.page.read(offset)
     }
 
-    pub fn write(&self, value: Option<i64>) -> Result<(), PageError> {
+    pub fn write(&self, value: Option<i64>, offset: usize) -> Result<(), PageError> {
         let mut guard = self.inner.write();
-        guard.page.write(value)?;
+        guard.page.write(value, offset)?;
         self.dirty.store(true, Ordering::Release);
         Ok(())
     }
@@ -110,17 +108,18 @@ impl Frame {
     // }
 }
 
-pub struct BufferPool<P: EvictionPolicy + Send + 'static> {
+
+pub struct BufferPool {
     page_table: DashMap<Pid, FrameId>,
     frames: Vec<Frame>,
-    eviction: Mutex<EvictionState<P>>,
+    eviction: Mutex<EvictionPolicy>,
     disk_manager: Arc<DiskManager>,
     bg_tx: mpsc::SyncSender<BufferPoolOp>,
     _bg_thread: thread::JoinHandle<()>,
 }
 
-impl<P: EvictionPolicy + Send + 'static> BufferPool<P> {
-    pub fn new(disk_manager: DiskManager) -> DefaultBufferPool {
+impl BufferPool {
+    pub fn new(disk_manager: DiskManager) -> BufferPool {
         Self {
             page_table: DashMap::new(),
             frames: (0..BP_CAP).map(|_| Frame::new()).collect(),
@@ -161,22 +160,22 @@ impl<P: EvictionPolicy + Send + 'static> BufferPool<P> {
 
         Ok(())
     }
-    pub fn read(&self, pid: Pid, offset: usize) -> Result<Option<i64>, BufferPoolError> {
+    pub fn read(&self, pid: PageId, offset: usize) -> Result<Option<i64>, BufferPoolError> {
         let fid = self.resolve_or_load(pid)?;
         Ok(self.frames[fid].read(offset)?)
     }
 
-    pub fn write(&self, pid: Pid, val: Option<i64>) -> Result<(), BufferPoolError> {
+    pub fn write(&self, pid: PageId, val: Option<i64>, offset: usize) -> Result<(), BufferPoolError> {
         let fid = self.resolve_or_load(pid)?;
-        Ok(self.frames[fid].write(val)?)
+        Ok(self.frames[fid].write(val, offset)?)
     }
 
-    pub fn update(&self, pid: Pid, offset: usize, val: Option<i64>) -> Result<(), BufferPoolError> {
+    pub fn update(&self, pid: PageId, offset: usize, val: Option<i64>) -> Result<(), BufferPoolError> {
         let fid = self.resolve_or_load(pid)?;
         Ok(self.frames[fid].update(offset, val)?)
     }
 
-    pub fn flush_page(&self, pid: Pid) -> Result<(), BufferPoolError> {
+    pub fn flush_page(&self, pid: PageId) -> Result<(), BufferPoolError> {
         if let Some(entry) = self.page_table.get(&pid) {
             let fid = *entry;
             self.flush_frame(pid, fid)?;
@@ -189,7 +188,7 @@ impl<P: EvictionPolicy + Send + 'static> BufferPool<P> {
     //So two channels: one for bp (tx) --> worker (rx) passed on construction and one for worker (tx) -> bp (rx) passed
     // on function call.
     //There may be a better way to do this.
-    pub fn flush_pages(&self, pids: Vec<Pid>) -> Result<(), BufferPoolError> {
+    pub fn flush_pages(&self, pids: Vec<PageId>) -> Result<(), BufferPoolError> {
         let (tx, rx) = mpsc::sync_channel(1);
         self.bg_tx
             .send(BufferPoolOp::FlushDirty {
@@ -205,7 +204,7 @@ impl<P: EvictionPolicy + Send + 'static> BufferPool<P> {
     //So two channels: one for bp (tx) --> worker (rx) passed on construction and one for worker (tx) -> bp (rx) passed
     // on function call.
     //There may be a better way to do this.
-    pub fn flush_async(&self, pids: Vec<Pid>) -> Result<(), BufferPoolError> {
+    pub fn flush_async(&self, pids: Vec<PageId>) -> Result<(), BufferPoolError> {
         self.bg_tx
             .send(BufferPoolOp::FlushDirty {
                 pids,
@@ -215,7 +214,7 @@ impl<P: EvictionPolicy + Send + 'static> BufferPool<P> {
     }
 
     //Todo: A thought,
-    fn flush_frame(&self, pid: Pid, fid: FrameId) -> Result<(), BufferPoolError> {
+    fn flush_frame(&self, pid: PageId, fid: FrameId) -> Result<(), BufferPoolError> {
         if self.frames[fid].is_dirty() {
             let page = self.frames[fid].get_page_copy();
             self.disk_manager.write_page(pid, &page)?;
@@ -233,7 +232,7 @@ impl<P: EvictionPolicy + Send + 'static> BufferPool<P> {
      */
 
 
-    fn resolve_or_load(&self, pid: Pid) -> Result<FrameId, BufferPoolError> {
+    fn resolve_or_load(&self, pid: PageId) -> Result<FrameId, BufferPoolError> {
         // Case 1: cache hit
 
         if let Some(entry) = self.page_table.get(&pid) {

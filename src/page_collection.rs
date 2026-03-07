@@ -19,7 +19,7 @@ pub struct PageCollection {
 impl PageCollection {
     pub fn new(pid_range: PidRange, table_id: usize, bp_lookup_map: Arc<BufferPoolFrameMap>) -> PageCollection {
         for x in pid_range.start..pid_range.end {
-            bp_lookup_map.insert(Pid::new(x, table_id))
+            bp_lookup_map.insert(PageId::new(x, table_id))
         }
 
         Self {
@@ -31,14 +31,7 @@ impl PageCollection {
 
     //Todo: delete all my comments when done please!
     #[inline]
-    pub fn write_col(&mut self, col: usize, val: Option<i64>) -> Result<(), PageError> {
-       //todo: IMPORTANT IMPORTANT This function must return where it wrote to.
-        //My iterator logic will need a refactor... so sad
-        //Page collections can still be assigned with the same logic but must be made thread safe (atomics?)
-        //Offset may not always be correct but internally maintaining it ensures that you won't assign too many values to a page.
-        
-        //write an individual column by getting start + col, table_id from bufferpool, then writing to the page.
-        //This works because our pages are append only (no need to remember what offset to write to --> always write to the end)
+    pub fn write_col(&mut self, col: usize, val: Option<i64>, offset: usize) -> Result<(), PageError> {
         //self.pages[col].write(val)
     }
 
@@ -80,21 +73,20 @@ impl PageCollection {
     }
 
     pub fn get_page(&self, col: usize) -> Result<&Page, PageError> {
-        let pid = Pid::new(col + self.pid_range.start, self.table_id);
+        let pid = PageId::new(col + self.pid_range.start, self.table_id);
         //Todo: Whoops this can't be done here
     }
 }
 
-
 #[derive(Hash, Eq, PartialEq, Copy, Clone)]
 #[derive(Debug)]
-pub struct Pid {
+pub struct PageId {
     pub(crate) page_num: usize,
     pub(crate) table_id: usize,
 }
 
-impl Pid {
-    pub fn new(page_num: usize, table_id: usize) -> Pid {
-        Pid { page_num, table_id }
+impl PageId {
+    pub fn new(page_num: usize, table_id: usize) -> PageId {
+        PageId { page_num, table_id }
     }
 }

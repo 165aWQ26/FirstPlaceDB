@@ -142,6 +142,7 @@ impl DiskManager {
                 return Err(DiskError::CorruptedPage(format!("Invalid tag: {}", tag)));
             };
 
+            //Todo write needs an offset or add an append page function to page
             page.write(value).map_err(|e| DiskError::PageError(e))?;
         }
 
