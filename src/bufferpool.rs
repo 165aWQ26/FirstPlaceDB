@@ -1,22 +1,21 @@
+use crate::bufferpool_worker::{BufferPoolOp, BufferPoolWorker};
 use crate::disk_manager::{DiskError, DiskManager};
-use crate::eviction_policy::{EvictionPolicy};
+use crate::eviction_policy::EvictionPolicy;
 use crate::page::{Page, PageError};
 use crate::page_collection::PageId;
 use dashmap::DashMap;
 use parking_lot::{Mutex, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{Arc, mpsc};
 use std::thread;
-use crate::bufferpool_worker::{BufferPoolOp, BufferPoolWorker};
 
 pub type FrameId = usize;
 pub const BP_CAP: usize = 32;
 
 struct InnerFrame {
     page: Page,
-    pid: Option<PageId>
+    pid: Option<PageId>,
 }
-
 
 pub struct Frame {
     //Todo: you don't always write back dirty pages & either your explanation was bad or I misunderstood.
@@ -28,9 +27,8 @@ pub struct Frame {
     //                t2: cache miss --> evict --> picks fid --> acquires lock --> writes new value releases lock.
     //                t1: resume --> incorrect read
     //                Logical Sol: Maintain a pin count on a frame.
-
     dirty: AtomicBool,
-    inner: RwLock<InnerFrame>
+    inner: RwLock<InnerFrame>,
 }
 
 impl Frame {
@@ -40,8 +38,8 @@ impl Frame {
             dirty: AtomicBool::new(false),
             inner: RwLock::new(InnerFrame {
                 page: Default::default(),
-                pid: None
-            })
+                pid: None,
+            }),
         }
     }
 
@@ -101,13 +99,29 @@ impl Frame {
     pub fn clear_dirty(&self) {
         self.dirty.store(false, Ordering::Release);
     }
+    pub fn pid(&self) -> Option<PageId> {
+        self.inner.read().pid
+    }
 }
 
+struct EvictionState {
+    pub(super) policy: EvictionPolicy,
+    pub(super) free_list: Vec<FrameId>,
+}
+
+impl EvictionState {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            policy: EvictionPolicy::new(capacity),
+            free_list: (0..capacity).collect(),
+        }
+    }
+}
 
 pub struct BufferPool {
     page_table: DashMap<PageId, FrameId>,
     frames: Vec<Frame>,
-    eviction: Mutex<EvictionPolicy>,
+    eviction_state: Mutex<EvictionState>,
     disk_manager: Arc<DiskManager>,
     command_tx: mpsc::Sender<BufferPoolOp>,
     _bg_thread: thread::JoinHandle<()>,
@@ -115,17 +129,17 @@ pub struct BufferPool {
 
 impl BufferPool {
     pub fn new(disk_manager: DiskManager) -> BufferPool {
-        let (tx, rx) = mpsc::sync_channel(BP_CAP);
+        let disk_manager = Arc::new(disk_manager);
+        let worker_dm = Arc::clone(&disk_manager);
+        let (tx, rx) = mpsc::channel(); // unbounded
+        let handle = thread::spawn(move || BufferPoolWorker::new(rx, worker_dm).run());
         Self {
             page_table: DashMap::new(),
             frames: (0..BP_CAP).map(|_| Frame::new()).collect(),
-            eviction: Mutex::new(EvictionState::new()),
-            disk_manager: Arc::new(disk_manager),
+            eviction_state: Mutex::new(EvictionState::new(BP_CAP)),
+            disk_manager,
             command_tx: tx,
-            // TODO
-            _bg_thread: thread::spawn(move || {
-                BufferPoolWorker::new(rx, Arc::new(disk_manager))
-            }),
+            _bg_thread: handle,
         }
     }
 
@@ -133,22 +147,21 @@ impl BufferPool {
     //this function scans the bp. Need to hold write locks on everything before proceeding and reject
     //essentially this function on its own does not guarentee a fully flushed bp.
     pub fn evict_all(&self) -> Result<(), BufferPoolError> {
-        let dirty_pids = self
+        let pages: Vec<(PageId, Page)> = self
             .page_table
             .iter()
             .filter_map(|entry| {
                 let pid = *entry.key();
                 let fid = *entry.value();
                 if self.frames[fid].is_dirty() {
-                    Some(pid)
+                    Some((pid,self.frames[fid].get_page_copy()))
                 } else {
                     None
                 }
-            })
-            .collect();
-        self.flush_pages(dirty_pids)?;
+            }).collect();
+        self.flush_pages(pages)?;
 
-        let mut ev = self.eviction.lock();
+        let mut ev = self.eviction_state.lock();
         let pids: Vec<PageId> = self.page_table.iter().map(|e| *e.key()).collect();
         for pid in pids {
             if let Some((_, fid)) = self.page_table.remove(&pid) {
@@ -164,12 +177,22 @@ impl BufferPool {
         Ok(self.frames[fid].read(offset)?)
     }
 
-    pub fn write(&self, pid: PageId, val: Option<i64>, offset: usize) -> Result<(), BufferPoolError> {
+    pub fn write(
+        &self,
+        pid: PageId,
+        val: Option<i64>,
+        offset: usize,
+    ) -> Result<(), BufferPoolError> {
         let fid = self.resolve_or_load(pid)?;
         Ok(self.frames[fid].write(val, offset)?)
     }
 
-    pub fn update(&self, pid: PageId, offset: usize, val: Option<i64>) -> Result<(), BufferPoolError> {
+    pub fn update(
+        &self,
+        pid: PageId,
+        offset: usize,
+        val: Option<i64>,
+    ) -> Result<(), BufferPoolError> {
         let fid = self.resolve_or_load(pid)?;
         Ok(self.frames[fid].update(offset, val)?)
     }
@@ -187,30 +210,25 @@ impl BufferPool {
     //So two channels: one for bp (tx) --> worker (rx) passed on construction and one for worker (tx) -> bp (rx) passed
     // on function call.
     //There may be a better way to do this.
-    pub fn flush_pages(&self, pids: Vec<PageId>) -> Result<(), BufferPoolError> {
+    pub fn flush_pages(&self, pages: Vec<(PageId, Page)>) -> Result<(), BufferPoolError> {
         let (res_tx, res_rx) = mpsc::sync_channel(1);
         self.command_tx
-            .send(BufferPoolOp::FlushAll {
-                pids,
-                res_tx,
-            })
+            .send(BufferPoolOp::FlushPages { pages, res_tx })
             .map_err(|_| BufferPoolError::BackgroundWorkerDead)?;
-        res_rx.recv().map_err(|_| BufferPoolError::BackgroundWorkerDead)?
+        res_rx
+            .recv()
+            .map_err(|_| BufferPoolError::BackgroundWorkerDead)?
     }
 
-    //Todo: You are not giving the worker a way to return any result.
-    //A pattern I used was sending a different tx channel to the worker and keeping the rx.
-    //So two channels: one for bp (tx) --> worker (rx) passed on construction and one for worker (tx) -> bp (rx) passed
-    // on function call.
-    //There may be a better way to do this.
-    pub fn flush_async(&self, pids: Vec<PageId>) -> Result<(), BufferPoolError> {
-        self.command_tx
-            .send(BufferPoolOp::FlushDirty {
-                pids,
-                response: None,
-            })
-            .map_err(|_| BufferPoolError::BackgroundWorkerDead)
-    }
+    // TODO not needed for now
+    // pub fn flush_async(&self, pids: Vec<PageId>) -> Result<(), BufferPoolError> {
+    //     self.command_tx
+    //         .send(BufferPoolOp::FlushDirty {
+    //             pids,
+    //             response: None,
+    //         })
+    //         .map_err(|_| BufferPoolError::BackgroundWorkerDead)
+    // }
 
     //Todo: A thought,
     fn flush_frame(&self, pid: PageId, fid: FrameId) -> Result<(), BufferPoolError> {
@@ -230,23 +248,23 @@ impl BufferPool {
     todo Move the free list check into the eviction policy
      */
 
-
     fn resolve_or_load(&self, pid: PageId) -> Result<FrameId, BufferPoolError> {
         // Case 1: cache hit
 
         if let Some(entry) = self.page_table.get(&pid) {
             //todo: eviction lock should be held here otherwise race condition.
             let fid = *entry;
-            self.eviction.lock().policy.on_access(pid);
+            self.eviction_state.lock().policy.on_access(fid);
             return Ok(fid);
         }
 
         // Case 2: cache miss
-        let mut eviction_lock = self.eviction.lock();
+        let mut eviction_lock = self.eviction_state.lock();
 
         // Check if another thread loaded it while waiting for lock
         if let Some(entry) = self.page_table.get(&pid) {
-            eviction_lock.policy.on_access(pid);
+            let fid = *entry;
+            eviction_lock.policy.on_access(fid);
             return Ok(*entry);
         }
 
@@ -255,44 +273,39 @@ impl BufferPool {
             free
         } else {
             // Eviction to make space then load
-            let victim = eviction_lock
+            let victim_fid = eviction_lock
                 .policy
-                .on_insert(pid)
+                .evict_victim()
                 .ok_or(BufferPoolError::AllFramesPinned)?;
-            let victim_fid = self
-                .page_table
-                .remove(&victim)
-                .ok_or(BufferPoolError::PidNotInFrame)?
-                .1;
-            if self.frames[victim_fid].is_dirty() {
-                self.disk_manager
-                    .write_page(victim, &self.frames[victim_fid].page.write())?;
-                self.frames[victim_fid].clear_dirty();
-            }
+            let victim_pid = self
+                .frames[victim_fid].pid()
+                .ok_or(BufferPoolError::PidNotInFrame)?;
+
+            self.page_table.remove(&victim_pid);
+            self.flush_frame(victim_pid, victim_fid)?;
             self.frames[victim_fid].release();
             victim_fid
         };
 
-        if self.disk_manager.page_exists(pid) {
-            let page = self.disk_manager.read_page(pid)?;
+        if self.disk_manager.page_exists(fid) {
+            let page = self.disk_manager.read_page(fid)?;
             self.frames[fid].load(pid, page);
         } else {
             self.frames[fid].init(pid);
         }
 
         self.page_table.insert(pid, fid);
-        eviction_lock.policy.on_insert(pid);
+        eviction_lock.policy.on_insert(fid);
 
         Ok(fid)
     }
 }
 
-// impl<P: EvictionPolicy + Send + 'static> Drop for BufferPool<P> {
-//     fn drop(&mut self) {
-//         let _ = self.bg_tx.send(BufferPoolOp::Shutdown);
-//     }
-// }
-
+impl Drop for BufferPool {
+    fn drop(&mut self) {
+        let _ = self.command_tx.send(BufferPoolOp::Shutdown);
+    }
+}
 
 #[derive(Debug)]
 pub enum BufferPoolError {
