@@ -609,6 +609,7 @@ impl Table {
         Ok(schema.is_none())
     }
 
+    /*
     pub fn merge(&mut self) -> Result<(), DbError> {
         let base_rids: Vec<i64> = self.primary_index.iter().map(|(_, rid)| rid).collect();
         let num_data_cols = self.table_ctx.total_cols - Table::NUM_META_PAGES;
@@ -667,6 +668,88 @@ impl Table {
                 self.page_ranges.base.tps.resize(col + 1, i64::MIN);
             }
             self.page_ranges.base.tps[col] = self.page_ranges.base.tps[col].max(indirection);
+        }
+
+        self.page_ranges.tail.reset_merge_counter();
+        Ok(())
+    }
+    */
+
+    pub fn merge(&mut self) -> Result<(), DbError> {
+        let base_rids: Vec<i64> = self.primary_index.iter().map(|(_, rid)| rid).collect();
+        let num_data_cols = self.table_ctx.total_cols - Table::NUM_META_PAGES;
+
+        for base_rid in base_rids {
+            let base_addr = match self.page_directory.get(base_rid) {
+                Ok(addr) => addr,
+                Err(_) => continue,
+            };
+
+            // computing the TPS for record's curr col. b4 skip
+            let tps_watermark = self
+                .page_ranges
+                .base
+                .tps
+                .get(base_addr.collection_num)
+                .copied()
+                .unwrap_or(i64::MIN);
+
+            let base_location = PageLocation::base(base_addr);
+
+            // only process recs that have an unmerged tail chain.
+            // ind != base_rid: skip recs w/ no tails
+            // ind > tps_watermark: skip recs from prior merge
+            let indirection = match self.page_ranges.read_meta_col(
+                MetaPage::Indirection,
+                &base_location,
+                &self.table_ctx,
+            ) {
+                Ok(Some(ind)) if ind != base_rid && ind > tps_watermark => ind,
+                _ => continue,
+            };
+
+            // check if latest tail is del.
+            let tail_addr = match self.page_directory.get(indirection) {
+                Ok(addr) => addr,
+                Err(_) => continue,
+            };
+            let tail_location = PageLocation::tail(tail_addr);
+            let latest_schema = match self.page_ranges.read_meta_col(
+                MetaPage::SchemaEncoding,
+                &tail_location,
+                &self.table_ctx,
+            ) {
+                Ok(val) => val,
+                Err(_) => continue,
+            };
+
+            let (consolidated_data, schema_encoding) = if latest_schema.is_none() {
+                // data, schema_encoding = None
+                (vec![None; num_data_cols], None)
+            } else {
+                // latest vals, schema_encoding = Some(0)
+                let latest = self.read_latest(base_rid)?;
+                (latest[..num_data_cols].to_vec(), Some(0i64))
+            };
+
+            let new_addr = self.page_ranges.append_merged_base(
+                consolidated_data,
+                base_rid,
+                indirection, // merge doesn't modify indirection, leave as is
+                schema_encoding,
+                &self.table_ctx,
+            )?;
+            self.page_directory.add(base_rid, new_addr);
+
+            // use new_addr.collection_num instead of base_addr.collection_num.
+            // append_merged_base writes to base.next_addr() which might put it in a diff col. than old base
+            // after page_directory.add(), read_latest and read_version_single look up tps[new_addr.collection_num]
+            let new_col = new_addr.collection_num;
+            if new_col >= self.page_ranges.base.tps.len() {
+                self.page_ranges.base.tps.resize(new_col + 1, i64::MIN);
+            }
+            self.page_ranges.base.tps[new_col] =
+                self.page_ranges.base.tps[new_col].max(indirection);
         }
 
         self.page_ranges.tail.reset_merge_counter();
