@@ -7,19 +7,23 @@ pub struct PhysicalAddress {
 }
 #[derive(Default)]
 pub struct PhysicalAddressIterator {
-    current: PhysicalAddress,
+    next: AtomicUsize,
 }
 
-impl Iterator for PhysicalAddressIterator {
-    type Item = PhysicalAddress;
-    fn next(&mut self) -> Option<Self::Item> {
-        let addr = self.current;
-        self.current.offset += 1;
-        if self.current.offset >= Page::PAGE_SIZE {
-            self.current.offset = 0;
-            self.current.collection_num += 1;
+impl PhysicalAddressIterator {
+    pub fn new() -> Self {
+        Self {
+            next: AtomicUsize::new(0),
         }
-        Some(addr)
+    }
+
+    pub fn next(&self) -> PhysicalAddress {
+        let prev = self.next.fetch_add(1, Ordering::Relaxed);
+
+        PhysicalAddress {
+            offset: prev % Page::PAGE_SIZE,
+            collection_num: prev / Page::PAGE_SIZE,
+        }
     }
 }
 
@@ -28,32 +32,23 @@ pub struct PidRange {
     pub(crate) start: usize, //inclusive
     pub(crate) end: usize, //exclusive
 }
+
 pub struct PidRangeIterator {
-    start: usize,
+    start: AtomicUsize,
     pages_per_collection: usize,
 }
-
 impl PidRangeIterator {
+
     pub fn new(pages_per_collection: usize) -> Self {
         Self {
-            start: 0,
+            start: AtomicUsize::new(0),
             pages_per_collection,
         }
     }
-}
+    pub fn next(&self) -> PidRange {
+        let start = self.start.fetch_add(self.pages_per_collection, Ordering::SeqCst);
+        let end = start + self.pages_per_collection;
 
-impl Iterator for PidRangeIterator {
-    type Item = PidRange;
-    fn next(&mut self) -> Option<Self::Item> {
-
-        let end = self.start + self.pages_per_collection;
-
-        let range = PidRange {
-            start: self.start,
-            end,
-        };
-
-        self.start = end;
-        Some(range)
+        PidRange { start, end }
     }
 }

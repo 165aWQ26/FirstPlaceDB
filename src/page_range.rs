@@ -4,7 +4,7 @@ use dashmap::DashMap;
 use crate::error::DbError;
 use crate::iterators::{PhysicalAddress, PhysicalAddressIterator, PidRange, PidRangeIterator};
 use crate::page::{Page, PageError};
-use crate::page_collection::{MetaPage, PageCollection, Pid};
+use crate::page_collection::{MetaPage, PageCollection, PageId};
 use crate::table::Table;
 
 pub struct PageRange {
@@ -49,7 +49,7 @@ impl PageRange {
 
         let collection = &mut self.range[addr.collection_num];
         for (i, data) in all_data.iter().enumerate() {
-            collection.write_col(i, *data)?;
+            collection.write_col(i, *data, addr.offset)?;
         }
 
         Ok(addr) //return addr (from here add this addr to a page_dir)

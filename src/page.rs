@@ -18,12 +18,12 @@ impl Page {
     }
 
     #[inline]
-    pub fn write(&mut self, val: Option<i64>) -> Result<(), PageError> {
+    pub fn write(&mut self, val: Option<i64>, offset: usize) -> Result<(), PageError> {
         if !self.has_capacity() {
             return Err(PageError::Full);
         }
 
-        self.data.push(val);
+        self.data.insert(offset, val);
         Ok(())
     }
 
