@@ -13,6 +13,8 @@ pub struct PageRange {
     pages_per_collection: usize,
     table_id: usize,
     bp_lookup_map: Arc<BufferPoolFrameMap>,
+    pub tps: Vec<i64>,
+    pub pages_since_merge: usize,
 }
 
 impl PageRange {
@@ -31,6 +33,8 @@ impl PageRange {
             pages_per_collection,
             table_id,
             bp_lookup_map,
+            tps: Vec::new(),
+            pages_since_merge: 0,
         }
     }
 
@@ -148,6 +152,24 @@ impl PageRanges {
         data_cols.push(Some(0)); // schema_encoding (no updates)
         data_cols.push(None);
         let mut alloc_pid = || self.pid_iter.next().unwrap();
+        self.base.append(data_cols, &mut alloc_pid)
+    }
+
+    // mirror of append_base --> caller instead supplies indir and schema_encoding
+    // for use in table.merge() to write base record w/o fucking wit indir.
+    pub fn append_merged_base(
+        &mut self,
+        mut data_cols: Vec<Option<i64>>,
+        rid: i64,
+        indirection: i64,
+        schema_encoding: Option<i64>,
+    ) -> Result<PhysicalAddress, DbError> {
+        data_cols.push(Some(rid));          // RID
+        data_cols.push(Some(indirection));  // indirection --> preserved from before merge
+        data_cols.push(schema_encoding);    // Some(0) for live record, None for deleted
+        data_cols.push(None);               // start time [unused for now ig]
+        //let mut alloc_pid = || self.pid_iter.next().unwrap(); --> should we be unwrapping here??
+        let mut alloc_pid = || self.pid_iter.next();
         self.base.append(data_cols, &mut alloc_pid)
     }
 

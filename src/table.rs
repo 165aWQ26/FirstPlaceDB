@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use crate::error::DbError;
 use crate::index::Index;
+use crate::index::TableIndex;
 use crate::page_collection::{MetaPage, PageId};
 use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
@@ -232,6 +233,75 @@ impl Table {
                 Ok(schema.is_none())
             }
         }
+    }
+
+    pub fn merge(&mut self) -> Result<(), DbError> {
+        let base_rids: Vec<i64> = self.indices[self.key_index]
+            .iter()
+            .map(|(_, rid)| rid)
+            .collect();
+
+        for base_rid in base_rids {
+            let base_addr = match self.page_directory.get(base_rid) {
+                Ok(addr) => addr,
+                Err(_) => continue,
+            };
+
+            // process records that have an unmerged tail chain
+            let indirection = match self.page_ranges.read_meta_col(
+                &base_addr,
+                MetaPage::IndirectionCol,
+                WhichRange::Base,
+            ) {
+                Ok(Some(ind)) if ind != base_rid => ind,
+                _ => continue,
+            };
+
+            // check if latest tail is del.
+            let tail_addr = match self.page_directory.get(indirection) {
+                Ok(addr) => addr,
+                Err(_) => continue,
+            };
+
+            let latest_schema = match self.page_ranges.read_meta_col(
+                &tail_addr,
+                MetaPage::SchemaEncodingCol,
+                WhichRange::Tail,
+            ) {
+                Ok(val) => val,
+                Err(_) => continue,
+            };
+
+            let (consolidated_data, schema_encoding) = if latest_schema.is_none() {
+                // deleted --> null data, schema_encoding = None
+                (vec![None; self.num_data_columns], None)
+            } else {
+                // updated --> write latest values in, schema_encoding = Some(0)
+                // base schema_encoding unused during reads, we only care abt tail schema
+                let latest = self.read_latest(base_rid)?;
+                (latest[..self.num_data_columns].to_vec(), Some(0i64))
+            };
+
+            let new_addr = self.page_ranges.append_merged_base(
+                consolidated_data,
+                base_rid,
+                indirection, // we maintain indirection --> merge should not be modifying it
+                schema_encoding,
+            )?;
+
+            self.page_directory.add(base_rid, new_addr);
+
+            // update tps --> track highest tail RID merged per base collection
+            let col = base_addr.collection_num;
+            if col >= self.page_ranges.base.tps.len() {
+                self.page_ranges.base.tps.resize(col + 1, i64::MIN);
+            }
+            self.page_ranges.base.tps[col] =
+                self.page_ranges.base.tps[col].max(indirection);
+        }
+
+        self.page_ranges.tail.pages_since_merge = 0;
+        Ok(())
     }
 
     // TODO do for m2 -- what the helly do these do
