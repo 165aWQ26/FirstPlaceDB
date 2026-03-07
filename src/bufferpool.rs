@@ -7,6 +7,7 @@ use parking_lot::{Mutex, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread;
+use crate::bufferpool_worker::{BufferPoolOp, BufferPoolWorker};
 
 pub type FrameId = usize;
 pub const BP_CAP: usize = 32;
@@ -112,19 +113,23 @@ pub struct BufferPool {
     frames: Vec<Frame>,
     eviction: Mutex<EvictionPolicy>,
     disk_manager: Arc<DiskManager>,
-    bg_tx: mpsc::SyncSender<BufferPoolOp>,
+    command_tx: mpsc::Sender<BufferPoolOp>,
     _bg_thread: thread::JoinHandle<()>,
 }
 
 impl BufferPool {
     pub fn new(disk_manager: DiskManager) -> BufferPool {
+        let (tx, rx) = mpsc::sync_channel(BP_CAP);
         Self {
             page_table: DashMap::new(),
             frames: (0..BP_CAP).map(|_| Frame::new()).collect(),
             eviction: Mutex::new(EvictionState::new()),
             disk_manager: Arc::new(disk_manager),
-            bg_tx: (),
-            _bg_thread: (),
+            command_tx: tx,
+            // TODO
+            _bg_thread: thread::spawn(move || {
+                BufferPoolWorker::new(rx, Arc::new(disk_manager))
+            }),
         }
     }
 
@@ -187,14 +192,14 @@ impl BufferPool {
     // on function call.
     //There may be a better way to do this.
     pub fn flush_pages(&self, pids: Vec<PageId>) -> Result<(), BufferPoolError> {
-        let (tx, rx) = mpsc::sync_channel(1);
-        self.bg_tx
-            .send(BufferPoolOp::FlushDirty {
+        let (res_tx, res_rx) = mpsc::sync_channel(1);
+        self.command_tx
+            .send(BufferPoolOp::FlushAll {
                 pids,
-                response: None,
+                res_tx,
             })
-            .map_err(|_| BufferPoolError::BackgroundWorkerDead);
-        rx.recv().map_err(|_| BufferPoolError::BackgroundWorkerDead)
+            .map_err(|_| BufferPoolError::BackgroundWorkerDead)?;
+        res_rx.recv().map_err(|_| BufferPoolError::BackgroundWorkerDead)?
     }
 
     //Todo: You are not giving the worker a way to return any result.
@@ -203,7 +208,7 @@ impl BufferPool {
     // on function call.
     //There may be a better way to do this.
     pub fn flush_async(&self, pids: Vec<PageId>) -> Result<(), BufferPoolError> {
-        self.bg_tx
+        self.command_tx
             .send(BufferPoolOp::FlushDirty {
                 pids,
                 response: None,
