@@ -1,5 +1,5 @@
 use crate::disk_manager::{DiskError, DiskManager};
-use crate::eviction_policy::{ArcPolicy, EvictionPolicy};
+use crate::eviction_policy::{EvictionPolicy};
 use crate::page::{Page, PageError};
 use crate::page_collection::PageId;
 use dashmap::DashMap;
@@ -45,14 +45,14 @@ impl Frame {
         }
     }
 
-    pub fn load(&self, pid: Pid, page: Page) {
+    pub fn load(&self, pid: PageId, page: Page) {
         let mut guard = self.inner.write();
         guard.page = page;
         guard.pid = Some(pid);
         self.dirty.store(false, Ordering::Release);
     }
 
-    pub fn init(&self, pid: Pid) {
+    pub fn init(&self, pid: PageId) {
         let mut guard = self.inner.write();
         guard.pid = Some(pid);
         guard.page = Page::default();
@@ -101,15 +101,11 @@ impl Frame {
     pub fn clear_dirty(&self) {
         self.dirty.store(false, Ordering::Release);
     }
-
-    // pub fn pid(&self) -> Option<Pid> {
-    //     *self.pid.read()
-    // }
 }
 
 
 pub struct BufferPool {
-    page_table: DashMap<Pid, FrameId>,
+    page_table: DashMap<PageId, FrameId>,
     frames: Vec<Frame>,
     eviction: Mutex<EvictionPolicy>,
     disk_manager: Arc<DiskManager>,
@@ -153,7 +149,7 @@ impl BufferPool {
         self.flush_pages(dirty_pids)?;
 
         let mut ev = self.eviction.lock();
-        let pids: Vec<Pid> = self.page_table.iter().map(|e| *e.key()).collect();
+        let pids: Vec<PageId> = self.page_table.iter().map(|e| *e.key()).collect();
         for pid in pids {
             if let Some((_, fid)) = self.page_table.remove(&pid) {
                 self.frames[fid].release();
