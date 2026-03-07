@@ -1,13 +1,14 @@
 use crate::bufferpool::BufferPoolError;
 use crate::disk_manager::DiskManager;
-use crate::page_collection::Pid;
+use crate::page_collection::{PageId};
 use std::sync::mpsc::Receiver;
 use std::sync::{mpsc, Arc};
+use crate::page::Page;
 
 pub enum BufferPoolOp {
     /// Evict N pages from buffer pool
-    FlushAll {
-        pids: Vec<Pid>,
+    FlushPages {
+        pages: Vec<(PageId, Page)>,
         res_tx: mpsc::SyncSender<Result<(), BufferPoolError>>,
     },
 
@@ -28,12 +29,12 @@ impl BufferPoolWorker {
         }
     }
 
-    fn run(self) {
+    pub(crate) fn run(self) {
         while let Ok(op) = self.cmd_rx.recv() {
             match (op) {
-                BufferPoolOp::FlushAll { pids, res_tx: response } => {
-                    let result = self.handle_evict(pids);
-                    res_tx
+                BufferPoolOp::FlushPages { pages, res_tx } => {
+                    let result = self.handle_evict(pages);
+                    res_tx.send(result).unwrap();
                 }
                 BufferPoolOp::Shutdown => {
                     break;
@@ -42,7 +43,10 @@ impl BufferPoolWorker {
         }
     }
 
-    fn handle_evict(&self, pids: Vec<Pid>) -> Result<(), BufferPoolError> {
-        todo!()
+    fn handle_evict(&self, pages: Vec<(PageId, Page)>) -> Result<(), BufferPoolError> {
+        for (pid, page) in pages {
+            self.disk_manager.write_page(pid, &page)?;
+        }
+        Ok(())
     }
 }

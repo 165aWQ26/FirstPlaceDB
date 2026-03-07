@@ -1,19 +1,14 @@
-use lru::LruCache;
 use crate::bufferpool::FrameId;
+use lru::LruCache;
 
 pub struct EvictionPolicy {
     t1: LruCache<FrameId, ()>,
     t2: LruCache<FrameId, ()>,
     b1: LruCache<FrameId, ()>,
     b2: LruCache<FrameId, ()>,
-
     p: usize,
-
     capacity: usize,
-
     ghost_cap: usize,
-
-    frames: Vec<FrameId>,
 }
 
 impl EvictionPolicy {
@@ -61,26 +56,26 @@ impl EvictionPolicy {
         }
     }
 
-    fn push_b1(&mut self, frameId: FrameId) {
+    fn push_b1(&mut self, fid: FrameId) {
         if self.b1.len() >= self.ghost_cap {
             self.b1.pop_lru();
         }
-        self.b1.push(frameId, ());
+        self.b1.push(fid, ());
     }
 
-    fn push_b2(&mut self, frameId: FrameId) {
+    fn push_b2(&mut self, fid: FrameId) {
         if self.b2.len() >= self.ghost_cap {
             self.b2.pop_lru();
         }
-        self.b2.push(frameId, ());
+        self.b2.push(fid, ());
     }
 
-    fn remove_b1(&mut self, frameId: FrameId) {
-        self.b1.pop(&frameId);
+    fn remove_b1(&mut self, fid: FrameId) {
+        self.b1.pop(&fid);
     }
 
-    fn remove_b2(&mut self, frameId: FrameId) {
-        self.b2.pop(&frameId);
+    fn remove_b2(&mut self, fid: FrameId) {
+        self.b2.pop(&fid);
     }
 
     fn trim_ghosts(&mut self) {
@@ -91,37 +86,29 @@ impl EvictionPolicy {
         }
     }
 
-    fn on_access(&mut self, frameId: FrameId) {
-        if self.t1.pop(&frameId).is_some() {
-            self.t2.push(frameId, ());
-        } else if self.t2.contains(&frameId) {
-            self.t2.promote(&frameId);
+    pub(super) fn on_access(&mut self, fid: FrameId) {
+        if self.t1.pop(&fid).is_some() {
+            self.t2.push(fid, ());
+        } else if self.t2.contains(&fid) {
+            self.t2.promote(&fid);
         }
     }
 
-    fn on_insert(&mut self, frameId: FrameId) -> Option<FrameId> {
-        let cache_size = self.t1.len() + self.t2.len();
-
-        if self.b1.contains(&frameId) {
-            // B1 ghost hit → recency demand strong → grow p.
+    pub(super) fn on_insert(&mut self, fid: FrameId) {
+        if self.b1.contains(&fid) {
+            // B1 ghost hit → recency demand strong -> grow p.
             let delta = if !self.b1.is_empty() {
                 (self.b2.len() / self.b1.len()).max(1)
             } else {
                 1
             };
             self.p = (self.p + delta).min(self.capacity);
-
-            let victim = if cache_size >= self.capacity {
-                self.replace(false)
-            } else {
-                None
-            };
-            self.remove_b1(frameId);
-            self.t2.push(frameId, ());
-            return victim;
+            self.remove_b1(fid);
+            self.t2.push(fid, ());
+            return;
         }
 
-        if self.b2.contains(&frameId) {
+        if self.b2.contains(&fid) {
             // B2 ghost hit → frequency demand strong → shrink p.
             let delta = if !self.b2.is_empty() {
                 (self.b1.len() / self.b2.len()).max(1)
@@ -130,34 +117,27 @@ impl EvictionPolicy {
             };
             self.p = self.p.saturating_sub(delta);
 
-            let victim = if cache_size >= self.capacity {
-                self.replace(true)
-            } else {
-                None
-            };
-            self.remove_b2(frameId);
-            self.t2.push(frameId, ());
-            return victim;
+            self.remove_b2(fid);
+            self.t2.push(fid, ());
+            return;
         }
+        // Full miss
+        self.t1.push(fid, ());
+    }
 
-        // Full miss - brand new page.
-        let victim = if cache_size >= self.capacity {
-            if self.t1.len() < self.capacity {
-                let v = self.replace(false);
-                if self.b1.len() + self.b2.len() >= self.ghost_cap {
-                    self.trim_ghosts();
-                }
-                v
-            } else {
-                // T1 alone fills the cache; evict directly without recording in
-                // B1 to avoid inflating ghosts when the frequency set is empty.
-                self.t1.pop_lru().map(|(frameId, _)| frameId)
+    pub(super) fn evict_victim(&mut self) -> Option<FrameId> {
+        let cache_size = self.t1.len() + self.t2.len();
+        if cache_size < self.capacity {
+            return None;
+        }
+        if self.t1.len() < self.capacity {
+            let victim = self.replace(false);
+            if self.b1.len() + self.b2.len() >= self.ghost_cap {
+                self.trim_ghosts();
             }
+            victim
         } else {
-            None
-        };
-
-        self.t1.push(frameId, ());
-        victim
+            self.b1.pop_lru().map(|(fid, _)| fid)
+        }
     }
 }
