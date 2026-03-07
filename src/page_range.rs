@@ -1,212 +1,227 @@
-use crate::bufferpool::{BufferPool, MetaPage};
-use crate::bufferpool_context::{PageLocation, TableContext};
-use crate::db_error::DbError;
-use crate::page::{Page, PageError};
-use crate::table::Table;
-use parking_lot::Mutex;
 use std::sync::Arc;
+use std::thread::current;
+use dashmap::DashMap;
+use crate::error::DbError;
+use crate::iterators::{PhysicalAddress, PhysicalAddressIterator, PidRange, PidRangeIterator};
+use crate::page::{Page, PageError};
+use crate::page_collection::{MetaPage, PageCollection, PageId};
+use crate::table::Table;
 
-#[derive(Clone)]
 pub struct PageRange {
+    range: Vec<PageCollection>,
     next_addr: PhysicalAddressIterator,
-    pub tps: Vec<i64>,
-    pub full_pages_since_merge: usize,
+    pages_per_collection: usize,
+    table_id: usize,
+    bp_lookup_map: Arc<BufferPoolFrameMap>,
 }
 
 impl PageRange {
-    pub fn new() -> Self {
+    //Assumes equal base page and tail page num collections which is suboptimal. Better to over alloc
+    //These optimizations are more for fun than anything.
+    pub const PROJECTED_NUM_PAGE_COLLECTIONS: usize =
+        (Table::PROJECTED_NUM_RECORDS + Page::PAGE_SIZE - 1) / Page::PAGE_SIZE;
+
+    pub fn new(pages_per_collection: usize, first_pid: PidRange, table_id: usize, bp_lookup_map: Arc<BufferPoolFrameMap>) -> Self {
+        let mut init_range: Vec<PageCollection> = Vec::with_capacity(PageRange::PROJECTED_NUM_PAGE_COLLECTIONS);
+        init_range.push(PageCollection::new(first_pid, table_id, bp_lookup_map.clone()));
+
         Self {
+            range: init_range,
             next_addr: PhysicalAddressIterator::default(),
-            tps: vec![],
-            full_pages_since_merge: 0,
+            pages_per_collection,
+            table_id,
+            bp_lookup_map,
         }
     }
 
-    pub fn reset_merge_counter(&mut self) {
-        self.full_pages_since_merge = 0;
+    //Append assumes metadata has been pre-calculated (allData)
+    //All it does is write to the current offset
+    //allData cols must be in correct places
+    //Idk how to format closures
+    fn append<F>(&mut self, all_data: Vec<Option<i64>>, pid_alloc_closure: &mut F) -> Result<PhysicalAddress, DbError>
+        where F: FnMut() -> PidRange,
+    {
+        //get next addr
+        let addr = self.next_addr.next().unwrap();
+
+        //Lazily create page collection and associated pages
+        self.lazy_create_page_collection(addr.collection_num, pid_alloc_closure);
+
+        let collection = &mut self.range[addr.collection_num];
+        for (i, data) in all_data.iter().enumerate() {
+            collection.write_col(i, *data, addr.offset)?;
+        }
+
+        Ok(addr) //return addr (from here add this addr to a page_dir)
+        //Note that you should deal with RID elsewhere (imo) --> isn't a PageRange Construct.
+        //By this point it will have been generated and be in data.
     }
 
-    pub fn next_addr(&mut self) -> PhysicalAddress {
-        self.next_addr.next().unwrap()
+    //iterators make this so cleannnnn
+    fn lazy_create_page_collection<F>(&mut self, page: usize, alloc_pid: &mut F)
+    where
+        F: FnMut() -> PidRange,
+    {
+        while self.range.len() <= page {
+            let next_pid = alloc_pid();
+            self.range
+                .push(PageCollection::new(next_pid, self.table_id, self.bp_lookup_map.clone()));
+        }
     }
 
-    pub fn position(&self) -> (usize, usize) {
-        (
-            self.next_addr.current.offset,
-            self.next_addr.current.collection_num,
-        )
+    fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
+        // given an array (project_columns) of 0's and 1's, return all requested columns (1's), ignore non-required(0's)
+        let num_data_cols = self.pages_per_collection - Table::NUM_META_PAGES;
+        (0..num_data_cols)
+            .map(|col| self.read_single(col, addr))
+            .collect()
     }
 
-    pub fn set_position(&mut self, offset: usize, collection_num: usize) {
-        self.next_addr.current.offset = offset;
-        self.next_addr.current.collection_num = collection_num;
+    #[inline]
+    fn read_single(&self, column: usize, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
+        //given single column, return value in row x column
+        Ok(self.range[addr.collection_num].read_col(column, addr.offset)?)
+    }
+
+    #[inline]
+    pub fn write_meta_col(
+        &mut self,
+        addr: &PhysicalAddress,
+        val: Option<i64>,
+        col: MetaPage,
+    ) -> Result<(), PageError> {
+        self.range[addr.collection_num].update_meta_col(addr.offset, val, col)
+    }
+
+    pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage) -> Result<Option<i64>, PageError>{
+        Ok(self.range[addr.collection_num].read_meta_col(addr.offset, col_type)?)
+    }
+
+    fn read_projected(
+        &self,
+        projected: &[i64],
+        addr: &PhysicalAddress,
+    ) -> Result<Vec<Option<i64>>, DbError> {
+        projected
+            .iter()
+            .enumerate()
+            .map(|(col, &flag)| {
+                if flag == 1 {
+                    self.read_single(col, addr)
+                } else {
+                    Ok(None)
+                }
+            })
+            .collect()
     }
 }
 
-#[derive(PartialEq, Eq)]
 pub enum WhichRange {
     Base,
     Tail,
 }
 
-#[derive(Clone)]
 pub struct PageRanges {
-    pub(crate) tail: PageRange,
-    pub(crate) base: PageRange,
-    bufferpool: Arc<Mutex<BufferPool>>,
+    tail: PageRange,
+    base: PageRange,
+    pid_iter: PidRangeIterator,
 }
 
 impl PageRanges {
-    pub fn new(bufferpool: Arc<Mutex<BufferPool>>) -> Self {
+    pub fn new(pages_per_collection: usize, table_id: usize, bp_lookup_map: Arc<BufferPoolFrameMap>) -> Self {
+        let mut pid_range_iter = PidRangeIterator::new(pages_per_collection);
         Self {
-            tail: PageRange::new(),
-            base: PageRange::new(),
-            bufferpool,
+            tail: PageRange::new(pages_per_collection, pid_range_iter.next().unwrap(), table_id, bp_lookup_map.clone()),
+            base: PageRange::new(pages_per_collection, pid_range_iter.next().unwrap(), table_id, bp_lookup_map),
+            pid_iter: pid_range_iter,
         }
     }
 
+    // For inserts: stages metadata (rid, indirection=rid, schema=0) then appends to base
     pub fn append_base(
         &mut self,
         mut data_cols: Vec<Option<i64>>,
         rid: i64,
-        table_ctx: &TableContext,
     ) -> Result<PhysicalAddress, DbError> {
         data_cols.push(Some(rid)); // RID
         data_cols.push(Some(rid)); // indirection (self for new base record)
-        data_cols.push(Some(0));   // schema_encoding (no updates)
-        data_cols.push(None);      // Start Time Col
-        data_cols.push(None);      // Base RID
-        self.append(data_cols, WhichRange::Base, table_ctx)
+        data_cols.push(Some(0)); // schema_encoding (no updates)
+        data_cols.push(None);
+        let mut alloc_pid = || self.pid_iter.next().unwrap();
+        self.base.append(data_cols, &mut alloc_pid)
     }
 
-    //append_base but with explicit indirection and schema_encoding for
-    //use by merge. The paper requires that merge does not modify the Indirection
-    pub fn append_merged_base(
-        &mut self,
-        mut data_cols: Vec<Option<i64>>,
-        rid: i64,
-        indirection: i64,
-        schema_encoding: Option<i64>,
-        table_ctx: &TableContext,
-    ) -> Result<PhysicalAddress, DbError> {
-        data_cols.push(Some(rid));         //RID
-        data_cols.push(Some(indirection)); //indirection: not reset
-        data_cols.push(schema_encoding);   //encoding
-        data_cols.push(None);              //Start Time
-        data_cols.push(None);              //Base RID
-        self.append(data_cols, WhichRange::Base, table_ctx)
-    }
-
+    // For updates: caller provides indirection (previous version) and schema_encoding (which cols updated)
     pub fn append_tail(
         &mut self,
         mut data_cols: Vec<Option<i64>>,
         rid: i64,
         indirection: i64,
         schema_encoding: Option<i64>,
-        base_rid: Option<i64>,
-        table_ctx: &TableContext,
     ) -> Result<PhysicalAddress, DbError> {
-        data_cols.push(Some(rid));        // RID
+        data_cols.push(Some(rid)); // RID
         data_cols.push(Some(indirection)); // indirection (points to prev version)
-        data_cols.push(schema_encoding);   // schema_encoding: None = deletion, Some(bitmask) = update
-        data_cols.push(None);              // Start time column
-        data_cols.push(base_rid);          // Base RID
-        self.append(data_cols, WhichRange::Tail, table_ctx)
+        data_cols.push(schema_encoding); // schema_encoding: None = deletion, Some(bitmask) = update
+        data_cols.push(None);
+        let mut alloc_pid = || self.pid_iter.next().unwrap();
+        self.tail.append(data_cols, &mut alloc_pid)
     }
 
     #[inline]
     pub fn read_single(
-        &mut self,
+        &self,
         column: usize,
-        page_location: &PageLocation,
-        table_ctx: &TableContext,
+        addr: &PhysicalAddress,
+        range: WhichRange
     ) -> Result<Option<i64>, DbError> {
-        Ok(self
-            .bufferpool
-            .lock()
-            .read_col(column, page_location, table_ctx)?)
-    }
-
-    fn append(
-        &mut self,
-        all_data: Vec<Option<i64>>,
-        range: WhichRange,
-        table_ctx: &TableContext,
-    ) -> Result<PhysicalAddress, DbError> {
-        let addr = match range {
-            WhichRange::Base => self.base.next_addr(),
-            WhichRange::Tail => {
-                let addr = self.tail.next_addr();
-                if addr.offset == Page::PAGE_SIZE - 1 {
-                    self.tail.full_pages_since_merge += 1;
-                }
-                addr
-            }
-        };
-        let page_location = PageLocation::new(addr, range);
-
-        //Lock once
-        let mut bp = self.bufferpool.lock();
-        bp.append(all_data, &page_location, table_ctx)?;
-
-        Ok(addr)
-    }
-
-    pub fn write_indirection(
-        &mut self,
-        val: Option<i64>,
-        page_location: &PageLocation,
-        table_ctx: &TableContext,
-    ) -> Result<(), PageError> {
-        let mut bp = self.bufferpool.lock();
-        bp.update_meta_col(val, MetaPage::Indirection, page_location, table_ctx)
+        match range {
+            WhichRange::Base => self.base.read_single(column, addr),
+            WhichRange::Tail => self.tail.read_single(column, addr),
+        }
     }
 
     #[inline]
-    pub fn read(
+    pub fn read_tail_single(
         &self,
+        column: usize,
         addr: &PhysicalAddress,
-        table_ctx: &TableContext,
-    ) -> Result<Vec<Option<i64>>, DbError> {
-        let num_data_cols = table_ctx.total_cols - Table::NUM_META_PAGES;
-        let page_location = PageLocation::base(*addr);
-        let mut buff = self.bufferpool.lock();
-        (0..num_data_cols)
-            .map(|col| Ok(buff.read_col(col, &page_location, table_ctx)?))
-            .collect()
+    ) -> Result<Option<i64>, DbError> {
+        self.tail.read_single(column, addr)
     }
 
-    pub fn read_meta_col(
+    #[inline]
+    pub fn write_indirection(
         &mut self,
-        col_type: MetaPage,
-        page_location: &PageLocation,
-        table_ctx: &TableContext,
-    ) -> Result<Option<i64>, PageError> {
-        let mut bp = self.bufferpool.lock();
-        bp.read_meta_col(col_type, page_location, table_ctx)
-    }
-}
-
-#[derive(Hash, Eq, PartialEq, Copy, Clone, Debug, Default)]
-pub struct PhysicalAddress {
-    pub(crate) offset: usize,
-    pub(crate) collection_num: usize,
-}
-
-#[derive(Default, Clone)]
-pub struct PhysicalAddressIterator {
-    current: PhysicalAddress,
-}
-
-impl Iterator for PhysicalAddressIterator {
-    type Item = PhysicalAddress;
-    fn next(&mut self) -> Option<Self::Item> {
-        let addr = self.current;
-        self.current.offset += 1;
-        if self.current.offset >= Page::PAGE_SIZE {
-            self.current.offset = 0;
-            self.current.collection_num += 1;
+        addr: &PhysicalAddress,
+        val: Option<i64>,
+        range: WhichRange
+    ) -> Result<(), PageError> {
+        match range {
+            WhichRange::Base => self.base.write_meta_col(addr, val, MetaPage::IndirectionCol),
+            WhichRange::Tail => self.tail.write_meta_col(addr, val, MetaPage::IndirectionCol),
         }
-        Some(addr)
+    }
+
+
+    #[inline]
+    pub fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
+        self.base.read(addr)
+    }
+
+    #[inline]
+    pub fn read_projected(
+        &self,
+        projected: &[i64],
+        addr: &PhysicalAddress,
+    ) -> Result<Vec<Option<i64>>, DbError> {
+        self.base.read_projected(projected, addr)
+    }
+
+    pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage, range: WhichRange) -> Result<Option<i64>, PageError>{
+        match range {
+            WhichRange::Base => self.base.read_meta_col(addr, col_type),
+            WhichRange::Tail => self.tail.read_meta_col(addr, col_type),
+        }
     }
 }
+
