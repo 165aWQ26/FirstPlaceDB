@@ -70,7 +70,7 @@ impl PageCollection {
     //Deleted get page: IDE said no usages
     #[inline]
     pub fn read_all(&self, offset: usize) -> Result<Vec<Option<i64>>, BufferPoolError>  {
-        (self.pid_range.start..self.pid_range.end).map(|i| self.read_col(i, offset)).collect()
+        (0..self.num_pages).map(|i| self.read_col(i, offset)).collect()
     }
 
     #[inline]
