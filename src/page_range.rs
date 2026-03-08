@@ -1,17 +1,18 @@
 use std::sync::Arc;
-use std::thread::current;
-use dashmap::DashMap;
-use crate::error::DbError;
 use crate::iterators::{PhysicalAddress, PhysicalAddressIterator, PidRange, PidRangeIterator};
-use crate::page::{Page, PageError};
-use crate::page_collection::{MetaPage, PageCollection, PageId};
+use crate::page::{Page};
+use crate::page_collection::{MetaPage, PageCollection};
 use crate::table::Table;
+use crate::bufferpool::{BufferPool, BufferPoolError};
+
 
 pub struct PageRange {
     range: Vec<PageCollection>,
     next_addr: PhysicalAddressIterator,
     pages_per_collection: usize,
     table_id: usize,
+    bufferpool: Arc<BufferPool>,
+    pid_iterator: Arc<PidRangeIterator>,
     bp_lookup_map: Arc<BufferPoolFrameMap>,
     pub tps: Vec<i64>,
     pub pages_since_merge: usize,
@@ -23,89 +24,72 @@ impl PageRange {
     pub const PROJECTED_NUM_PAGE_COLLECTIONS: usize =
         (Table::PROJECTED_NUM_RECORDS + Page::PAGE_SIZE - 1) / Page::PAGE_SIZE;
 
-    pub fn new(pages_per_collection: usize, first_pid: PidRange, table_id: usize, bp_lookup_map: Arc<BufferPoolFrameMap>) -> Self {
+    pub fn new(pages_per_collection: usize, first_pid: PidRange, table_id: usize, bufferpool: Arc<BufferPool>, pid_iterator: Arc<PidRangeIterator>) -> Self {
         let mut init_range: Vec<PageCollection> = Vec::with_capacity(PageRange::PROJECTED_NUM_PAGE_COLLECTIONS);
-        init_range.push(PageCollection::new(first_pid, table_id, bp_lookup_map.clone()));
+        init_range.push(PageCollection::new(first_pid, table_id, bufferpool.clone()));
 
         Self {
             range: init_range,
             next_addr: PhysicalAddressIterator::default(),
             pages_per_collection,
             table_id,
+            bufferpool,
+            pid_iterator,
             bp_lookup_map,
             tps: Vec::new(),
             pages_since_merge: 0,
         }
     }
 
-    //Append assumes metadata has been pre-calculated (allData)
-    //All it does is write to the current offset
-    //allData cols must be in correct places
-    //Idk how to format closures
-    fn append<F>(&mut self, all_data: Vec<Option<i64>>, pid_alloc_closure: &mut F) -> Result<PhysicalAddress, DbError>
-        where F: FnMut() -> PidRange,
-    {
+    fn append (&mut self, all_data: Vec<Option<i64>>) -> Result<PhysicalAddress, BufferPoolError> {
         //get next addr
-        let addr = self.next_addr.next().unwrap();
+        let addr = self.next_addr.next();
 
         //Lazily create page collection and associated pages
-        self.lazy_create_page_collection(addr.collection_num, pid_alloc_closure);
+        self.lazy_create_page_collection(addr.collection_num);
 
-        let collection = &mut self.range[addr.collection_num];
-        for (i, data) in all_data.iter().enumerate() {
-            collection.write_col(i, *data, addr.offset)?;
-        }
+        self.range[addr.collection_num].write_cols(addr.offset, all_data)?;
 
         Ok(addr) //return addr (from here add this addr to a page_dir)
-        //Note that you should deal with RID elsewhere (imo) --> isn't a PageRange Construct.
-        //By this point it will have been generated and be in data.
     }
 
     //iterators make this so cleannnnn
-    fn lazy_create_page_collection<F>(&mut self, page: usize, alloc_pid: &mut F)
-    where
-        F: FnMut() -> PidRange,
-    {
+    fn lazy_create_page_collection(&mut self, page: usize) {
         while self.range.len() <= page {
-            let next_pid = alloc_pid();
             self.range
-                .push(PageCollection::new(next_pid, self.table_id, self.bp_lookup_map.clone()));
+                .push(PageCollection::new(self.pid_iterator.next(), self.table_id, self.bufferpool.clone()));
         }
     }
 
-    fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
-        // given an array (project_columns) of 0's and 1's, return all requested columns (1's), ignore non-required(0's)
-        let num_data_cols = self.pages_per_collection - Table::NUM_META_PAGES;
-        (0..num_data_cols)
-            .map(|col| self.read_single(col, addr))
-            .collect()
+    fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, BufferPoolError> {
+        self.range[addr.collection_num].read_all(addr.offset)
     }
 
     #[inline]
-    fn read_single(&self, column: usize, addr: &PhysicalAddress) -> Result<Option<i64>, DbError> {
+    fn read_single(&self, col: usize, addr: &PhysicalAddress) -> Result<Option<i64>, BufferPoolError> {
         //given single column, return value in row x column
-        Ok(self.range[addr.collection_num].read_col(column, addr.offset)?)
+        Ok(self.range[addr.collection_num].read_col(col, addr.offset)?)
     }
 
     #[inline]
     pub fn write_meta_col(
-        &mut self,
+        &self,
         addr: &PhysicalAddress,
         val: Option<i64>,
         col: MetaPage,
-    ) -> Result<(), PageError> {
-        self.range[addr.collection_num].update_meta_col(addr.offset, val, col)
+    ) -> Result<(), BufferPoolError> {
+        self.range[addr.collection_num].update_meta_col(col, addr.offset, val)
     }
 
-    pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage) -> Result<Option<i64>, PageError>{
-        Ok(self.range[addr.collection_num].read_meta_col(addr.offset, col_type)?)
+    pub fn read_meta_col(&self, addr: &PhysicalAddress, col : MetaPage) -> Result<Option<i64>, BufferPoolError>{
+        Ok(self.range[addr.collection_num].read_meta_col(col, addr.offset)?)
     }
 
     fn read_projected(
         &self,
         projected: &[i64],
         addr: &PhysicalAddress,
-    ) -> Result<Vec<Option<i64>>, DbError> {
+    ) -> Result<Vec<Option<i64>>, BufferPoolError> {
         projected
             .iter()
             .enumerate()
@@ -128,16 +112,14 @@ pub enum WhichRange {
 pub struct PageRanges {
     tail: PageRange,
     base: PageRange,
-    pid_iter: PidRangeIterator,
 }
 
 impl PageRanges {
-    pub fn new(pages_per_collection: usize, table_id: usize, bp_lookup_map: Arc<BufferPoolFrameMap>) -> Self {
-        let mut pid_range_iter = PidRangeIterator::new(pages_per_collection);
+    pub fn new(pages_per_collection: usize, table_id: usize, bufferpool: Arc<BufferPool>) -> Self {
+        let pid_range_iter = Arc::new(PidRangeIterator::new(pages_per_collection));
         Self {
-            tail: PageRange::new(pages_per_collection, pid_range_iter.next().unwrap(), table_id, bp_lookup_map.clone()),
-            base: PageRange::new(pages_per_collection, pid_range_iter.next().unwrap(), table_id, bp_lookup_map),
-            pid_iter: pid_range_iter,
+            tail: PageRange::new(pages_per_collection, pid_range_iter.next(), table_id, bufferpool.clone(), pid_range_iter.clone()),
+            base: PageRange::new(pages_per_collection, pid_range_iter.next(), table_id, bufferpool, pid_range_iter),
         }
     }
 
@@ -146,13 +128,12 @@ impl PageRanges {
         &mut self,
         mut data_cols: Vec<Option<i64>>,
         rid: i64,
-    ) -> Result<PhysicalAddress, DbError> {
+    ) -> Result<PhysicalAddress, BufferPoolError> {
         data_cols.push(Some(rid)); // RID
         data_cols.push(Some(rid)); // indirection (self for new base record)
         data_cols.push(Some(0)); // schema_encoding (no updates)
         data_cols.push(None);
-        let mut alloc_pid = || self.pid_iter.next().unwrap();
-        self.base.append(data_cols, &mut alloc_pid)
+        self.base.append(data_cols)
     }
 
     // mirror of append_base --> caller instead supplies indir and schema_encoding
@@ -180,13 +161,12 @@ impl PageRanges {
         rid: i64,
         indirection: i64,
         schema_encoding: Option<i64>,
-    ) -> Result<PhysicalAddress, DbError> {
+    ) -> Result<PhysicalAddress, BufferPoolError> {
         data_cols.push(Some(rid)); // RID
         data_cols.push(Some(indirection)); // indirection (points to prev version)
         data_cols.push(schema_encoding); // schema_encoding: None = deletion, Some(bitmask) = update
         data_cols.push(None);
-        let mut alloc_pid = || self.pid_iter.next().unwrap();
-        self.tail.append(data_cols, &mut alloc_pid)
+        self.tail.append(data_cols)
     }
 
     #[inline]
@@ -195,7 +175,7 @@ impl PageRanges {
         column: usize,
         addr: &PhysicalAddress,
         range: WhichRange
-    ) -> Result<Option<i64>, DbError> {
+    ) -> Result<Option<i64>, BufferPoolError> {
         match range {
             WhichRange::Base => self.base.read_single(column, addr),
             WhichRange::Tail => self.tail.read_single(column, addr),
@@ -207,7 +187,7 @@ impl PageRanges {
         &self,
         column: usize,
         addr: &PhysicalAddress,
-    ) -> Result<Option<i64>, DbError> {
+    ) -> Result<Option<i64>, BufferPoolError> {
         self.tail.read_single(column, addr)
     }
 
@@ -217,7 +197,7 @@ impl PageRanges {
         addr: &PhysicalAddress,
         val: Option<i64>,
         range: WhichRange
-    ) -> Result<(), PageError> {
+    ) -> Result<(), BufferPoolError> {
         match range {
             WhichRange::Base => self.base.write_meta_col(addr, val, MetaPage::IndirectionCol),
             WhichRange::Tail => self.tail.write_meta_col(addr, val, MetaPage::IndirectionCol),
@@ -226,7 +206,7 @@ impl PageRanges {
 
 
     #[inline]
-    pub fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, DbError> {
+    pub fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, BufferPoolError> {
         self.base.read(addr)
     }
 
@@ -235,11 +215,11 @@ impl PageRanges {
         &self,
         projected: &[i64],
         addr: &PhysicalAddress,
-    ) -> Result<Vec<Option<i64>>, DbError> {
+    ) -> Result<Vec<Option<i64>>, BufferPoolError> {
         self.base.read_projected(projected, addr)
     }
 
-    pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage, range: WhichRange) -> Result<Option<i64>, PageError>{
+    pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage, range: WhichRange) -> Result<Option<i64>, BufferPoolError>{
         match range {
             WhichRange::Base => self.base.read_meta_col(addr, col_type),
             WhichRange::Tail => self.tail.read_meta_col(addr, col_type),

@@ -48,16 +48,20 @@ export RUST_LIB_BACKTRACE=1
 # Build
 if [ "$USE_RELEASE" = true ]; then
 	uv run maturin develop --release
+	check_error
 	echo "Running in release mode"
 else
 	uv run maturin develop
+	check_error
 	echo "Running in debug mode.. Unoptimized"
 fi
 
-if [ $? -ne 0 ]; then
-	echo "Build failed, aborting."
-	exit 1
-fi
+check_error() {
+  if [ $? -ne 0 ]; then
+    echo "Build failed, aborting."
+    exit 1
+  fi
+}
 
 clean_data_dirs() {
 	rm -rf Grades/ ECS165/
@@ -68,7 +72,6 @@ clean_m2_extended_dir() {
 }
 
 #! m2 part2 depends on part1's persisted data, so they must be run in unison
- __main__.py
 clean_data_dirs
 for ((i = 1; i <= RUN_COUNT; i++)); do
 	uv run python "testers/__main__.py"
