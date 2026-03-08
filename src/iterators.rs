@@ -1,5 +1,5 @@
 use crate::page::Page;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 #[derive(Hash, Eq, PartialEq, Copy, Clone, Debug, Default)]
 pub struct PhysicalAddress {
     pub(crate) offset: usize,
@@ -53,17 +53,34 @@ impl PidRangeIterator {
     }
 }
 
-pub struct AtomicIterator {
-    next: AtomicUsize,
+pub struct AtomicIterator<T> {
+    next: T,
 }
 
-impl AtomicIterator {
-    pub fn new() -> Self {
+impl AtomicIterator<AtomicUsize> {
+    pub fn next(&self) -> usize {
+        self.next.fetch_add(1, Ordering::Relaxed)
+    }
+}
+
+impl AtomicIterator<AtomicI64> {
+    pub fn next(&self) -> i64 {
+        self.next.fetch_add(1, Ordering::Relaxed)
+    }
+}
+
+impl Default for AtomicIterator<AtomicUsize> {
+    fn default() -> Self {
         Self {
             next: AtomicUsize::new(0),
         }
     }
-    pub fn next(&self) -> usize {
-        self.next.fetch_add(1, Ordering::Relaxed)
+}
+
+impl Default for AtomicIterator<AtomicI64> {
+    fn default() -> Self {
+        Self {
+            next: AtomicI64::new(0),
+        }
     }
 }

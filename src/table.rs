@@ -5,6 +5,8 @@ use crate::page_collection::MetaPage;
 use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
 use std::sync::Arc;
+use std::sync::atomic::AtomicI64;
+use crate::iterators::AtomicIterator;
 
 pub struct Table {
     pub name: String,
@@ -13,7 +15,7 @@ pub struct Table {
 
     pub page_directory: PageDirectory,
 
-    pub rid: std::ops::RangeFrom<i64>,
+    pub rid: AtomicIterator<AtomicI64>,
 
     pub num_data_columns: usize,
 
@@ -42,7 +44,7 @@ impl Table {
             name: table_name,
             page_ranges: PageRanges::new(num_total_cols, table_id, bufferpool),
             page_directory: PageDirectory::default(),
-            rid: 0..,
+            rid: AtomicIterator::default(),
             key_index,
             num_data_columns: num_columns,
             indices: (0..1).map(|_| Index::new()).collect(),
