@@ -1,5 +1,5 @@
-use crate::bufferpool::FrameId;
 use lru::LruCache;
+use crate::bufferpool::bufferpool::FrameId;
 
 pub struct EvictionPolicy {
     t1: LruCache<FrameId, ()>,
@@ -85,7 +85,7 @@ impl EvictionPolicy {
         }
     }
 
-    pub(super) fn on_access(&mut self, fid: FrameId) {
+    pub(crate) fn on_access(&mut self, fid: FrameId) {
         if self.t1.pop(&fid).is_some() {
             self.t2.push(fid, ());
         } else if self.t2.contains(&fid) {
@@ -93,7 +93,7 @@ impl EvictionPolicy {
         }
     }
 
-    pub(super) fn on_insert(&mut self, fid: FrameId) {
+    pub(crate) fn on_insert(&mut self, fid: FrameId) {
         if self.b1.contains(&fid) {
             let delta = if !self.b1.is_empty() {
                 (self.b2.len() / self.b1.len()).max(1)
@@ -121,7 +121,7 @@ impl EvictionPolicy {
         self.t1.push(fid, ());
     }
 
-    pub(super) fn evict_victim(&mut self) -> Option<FrameId> {
+    pub(crate) fn evict_victim(&mut self) -> Option<FrameId> {
         let cache_size = self.t1.len() + self.t2.len();
         if cache_size < self.capacity {
             return None;

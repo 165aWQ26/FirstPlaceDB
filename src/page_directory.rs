@@ -1,4 +1,4 @@
-use crate::error::DbError;
+use crate::errors::DbError;
 use crate::iterators::PhysicalAddress;
 use crate::table::Table;
 

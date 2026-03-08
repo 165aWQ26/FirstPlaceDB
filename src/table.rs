@@ -1,10 +1,10 @@
-use std::sync::Arc;
 use crate::bufferpool::BufferPool;
-use crate::error::DbError;
+use crate::errors::DbError;
 use crate::index::Index;
-use crate::page_collection::{MetaPage};
+use crate::page_collection::MetaPage;
 use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
+use std::sync::Arc;
 
 pub struct Table {
     pub name: String,
@@ -47,19 +47,28 @@ impl Table {
             num_data_columns: num_columns,
             indices: (0..1).map(|_| Index::new()).collect(),
             table_id,
-            num_total_cols
+            num_total_cols,
         }
     }
     /// Returns all the columns of the record
     pub fn read(&self, rid: i64) -> Result<Vec<Option<i64>>, DbError> {
         let addr = self.page_directory.get(rid)?;
-        self.page_ranges.read(&addr)
+        self.page_ranges
+            .read(&addr)
+            .map_err(|e| DbError::Storage(e))
     }
 
     /// Like read but you choose col
-    pub fn read_single(&self, rid: i64, column: usize, range: WhichRange) -> Result<Option<i64>, DbError> {
+    pub fn read_single(
+        &self,
+        rid: i64,
+        column: usize,
+        range: WhichRange,
+    ) -> Result<Option<i64>, DbError> {
         let addr = self.page_directory.get(rid)?;
-        self.page_ranges.read_single(column, &addr, range)
+        self.page_ranges
+            .read_single(column, &addr, range)
+            .map_err(|e| DbError::Storage(e))
     }
 
     //Use index to find the rid
@@ -71,13 +80,19 @@ impl Table {
 
     pub fn read_projected(&self, projected: &[i64], rid: i64) -> Result<Vec<Option<i64>>, DbError> {
         let addr = self.page_directory.get(rid)?;
-        self.page_ranges.read_projected(projected, &addr)
+        self.page_ranges
+            .read_projected(projected, &addr)
+            .map_err(|e| DbError::Storage(e))
     }
 
     pub fn read_latest(&self, rid: i64) -> Result<Vec<Option<i64>>, DbError> {
         let base_addr = self.page_directory.get(rid)?;
         let mut result = self.read(rid)?;
-        let indirection = self.page_ranges.read_meta_col(&base_addr, MetaPage::IndirectionCol, WhichRange::Base)?;
+        let indirection = self.page_ranges.read_meta_col(
+            &base_addr,
+            MetaPage::IndirectionCol,
+            WhichRange::Base,
+        )?;
 
         // If indirection is None, no updates
         match indirection {
@@ -98,14 +113,20 @@ impl Table {
 
                     for col in 0..self.num_data_columns {
                         if (new_cols >> col) & 1 == 1 {
-                            result[col] = self.page_ranges.read_single(col, &tail_addr, WhichRange::Tail)?;
+                            result[col] =
+                                self.page_ranges
+                                    .read_single(col, &tail_addr, WhichRange::Tail)?;
                         }
                     }
-                    
+
                     accumulated_schema |= tail_schema;
 
                     // Follow indirection to next (older tail record)
-                    let next_rid = self.page_ranges.read_meta_col(&tail_addr, MetaPage::IndirectionCol, WhichRange::Tail)?;
+                    let next_rid = self.page_ranges.read_meta_col(
+                        &tail_addr,
+                        MetaPage::IndirectionCol,
+                        WhichRange::Tail,
+                    )?;
                     match next_rid {
                         Some(next) if next == rid => break,
                         Some(next) => current_tail_rid = next,
@@ -119,11 +140,21 @@ impl Table {
 
     pub fn read_latest_single(&self, rid: i64, col: usize) -> Result<Option<i64>, DbError> {
         let base_addr = self.page_directory.get(rid)?;
-        let indirection = self.page_ranges.read_meta_col(&base_addr, MetaPage::IndirectionCol, WhichRange::Base)?;
+        let indirection = self.page_ranges.read_meta_col(
+            &base_addr,
+            MetaPage::IndirectionCol,
+            WhichRange::Base,
+        )?;
 
         match indirection {
-            Some(ind_rid) if ind_rid == rid => self.page_ranges.read_single(col, &base_addr, WhichRange::Base),
-            None => self.page_ranges.read_single(col, &base_addr, WhichRange::Base),
+            Some(ind_rid) if ind_rid == rid => {
+                self.page_ranges
+                    .read_single(col, &base_addr, WhichRange::Base).map_err(|e|DbError::Storage(e))
+            }
+            None => self
+                .page_ranges
+                .read_single(col, &base_addr, WhichRange::Base)
+                .map_err(|e| DbError::Storage(e)),
             Some(tail_rid) => {
                 let mut current_tail_rid = tail_rid;
                 loop {
@@ -136,10 +167,16 @@ impl Table {
                     //Case where latest update if found
                     if (tail_schema >> col) & 1 == 1 {
                         // Newest tail that updates this column
-                        return self.page_ranges.read_single(col, &tail_addr, WhichRange::Tail);
+                        return self
+                            .page_ranges
+                            .read_single(col, &tail_addr, WhichRange::Tail).map_err(|e|DbError::Storage(e));
                     }
 
-                    let next_rid = self.page_ranges.read_meta_col(&tail_addr, MetaPage::IndirectionCol, WhichRange::Tail)?;
+                    let next_rid = self.page_ranges.read_meta_col(
+                        &tail_addr,
+                        MetaPage::IndirectionCol,
+                        WhichRange::Tail,
+                    )?;
                     match next_rid {
                         Some(next) if next == rid => break,
                         Some(next) => current_tail_rid = next,
@@ -147,17 +184,27 @@ impl Table {
                     }
                 }
                 // Column never updated in any tail
-                self.page_ranges.read_single(col, &base_addr, WhichRange::Base)
+                self.page_ranges
+                    .read_single(col, &base_addr, WhichRange::Base).map_err(|e|DbError::Storage(e))
             }
         }
     }
 
-    
-    pub fn read_version_single(&self, rid: i64, col: usize, mut relative_version: i64) -> Result<Option<i64>, DbError> {
-
+    pub fn read_version_single(
+        &self,
+        rid: i64,
+        col: usize,
+        mut relative_version: i64,
+    ) -> Result<Option<i64>, DbError> {
         let base_addr = self.page_directory.get(rid)?;
-        let indirection = self.page_ranges.read_meta_col(&base_addr, MetaPage::IndirectionCol, WhichRange::Base)?;
-        if let Some(tail_rid) = indirection && tail_rid != rid {
+        let indirection = self.page_ranges.read_meta_col(
+            &base_addr,
+            MetaPage::IndirectionCol,
+            WhichRange::Base,
+        )?;
+        if let Some(tail_rid) = indirection
+            && tail_rid != rid
+        {
             let mut current_tail_rid = tail_rid;
             loop {
                 let tail_addr = self.page_directory.get(current_tail_rid)?;
@@ -172,10 +219,16 @@ impl Table {
                     relative_version += 1;
                 }
                 if relative_version > 0 {
-                    return self.page_ranges.read_single(col, &tail_addr, WhichRange::Tail);
+                    return self
+                        .page_ranges
+                        .read_single(col, &tail_addr, WhichRange::Tail).map_err(|e|DbError::Storage(e));
                 }
 
-                let next_rid = self.page_ranges.read_meta_col(&tail_addr, MetaPage::IndirectionCol, WhichRange::Tail)?;
+                let next_rid = self.page_ranges.read_meta_col(
+                    &tail_addr,
+                    MetaPage::IndirectionCol,
+                    WhichRange::Tail,
+                )?;
                 if let Some(next) = next_rid {
                     if next == rid {
                         break;
@@ -186,7 +239,8 @@ impl Table {
                 }
             }
         }
-        self.page_ranges.read_single(col, &base_addr, WhichRange::Base)?;
+        self.page_ranges
+            .read_single(col, &base_addr, WhichRange::Base).map_err(|e|DbError::Storage(e))
     }
 
     pub fn read_latest_projected(
@@ -206,14 +260,13 @@ impl Table {
         &self,
         projected: &[i64],
         rid: i64,
-        relative_version: i64
-    )-> Result<Vec<Option<i64>>, DbError>{
-        let mut ans : Vec<Option<i64>> = Vec::new(); 
-        for (col,value) in projected.iter().enumerate(){
-            if *value == 1{
-                ans.push(self.read_version_single(rid,col,relative_version)?);
-            }
-            else {
+        relative_version: i64,
+    ) -> Result<Vec<Option<i64>>, DbError> {
+        let mut ans: Vec<Option<i64>> = Vec::new();
+        for (col, value) in projected.iter().enumerate() {
+            if *value == 1 {
+                ans.push(self.read_version_single(rid, col, relative_version)?);
+            } else {
                 ans.push(None);
             }
         }
@@ -223,13 +276,21 @@ impl Table {
     /// Check if a base RID's latest tail has schema_encoding == None (deletion marker).
     pub fn is_deleted(&self, rid: i64) -> Result<bool, DbError> {
         let base_addr = self.page_directory.get(rid)?;
-        let indirection = self.page_ranges.read_meta_col(&base_addr, MetaPage::IndirectionCol, WhichRange::Base)?;
+        let indirection = self.page_ranges.read_meta_col(
+            &base_addr,
+            MetaPage::IndirectionCol,
+            WhichRange::Base,
+        )?;
         match indirection {
             None => Ok(false),
             Some(ind_rid) if ind_rid == rid => Ok(false),
             Some(tail_rid) => {
                 let tail_addr = self.page_directory.get(tail_rid)?;
-                let schema = self.page_ranges.read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)?;
+                let schema = self.page_ranges.read_meta_col(
+                    &tail_addr,
+                    MetaPage::SchemaEncodingCol,
+                    WhichRange::Tail,
+                )?;
                 Ok(schema.is_none())
             }
         }

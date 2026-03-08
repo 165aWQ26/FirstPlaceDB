@@ -1,8 +1,9 @@
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write, BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
+use crate::bufferpool::DiskError;
 use crate::page::{Page, PageError};
-use crate::page_collection::{PageId, PageId};
+use crate::page_collection::PageId;
 
 pub struct DiskManager {
     base_path: PathBuf,
@@ -126,7 +127,7 @@ impl DiskManager {
             let tag = data[offset];
             offset += 1;
 
-            let value = if tag == 1 {
+            let (value, offset) = if tag == 1 {
                 if offset + 8 > data.len() {
                     return Err(DiskError::CorruptedPage("Missing value bytes".into()));
                 }
@@ -135,55 +136,19 @@ impl DiskManager {
                     .map_err(|_| DiskError::CorruptedPage("Invalid value bytes".into()))?;
                 let val = i64::from_be_bytes(val_bytes);
                 offset += 8;
-                Some(val)
+                (Some(val), Some(offset))
             } else if tag == 0 {
-                None
+                (None, None)
             } else {
                 return Err(DiskError::CorruptedPage(format!("Invalid tag: {}", tag)));
             };
 
+            // Todo remove unwrap
             //Todo write needs an offset or add an append page function to page
-            page.write(value).map_err(|e| DiskError::PageError(e))?;
+            page.write(value, offset.unwrap()).map_err(|e| DiskError::PageError(e))?;
         }
 
         Ok(page)
     }
 }
 
-#[derive(Debug)]
-pub enum DiskError {
-    PageNotFound(PageId),
-    IoError(std::io::Error),
-    SerializationError,
-    CorruptedPage(String),
-    PageError(PageError),
-}
-
-impl std::fmt::Display for DiskError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DiskError::PageNotFound(pid) => {
-                write!(f, "Page not found: table_id={}, page_num={}",
-                       pid.table_id, pid.page_num)
-            }
-            DiskError::IoError(e) => write!(f, "I/O error: {}", e),
-            DiskError::SerializationError => write!(f, "Serialization error"),
-            DiskError::CorruptedPage(msg) => write!(f, "Corrupted page: {}", msg),
-            DiskError::PageError(e) => write!(f, "Page error: {:?}", e),
-        }
-    }
-}
-
-impl std::error::Error for DiskError {}
-
-impl From<std::io::Error> for DiskError {
-    fn from(e: std::io::Error) -> Self {
-        DiskError::IoError(e)
-    }
-}
-
-impl From<PageError> for DiskError {
-    fn from(e: PageError) -> Self {
-        DiskError::PageError(e)
-    }
-}

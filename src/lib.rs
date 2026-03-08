@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 
 pub mod db;
-pub mod error;
+pub mod errors;
 pub mod index;
 mod page;
 mod page_collection;
@@ -14,10 +14,7 @@ pub mod table;
 mod tests;
 mod bindings;
 mod iterators;
-mod eviction_policy;
 mod bufferpool;
-mod disk_manager;
-mod bufferpool_worker;
 
 /// A Python module implemented in Rust. The name of this module must match
 /// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
