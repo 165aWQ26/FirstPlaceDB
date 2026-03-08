@@ -22,7 +22,7 @@ impl Query {
     //     self.table.indices[i].insert(val.unwrap(), rid);
     // }
     pub fn insert(&mut self, record: Vec<Option<i64>>) -> Result<bool, DbError> {
-        let rid = self.table.rid.next().unwrap();
+        let rid = self.table.rid.next();
         let key = record[self.table.key_index].ok_or(DbError::NullValue(self.table.key_index))?;
 
         // Single-traversal uniqueness check + insert
@@ -108,7 +108,7 @@ impl Query {
         }
 
 
-        let next_rid = self.table.rid.next().unwrap();
+        let next_rid = self.table.rid.next();
 
         // Append tail record
         let address = self.table.page_ranges.append_tail(
@@ -143,7 +143,7 @@ impl Query {
             .ok_or(DbError::NullValue(404))?;
 
         // Append deletion tail (schema_encoding = None marks deletion)
-        let next_rid = self.table.rid.next().unwrap();
+        let next_rid = self.table.rid.next();
         let tail_record = vec![None; self.table.num_data_columns];
         let address =
             self.table

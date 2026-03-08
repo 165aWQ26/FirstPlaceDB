@@ -1,5 +1,6 @@
 use dashmap::{DashMap, mapref::entry::Entry};
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 use crate::table::Table;
 use crate::bufferpool::BufferPool;
 use crate::bufferpool::DiskManager;
@@ -8,7 +9,7 @@ use crate::iterators::AtomicIterator;
 struct Database {
     tables: DashMap<usize, Arc<Table>>,
     table_names: DashMap<String, usize>,
-    table_id: AtomicIterator,
+    table_id: AtomicIterator<AtomicUsize>,
     bufferpool: Arc<BufferPool>,
 }
 
@@ -17,7 +18,7 @@ impl Database {
         Self {
             tables: DashMap::new(),
             table_names: DashMap::new(),
-            table_id: AtomicIterator::new(),
+            table_id: AtomicIterator::default(),
             bufferpool: Arc::new(BufferPool::new(DiskManager::new("db").unwrap())),
         }
     }
