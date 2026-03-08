@@ -1,9 +1,22 @@
-use crate::error::DbError;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::bufferpool::{BufferPool, DiskManager};
+use crate::errors::DbError;
 use crate::query::Query;
 use crate::table::Table;
 
+static TEST_DIR_CTR: AtomicUsize = AtomicUsize::new(0);
+
+fn make_bp(prefix: &str) -> Arc<BufferPool> {
+    let id = TEST_DIR_CTR.fetch_add(1, Ordering::Relaxed);
+    let dir = format!("./test_tmp/{}_{}", prefix, id);
+    let _ = std::fs::remove_dir_all(&dir);
+    Arc::new(BufferPool::new(DiskManager::new(&dir).unwrap()))
+}
+
 fn setup(num_columns: usize) -> Query {
-    let table = Table::new(String::from("test"), num_columns, 0);
+    let bp = make_bp("qtest");
+    let table = Table::new(String::from("test"), num_columns, 0, 0, bp);
     Query::new(table)
 }
 
@@ -58,7 +71,7 @@ fn remove_and_select_version_error() {
 
 
     let mask = [1i64, 1, 1];
-    assert_eq!(q.select_version(1, 0, &mask,-1), Err(DbError::KeyNotFound(1)));
+    assert!(matches!(q.select_version(1, 0, &mask,-1), Err(DbError::KeyNotFound(1))));
 }
 #[test]
 fn insert_duplicate_key_fails() {
@@ -95,7 +108,7 @@ fn select_deleted_key_fails() {
     q.delete(1).unwrap();
 
     let mask = [1i64, 1, 1];
-    assert_eq!(q.select(1, 0, &mask), Err(DbError::KeyNotFound(1)));
+    assert!(matches!(q.select(1, 0, &mask), Err(DbError::KeyNotFound(1))));
 }
 
 #[test]
@@ -130,7 +143,8 @@ fn increment() {
 // Keep the original integration test
 #[test]
 fn quick_test_all() {
-    let table: Table = Table::new(String::from("test"), 5, 0);
+    let bp = make_bp("quick");
+    let table: Table = Table::new(String::from("test"), 5, 0, 0, bp);
     let mut query: Query = Query::new(table);
 
     let rec_one: Vec<Option<i64>> = vec![Some(1); 5];
@@ -142,10 +156,12 @@ fn quick_test_all() {
     query.insert(rec_two).unwrap();
 
     let rid1 = query.table.indices[0].locate(1).unwrap();
-    assert_eq!(query.table.read(rid1), Ok(vec![Some(1); 5]));
+    let row1 = query.table.read(rid1).unwrap();
+    assert_eq!(&row1[..5], &[Some(1); 5]);
 
     let rid2 = query.table.indices[0].locate(2).unwrap();
-    assert_eq!(query.table.read(rid2), Ok(vec![Some(2); 5]));
+    let row2 = query.table.read(rid2).unwrap();
+    assert_eq!(&row2[..5], &[Some(2); 5]);
 
     query.insert(rec_three).unwrap();
 
@@ -307,7 +323,7 @@ fn test_version_single() {
     assert_eq!(num1.unwrap(), 3);
     assert_eq!(num2.unwrap(), 7);
     assert_eq!(num3.unwrap(), 6);
-    
+
     // q.sum_version(1, 5, 1, -1);
     // q.sum_version(1, 5, 1, 0);
 }
