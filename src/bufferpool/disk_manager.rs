@@ -117,35 +117,32 @@ impl DiskManager {
         }
 
         let mut page = Page::default();
-        let mut offset = 8;
+        let mut file_offset = 8;
 
-        for _ in 0..len {
-            if offset >= data.len() {
+        for slot in 0..len {
+            if file_offset >= data.len() {
                 return Err(DiskError::CorruptedPage("Unexpected end of data".into()));
             }
 
-            let tag = data[offset];
-            offset += 1;
+            let tag = data[file_offset];
+            file_offset += 1;
 
-            let (value, offset) = if tag == 1 {
-                if offset + 8 > data.len() {
+            let value = if tag == 1 {
+                if file_offset + 8 > data.len() {
                     return Err(DiskError::CorruptedPage("Missing value bytes".into()));
                 }
-
-                let val_bytes: [u8; 8] = data[offset..offset + 8].try_into()
+                let val_bytes: [u8; 8] = data[file_offset..file_offset + 8].try_into()
                     .map_err(|_| DiskError::CorruptedPage("Invalid value bytes".into()))?;
                 let val = i64::from_be_bytes(val_bytes);
-                offset += 8;
-                (Some(val), Some(offset))
+                file_offset += 8;
+                Some(val)
             } else if tag == 0 {
-                (None, None)
+                None
             } else {
                 return Err(DiskError::CorruptedPage(format!("Invalid tag: {}", tag)));
             };
 
-            // Todo remove unwrap
-            //Todo write needs an offset or add an append page function to page
-            page.write(value, offset.unwrap()).map_err(|e| DiskError::PageError(e))?;
+            page.write(value, slot).map_err(|e| DiskError::PageError(e))?;
         }
 
         Ok(page)
