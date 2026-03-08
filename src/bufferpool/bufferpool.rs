@@ -11,7 +11,8 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 
 pub type FrameId = usize;
-pub const BP_CAP: usize = 32;
+// What the TA ended up using
+pub const BP_CAP: usize = 256;
 
 struct InnerFrame {
     page: Page,
@@ -35,7 +36,6 @@ pub struct Frame {
 impl Frame {
     pub fn new() -> Self {
         Self {
-            //todo there should be one lock on page and pid
             dirty: AtomicBool::new(false),
             inner: RwLock::new(InnerFrame {
                 page: Default::default(),
@@ -78,7 +78,7 @@ impl Frame {
     }
 
     pub fn get_page_copy(&self) -> Page {
-        let guard = self.inner.write();
+        let guard = self.inner.read();
         guard.page.clone()
     }
 
@@ -175,8 +175,13 @@ impl BufferPool {
         Ok(())
     }
     pub fn read(&self, pid: PageId, offset: usize) -> Result<Option<i64>, BufferPoolError> {
-        let fid = self.resolve_or_load(pid)?;
-        Ok(self.frames[fid].read(offset)?)
+        loop {
+            let fid = self.resolve_or_load(pid)?;
+            let guard = self.frames[fid].inner.read();
+            if guard.pid == Some(pid) {
+                return Ok(guard.page.read(offset)?);
+            }
+        }
     }
 
     pub fn write(
@@ -185,8 +190,15 @@ impl BufferPool {
         val: Option<i64>,
         offset: usize,
     ) -> Result<(), BufferPoolError> {
-        let fid = self.resolve_or_load(pid)?;
-        Ok(self.frames[fid].write(val, offset)?)
+        loop {
+            let fid = self.resolve_or_load(pid)?;
+            let mut guard = self.frames[fid].inner.write();
+            if guard.pid == Some(pid) {
+                guard.page.write(val, offset)?;
+                self.frames[fid].dirty.store(true, Ordering::Release);
+                return Ok(());
+            }
+        }
     }
 
     pub fn update(
@@ -195,8 +207,15 @@ impl BufferPool {
         offset: usize,
         val: Option<i64>,
     ) -> Result<(), BufferPoolError> {
-        let fid = self.resolve_or_load(pid)?;
-        Ok(self.frames[fid].update(offset, val)?)
+        loop {
+            let fid = self.resolve_or_load(pid)?;
+            let mut guard = self.frames[fid].inner.write();
+            if guard.pid == Some(pid) {
+                guard.page.update(offset, val)?;
+                self.frames[fid].dirty.store(true, Ordering::Release);
+                return Ok(());
+            }
+        }
     }
 
     // TODO wire up for transaction
@@ -255,27 +274,31 @@ impl BufferPool {
         // Case 1: cache hit
 
         if let Some(entry) = self.page_table.get(&pid) {
-            //todo: eviction lock should be held here otherwise race condition.
             let fid = *entry;
-            self.eviction_state.lock().policy.on_access(fid);
+            drop(entry);
+            if let Some(mut eviction_lock) = self.eviction_state.try_lock() {
+                eviction_lock.policy.on_access(fid);
+            }
             return Ok(fid);
         }
 
         // Case 2: cache miss
+
+        // --- Section A: frame selection (lock held, no disk I/O) ---
         let mut eviction_lock = self.eviction_state.lock();
 
         // Check if another thread loaded it while waiting for lock
         if let Some(entry) = self.page_table.get(&pid) {
             let fid = *entry;
+            drop(entry);
             eviction_lock.policy.on_access(fid);
-            return Ok(*entry);
+            drop(eviction_lock);
+            return Ok(fid);
         }
 
-        // Free spot, then load immediately
-        let fid = if let Some(free) = eviction_lock.free_list.pop() {
-            free
+        let (fid, victim_pid_opt) = if let Some(free) = eviction_lock.free_list.pop() {
+            (free, None)
         } else {
-            // Eviction to make space then load
             let victim_fid = eviction_lock
                 .policy
                 .evict_victim()
@@ -283,12 +306,16 @@ impl BufferPool {
             let victim_pid = self.frames[victim_fid]
                 .pid()
                 .ok_or(BufferPoolError::PidNotInFrame)?;
-
             self.page_table.remove(&victim_pid);
-            self.flush_frame(victim_pid, victim_fid)?;
-            self.frames[victim_fid].release();
-            victim_fid
+            (victim_fid, Some(victim_pid))
         };
+
+        drop(eviction_lock);
+
+        if let Some(victim_pid) = victim_pid_opt {
+            self.flush_frame(victim_pid, fid)?;
+            self.frames[fid].release();
+        }
 
         if self.disk_manager.page_exists(pid) {
             let page = self.disk_manager.read_page(pid)?;
@@ -297,8 +324,10 @@ impl BufferPool {
             self.frames[fid].init(pid);
         }
 
+        let mut eviction_lock = self.eviction_state.lock();
         self.page_table.insert(pid, fid);
         eviction_lock.policy.on_insert(fid);
+        drop(eviction_lock);
 
         Ok(fid)
     }
