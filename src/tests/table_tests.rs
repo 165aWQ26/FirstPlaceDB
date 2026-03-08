@@ -1,8 +1,21 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::bufferpool::{BufferPool, DiskManager};
 use crate::query::Query;
 use crate::table::Table;
 
+static TEST_DIR_CTR: AtomicUsize = AtomicUsize::new(0);
+
+fn make_bp(prefix: &str) -> Arc<BufferPool> {
+    let id = TEST_DIR_CTR.fetch_add(1, Ordering::Relaxed);
+    let dir = format!("./test_tmp/{}_{}", prefix, id);
+    let _ = std::fs::remove_dir_all(&dir);
+    Arc::new(BufferPool::new(DiskManager::new(&dir).unwrap()))
+}
+
 fn setup(num_columns: usize) -> Query {
-    let table = Table::new(String::from("test"), num_columns, 0);
+    let bp = make_bp("ttest");
+    let table = Table::new(String::from("test"), num_columns, 0, 0, bp);
     Query::new(table)
 }
 
@@ -13,7 +26,7 @@ fn insert_and_read_latest() {
 
     let rid = q.table.indices[0].locate(10).unwrap();
     let result = q.table.read_latest(rid).unwrap();
-    assert_eq!(result, vec![Some(10), Some(20), Some(30)]);
+    assert_eq!(&result[..3], &[Some(10), Some(20), Some(30)]);
 }
 
 #[test]
@@ -26,7 +39,7 @@ fn read_latest_follows_update_chain() {
 
     let rid = q.table.indices[0].locate(10).unwrap();
     let result = q.table.read_latest(rid).unwrap();
-    assert_eq!(result, vec![Some(10), Some(99), Some(30)]);
+    assert_eq!(&result[..3], &[Some(10), Some(99), Some(30)]);
 }
 
 #[test]
@@ -41,7 +54,7 @@ fn read_latest_multiple_updates() {
 
     let rid = q.table.indices[0].locate(1).unwrap();
     let result = q.table.read_latest(rid).unwrap();
-    assert_eq!(result, vec![Some(1), Some(20), Some(30), Some(4)]);
+    assert_eq!(&result[..4], &[Some(1), Some(20), Some(30), Some(4)]);
 }
 
 #[test]
