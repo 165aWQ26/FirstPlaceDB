@@ -264,15 +264,65 @@ impl Table {
         rid: i64,
         relative_version: i64,
     ) -> Result<Vec<Option<i64>>, DbError> {
-        let mut ans: Vec<Option<i64>> = Vec::new();
-        for (col, value) in projected.iter().enumerate() {
-            if *value == 1 {
-                ans.push(self.read_version_single(rid, col, relative_version)?);
+        let base_addr = self.page_directory.get(rid)?;
+        let mut result = self.read(rid)?;
+
+        let indirection = self.page_ranges.read_meta_col(
+            &base_addr,
+            MetaPage::IndirectionCol,
+            WhichRange::Base,
+        )?;
+
+        if let Some(tail_rid) = indirection
+            && tail_rid != rid
+        {
+            let mut tail_chain: Vec<i64> = Vec::new();
+            let mut current = tail_rid;
+            loop {
+                tail_chain.push(current);
+                let tail_addr = self.page_directory.get(current)?;
+                let next = self.page_ranges.read_meta_col(
+                    &tail_addr,
+                    MetaPage::IndirectionCol,
+                    WhichRange::Tail,
+                )?;
+                match next {
+                    Some(n) if n == rid => break,
+                    Some(n) => current = n,
+                    None => break,
+                }
+            }
+
+            let skip = (-relative_version) as usize;
+            let applicable = if skip >= tail_chain.len() {
+                &[] as &[i64]
             } else {
-                ans.push(None);
+                &tail_chain[skip..]
+            };
+
+            let mut accumulated_schema: i64 = 0;
+            for &t_rid in applicable {
+                let tail_addr = self.page_directory.get(t_rid)?;
+                let tail_schema = self
+                    .page_ranges
+                    .read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)?
+                    .unwrap_or(0);
+                let new_cols = tail_schema & !accumulated_schema;
+                for col in 0..self.num_data_columns {
+                    if (new_cols >> col) & 1 == 1 {
+                        result[col] =
+                            self.page_ranges.read_single(col, &tail_addr, WhichRange::Tail)?;
+                    }
+                }
+                accumulated_schema |= tail_schema;
             }
         }
-        Ok(ans)
+
+        Ok(projected
+            .iter()
+            .enumerate()
+            .map(|(col, &flag)| if flag == 1 { result[col] } else { None })
+            .collect())
     }
 
     /// Check if a base RID's latest tail has schema_encoding == None (deletion marker).
