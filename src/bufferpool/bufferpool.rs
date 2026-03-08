@@ -1,12 +1,13 @@
-use crate::bufferpool_worker::{BufferPoolOp, BufferPoolWorker};
-use crate::disk_manager::{DiskError, DiskManager};
-use crate::eviction_policy::EvictionPolicy;
+use crate::bufferpool::bufferpool_worker::{BufferPoolOp, BufferPoolWorker};
+use crate::bufferpool::disk_manager::DiskManager;
+use crate::bufferpool::errors::BufferPoolError;
+use crate::bufferpool::eviction_policy::EvictionPolicy;
 use crate::page::{Page, PageError};
 use crate::page_collection::PageId;
 use dashmap::DashMap;
 use parking_lot::{Mutex, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::{mpsc, Arc};
 use std::thread;
 
 pub type FrameId = usize;
@@ -145,7 +146,7 @@ impl BufferPool {
 
     //todo: when writing close table later, consider the race condition where a write occurs after
     //this function scans the bp. Need to hold write locks on everything before proceeding and reject
-    //essentially this function on its own does not guarentee a fully flushed bp.
+    //essentially this function on its own does not guarantee a fully flushed bp.
     pub fn evict_all(&self) -> Result<(), BufferPoolError> {
         let pages: Vec<(PageId, Page)> = self
             .page_table
@@ -154,11 +155,12 @@ impl BufferPool {
                 let pid = *entry.key();
                 let fid = *entry.value();
                 if self.frames[fid].is_dirty() {
-                    Some((pid,self.frames[fid].get_page_copy()))
+                    Some((pid, self.frames[fid].get_page_copy()))
                 } else {
                     None
                 }
-            }).collect();
+            })
+            .collect();
         self.flush_pages(pages)?;
 
         let mut ev = self.eviction_state.lock();
@@ -197,13 +199,14 @@ impl BufferPool {
         Ok(self.frames[fid].update(offset, val)?)
     }
 
-    pub fn flush_page(&self, pid: PageId) -> Result<(), BufferPoolError> {
-        if let Some(entry) = self.page_table.get(&pid) {
-            let fid = *entry;
-            self.flush_frame(pid, fid)?;
-        }
-        Ok(())
-    }
+    // TODO wire up for transaction
+    // pub fn flush_page(&self, pid: PageId) -> Result<(), BufferPoolError> {
+    //     if let Some(entry) = self.page_table.get(&pid) {
+    //         let fid = *entry;
+    //         self.flush_frame(pid, fid)?;
+    //     }
+    //     Ok(())
+    // }
 
     //Todo: You are not giving the worker a way to return any result.
     //A pattern I used was sending a different tx channel to the worker and keeping the rx.
@@ -277,8 +280,8 @@ impl BufferPool {
                 .policy
                 .evict_victim()
                 .ok_or(BufferPoolError::AllFramesPinned)?;
-            let victim_pid = self
-                .frames[victim_fid].pid()
+            let victim_pid = self.frames[victim_fid]
+                .pid()
                 .ok_or(BufferPoolError::PidNotInFrame)?;
 
             self.page_table.remove(&victim_pid);
@@ -287,8 +290,8 @@ impl BufferPool {
             victim_fid
         };
 
-        if self.disk_manager.page_exists(fid) {
-            let page = self.disk_manager.read_page(fid)?;
+        if self.disk_manager.page_exists(pid) {
+            let page = self.disk_manager.read_page(pid)?;
             self.frames[fid].load(pid, page);
         } else {
             self.frames[fid].init(pid);
@@ -303,49 +306,7 @@ impl BufferPool {
 
 impl Drop for BufferPool {
     fn drop(&mut self) {
+        let _ = self.evict_all();
         let _ = self.command_tx.send(BufferPoolOp::Shutdown);
-    }
-}
-
-#[derive(Debug)]
-pub enum BufferPoolError {
-    PageNotFound,
-
-    NoVictim,
-
-    Disk(DiskError),
-
-    Page(PageError),
-
-    BackgroundWorkerDead,
-
-    AllFramesPinned,
-
-    PidNotInFrame,
-}
-
-impl std::fmt::Display for BufferPoolError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BufferPoolError::PageNotFound => write!(f, "Page not found in buffer pool"),
-            BufferPoolError::NoVictim => write!(f, "No victim available for eviction"),
-            BufferPoolError::Disk(e) => write!(f, "Disk error: {}", e),
-            BufferPoolError::Page(e) => write!(f, "Page error: {:?}", e),
-            BufferPoolError::BackgroundWorkerDead => write!(f, "Background worker thread has died"),
-            BufferPoolError::AllFramesPinned => write!(f, "Every frame is pinned"),
-            BufferPoolError::PidNotInFrame => write!(f, "Pid "),
-        }
-    }
-}
-
-impl From<PageError> for BufferPoolError {
-    fn from(e: PageError) -> Self {
-        BufferPoolError::Page(e)
-    }
-}
-
-impl From<DiskError> for BufferPoolError {
-    fn from(e: DiskError) -> Self {
-        BufferPoolError::Disk(e)
     }
 }

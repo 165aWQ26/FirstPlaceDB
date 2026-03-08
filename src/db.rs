@@ -2,7 +2,7 @@ use dashmap::{DashMap, mapref::entry::Entry};
 use std::sync::Arc;
 use crate::table::Table;
 use crate::bufferpool::BufferPool;
-use crate::disk_manager::{DiskError, DiskManager};
+use crate::bufferpool::DiskManager;
 use crate::iterators::AtomicIterator;
 
 struct Database {

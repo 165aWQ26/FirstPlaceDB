@@ -1,9 +1,9 @@
-use crate::bufferpool::BufferPoolError;
-use crate::disk_manager::DiskManager;
-use crate::page_collection::{PageId};
 use std::sync::mpsc::Receiver;
 use std::sync::{mpsc, Arc};
+use crate::bufferpool::disk_manager::DiskManager;
+use crate::bufferpool::errors::BufferPoolError;
 use crate::page::Page;
+use crate::page_collection::PageId;
 
 pub enum BufferPoolOp {
     /// Evict N pages from buffer pool
@@ -16,7 +16,7 @@ pub enum BufferPoolOp {
     Shutdown,
 }
 
-pub(crate) struct BufferPoolWorker {
+pub struct BufferPoolWorker {
     cmd_rx: Receiver<BufferPoolOp>,
     disk_manager: Arc<DiskManager>,
 }

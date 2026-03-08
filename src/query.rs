@@ -1,4 +1,4 @@
-use crate::error::DbError;
+use crate::errors::DbError;
 use crate::page_collection::{MetaPage};
 use crate::page_range::WhichRange;
 use crate::table::Table;
