@@ -46,9 +46,24 @@ impl PidRangeIterator {
         }
     }
     pub fn next(&self) -> PidRange {
-        let start = self.start.fetch_add(self.pages_per_collection, Ordering::SeqCst);
+        let start = self.start.fetch_add(self.pages_per_collection, Ordering::Relaxed);
         let end = start + self.pages_per_collection;
 
         PidRange { start, end }
+    }
+}
+
+pub struct AtomicIterator {
+    next: AtomicUsize,
+}
+
+impl AtomicIterator {
+    pub fn new() -> Self {
+        Self {
+            next: AtomicUsize::new(0),
+        }
+    }
+    pub fn next(&self) -> usize {
+        self.next.fetch_add(1, Ordering::Relaxed)
     }
 }

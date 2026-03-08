@@ -2,7 +2,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write, BufReader, BufWriter};
 use std::path::PathBuf;
 use crate::page::{Page, PageError};
-use crate::page_collection::Pid;
+use crate::page_collection::{PageId, PageId};
 
 pub struct DiskManager {
     base_path: PathBuf,
@@ -16,14 +16,14 @@ impl DiskManager {
         Ok(Self { base_path })
     }
 
-    fn page_path(&self, pid: Pid) -> PathBuf {
+    fn page_path(&self, pid: PageId) -> PathBuf {
         self.base_path
             .join("table")
             .join(pid.table_id.to_string())
             .join(pid.page_num.to_string())
     }
 
-    pub fn read_page(&self, pid: Pid) -> Result<Page, DiskError> {
+    pub fn read_page(&self, pid: PageId) -> Result<Page, DiskError> {
         let path = self.page_path(pid);
 
         if !path.exists() {
@@ -41,7 +41,7 @@ impl DiskManager {
         self.deserialize_page(&buffer)
     }
 
-    pub fn write_page(&self, pid: Pid, page: &Page) -> Result<(), DiskError> {
+    pub fn write_page(&self, pid: PageId, page: &Page) -> Result<(), DiskError> {
         let path = self.page_path(pid);
 
         if let Some(parent) = path.parent() {
@@ -63,7 +63,7 @@ impl DiskManager {
         Ok(())
     }
 
-    pub fn delete_page(&self, pid: Pid) -> Result<(), DiskError> {
+    pub fn delete_page(&self, pid: PageId) -> Result<(), DiskError> {
         let path = self.page_path(pid);
 
         if path.exists() {
@@ -73,7 +73,7 @@ impl DiskManager {
         Ok(())
     }
 
-    pub fn page_exists(&self, pid: Pid) -> bool {
+    pub fn page_exists(&self, pid: PageId) -> bool {
         self.page_path(pid).exists()
     }
 
@@ -152,7 +152,7 @@ impl DiskManager {
 
 #[derive(Debug)]
 pub enum DiskError {
-    PageNotFound(Pid),
+    PageNotFound(PageId),
     IoError(std::io::Error),
     SerializationError,
     CorruptedPage(String),

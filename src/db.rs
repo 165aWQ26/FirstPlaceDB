@@ -1,50 +1,73 @@
-use rustc_hash::FxHashMap;
-
-use crate::table::Table;
-use dashmap::DashMap;
+use dashmap::{DashMap, mapref::entry::Entry};
 use std::sync::Arc;
-use crate::page::Page;
-use crate::page_collection::Pid;
+use crate::table::Table;
+use crate::bufferpool::BufferPool;
+use crate::disk_manager::{DiskError, DiskManager};
+use crate::iterators::AtomicIterator;
 
 struct Database {
-    tables: FxHashMap<usize, Table>,
-    table_names: FxHashMap<String, usize>, //use this for the guard check
-    table_id: std::ops::RangeFrom<usize>,
-    //buffer_pool: BufferPool,
-    bp_lookup_map: Arc<BufferPoolFrameMap>,
-
+    tables: DashMap<usize, Arc<Table>>,
+    table_names: DashMap<String, usize>,
+    table_id: AtomicIterator,
+    bufferpool: Arc<BufferPool>,
 }
 
-#[allow(dead_code)]
 impl Database {
     pub fn new() -> Self {
-        let map = BufferPoolFrameMap::new(); //Todo this needs frames
         Self {
-            tables: FxHashMap::default(),
-            table_names: FxHashMap::default(),
-            table_id: 0..,
-            //buffer_pool: BufferPool::new(&map),
-            bp_lookup_map: Arc::from(map),
+            tables: DashMap::new(),
+            table_names: DashMap::new(),
+            table_id: AtomicIterator::new(),
+            bufferpool: Arc::new(BufferPool::new(DiskManager::new("db").unwrap())),
         }
     }
-    
-    pub fn create_table(&mut self, name: String, num_columns: usize, key_index: usize) {
-        let table_id = self.table_id.next().unwrap();
-        let table = Table::new(
-            name.clone(),
-            num_columns,
-            key_index,
-            table_id,
-            self.bp_lookup_map.clone(),
-        );
-        self.tables.insert(table_id, table);
-        self.table_names.insert(name, table_id);
+
+    pub fn create_table(
+        &self,
+        name: String,
+        num_columns: usize,
+        key_index: usize,
+    ) -> Result<usize, String> {
+
+        //atomic check table_names and return an entry 
+        match self.table_names.entry(name.clone()) {
+            Entry::Vacant(vacant) => {
+                let table_id = self.table_id.next();
+                let table = Arc::new(Table::new(
+                    name.clone(),
+                    num_columns,
+                    key_index,
+                    table_id,
+                    self.bufferpool.clone(),
+                ));
+
+                //insert into tables
+                self.tables.insert(table_id, table);
+
+                //insert into table_names
+                vacant.insert(table_id);
+
+                Ok(table_id)
+            }
+            Entry::Occupied(_) => Err("Table alr exists".to_string()), //Todo better error handling
+        }
     }
 
-    pub fn get_table(&self, name: &str) -> Option<&Table> {
-        self.tables.get(self.table_names.get(name).unwrap()) //Todo danny fix this error handling
+    pub fn get_table(&self, name: &str) -> Option<Arc<Table>> {
+        let id = self.table_names.get(name)?.value().clone();
+        self.tables.get(&id).map(|t| t.value().clone())
     }
-    pub fn drop_table(&mut self, name: &str) {
-        self.tables.remove(self.table_names.get(name).unwrap()); //Todo danny fix this error handling
+
+    pub fn drop_table(&self, name: &str) -> bool {
+        if let Some((_, table_id)) = self.table_names.remove(name) {
+            self.tables.remove(&table_id);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn table_exists(&self, name: &str) -> bool {
+        self.table_names.contains_key(name)
     }
 }

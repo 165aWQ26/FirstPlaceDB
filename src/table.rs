@@ -1,7 +1,8 @@
 use std::sync::Arc;
+use crate::bufferpool::BufferPool;
 use crate::error::DbError;
 use crate::index::Index;
-use crate::page_collection::{MetaPage, PageId};
+use crate::page_collection::{MetaPage};
 use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
 
@@ -34,12 +35,12 @@ impl Table {
         num_columns: usize,
         key_index: usize,
         table_id: usize,
-        bp_lookup_map: Arc<BufferPoolFrameMap>
+        bufferpool: Arc<BufferPool>,
     ) -> Table {
         let num_total_cols = num_columns + Table::NUM_META_PAGES;
         Self {
             name: table_name,
-            page_ranges: PageRanges::new(num_total_cols, table_id, bp_lookup_map),
+            page_ranges: PageRanges::new(num_total_cols, table_id, bufferpool),
             page_directory: PageDirectory::default(),
             rid: 0..,
             key_index,
@@ -185,7 +186,7 @@ impl Table {
                 }
             }
         }
-        return self.page_ranges.read_single(col, &base_addr, WhichRange::Base);
+        self.page_ranges.read_single(col, &base_addr, WhichRange::Base)?;
     }
 
     pub fn read_latest_projected(
