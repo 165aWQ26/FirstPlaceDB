@@ -42,6 +42,18 @@ impl CoreQuery {
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
+    fn select_version(
+        &self,
+        search_key: i64,
+        search_key_index: usize,
+        projected_columns_index: Vec<i64>,
+        relative_version: i64
+    ) -> PyResult<Vec<Vec<Option<i64>>>> {
+        self.inner
+            .select_version(search_key, search_key_index, &projected_columns_index,relative_version)
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+
     #[pyo3(signature = (primary_key, *columns))]
     fn update(&mut self, primary_key: i64, columns: Vec<Option<i64>>) -> bool {
         self.inner.update(primary_key, columns).unwrap_or(false)
@@ -56,25 +68,24 @@ impl CoreQuery {
             .sum(start_range, end_range, col)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
+    fn sum_version(&self, start_range: i64, end_range: i64, column: usize, relative_version: i64) -> PyResult<i64>{
+        self.inner.sum_version(start_range, end_range, column, relative_version)
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
 
     fn increment(&mut self, key: i64, column: usize) -> bool {
         self.inner.increment(key, column).unwrap_or(false)
     }
 
-    fn sum_version(&self, start_range: i64, end_range: i64, column: usize, relative_version: i64) -> PyResult<i64>{
-        self.inner.sum_version(start_range, end_range, column, relative_version)
-        .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    fn create_index(&self, col: usize) {
+        if col < self.inner.table.num_data_columns {
+            self.inner.table.indices[col].enable();
+        }
     }
 
-    fn select_version(
-        &self,
-        search_key: i64,
-        search_key_index: usize,
-        projected_columns_index: Vec<i64>,
-        relative_version: i64
-    ) -> PyResult<Vec<Vec<Option<i64>>>> {
-        self.inner
-            .select_version(search_key, search_key_index, &projected_columns_index,relative_version)
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    fn drop_index(&self, col: usize) {
+        if col < self.inner.table.num_data_columns {
+            self.inner.table.indices[col].disable();
+        }
     }
 }
