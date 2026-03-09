@@ -7,15 +7,8 @@ use crate::page_range::{PageRanges, WhichRange};
 use dashmap::DashSet;
 use std::sync::Arc;
 use std::sync::atomic::AtomicI64;
+use crate::disk_manager::TableMeta;
 use crate::iterators::AtomicIterator;
-
-pub struct TableMeta {
-    pub table_id: usize,
-    pub name: String,
-    pub num_data_columns: usize,
-    pub key_index: usize,
-    pub next_rid: i64,
-}
 
 pub struct Table {
     pub name: String,
@@ -49,7 +42,15 @@ impl Table {
             rid: AtomicIterator::default(),
             key_index,
             num_data_columns: num_columns,
-            indices: (0..1).map(|_| Index::new()).collect(),
+            indices: (0..num_columns)
+                .map(|i| {
+                    if i == key_index {
+                        Index::new_unique()
+                    } else {
+                        Index::new_non_unique()
+                    }
+                })
+                .collect(),
             table_id,
             num_total_cols,
             dirty_base_rids: DashSet::new(),
@@ -62,8 +63,8 @@ impl Table {
             .read(&addr)
             .map_err(|e| DbError::Storage(e))
     }
-    
-    
+
+
     pub fn read_single(
         &self,
         rid: i64,
@@ -163,7 +164,7 @@ impl Table {
         };
 
         let tps = self.page_ranges.get_tps(&base_addr);
-        
+
         if tail_rid <= tps {
             return self.page_ranges
                 .read_single(col, &base_addr, WhichRange::Base)
@@ -358,11 +359,11 @@ impl Table {
 
         let tail_rid = match indirection {
             Some(ind) if ind != rid => ind,
-            _ => return Ok(false), 
+            _ => return Ok(false),
         };
 
         let tps = self.page_ranges.get_tps(&base_addr);
-        
+
         if tail_rid <= tps {
             let base_schema = self.page_ranges.read_meta_col(
                 &base_addr,

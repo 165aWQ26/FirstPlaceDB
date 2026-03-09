@@ -1,62 +1,77 @@
-// Wrapper over the std btreemap. Table will have [Index, Index, Index, ..., ]
-// B+ Tree wrapper for mapping primary/secondary keys -> vector of RIDs
-// M1: primary key only (BTreeMap<i64, i64>)
-// M2: restore secondary indices — switch back to BTreeMap<i64, Vec<i64>> or similar
-use std::collections::BTreeMap;
+use crossbeam_skiplist::{SkipSet,SkipMap};
+use std::ops::Bound;
 
 pub struct Index {
-    index: BTreeMap<i64, i64>,
+    inner: IndexInner
 }
 
-impl Default for Index {
-    fn default() -> Self {
-        Self::new()
-    }
+enum IndexInner {
+    Unique(SkipMap<i64, i64>),
+    NonUnique(SkipSet<(i64, i64)>),
 }
 
 impl Index {
-    pub fn new() -> Self {
-        Index {
-            index: BTreeMap::new(),
+    pub fn new_unique() -> Self {
+        Self {
+            inner: IndexInner::Unique(SkipMap::new())
+        }
+    }
+    pub fn new_non_unique() -> Self {
+        Self {
+            inner: IndexInner::NonUnique(SkipSet::new())
+        }
+    }
+    pub fn insert(&self, key: i64, rid: i64) {
+        match &self.inner {
+            IndexInner::Unique(map) => {map.insert(key,rid);}
+            IndexInner::NonUnique(set) => {set.insert((key,rid));}
         }
     }
 
-    /// Single-traversal insert that checks uniqueness. Returns true if inserted, false if key exists.
-    #[inline]
-    pub fn insert_unique(&mut self, key: i64, rid: i64) -> bool {
-        use std::collections::btree_map::Entry;
-        match self.index.entry(key) {
-            Entry::Vacant(e) => {
-                e.insert(rid);
-                true
+    pub fn insert_unique(&self, key: i64, rid: i64) -> bool {
+        match &self.inner {
+            IndexInner::Unique(map) => {
+                let entry = map.get_or_insert(key, rid);
+                *entry.value() == rid
             }
-            Entry::Occupied(_) => false,
+            IndexInner::NonUnique(_) => panic!("insert_unique called on non-unique index"),
         }
     }
 
-    #[inline]
-    pub fn locate(&self, value: i64) -> Option<i64> {
-        self.index.get(&value).copied()
-    }
-
-    pub fn locate_range(&self, begin: i64, end: i64) -> Option<Vec<i64>> {
-        let result: Vec<i64> = self.index.range(begin..=end).map(|(_, &rid)| rid).collect();
-        if result.is_empty() {
-            None
-        } else {
-            Some(result)
+    pub fn remove(&self, key: i64, rid: i64) {
+        match &self.inner {
+            IndexInner::Unique(map) => {map.remove(&key);}
+            IndexInner::NonUnique(set) => {set.remove(&(key,rid));}
         }
     }
-
-    #[inline]
-    pub fn insert(&mut self, key: i64, rid: i64) {
-        self.index.insert(key, rid);
+    pub fn locate(&self, key: i64) -> Option<i64> {
+        match &self.inner {
+            IndexInner::Unique(map) => map.get(&key).map(|e| *e.value()),
+            IndexInner::NonUnique(_) => panic!("locate called on non-unique index"),
+        }
     }
-
-    #[inline]
-    pub fn remove(&mut self, key: i64, _rid: i64) {
-        self.index.remove(&key);
+    pub fn locate_all(&self, key: i64) -> Vec<i64> {
+        match &self.inner {
+            IndexInner::Unique(_) => panic!("locate_all called on unique index"),
+            IndexInner::NonUnique(set) => {
+                set.range((Bound::Included(&(key, i64::MIN)), Bound::Included(&(key, i64::MAX))))
+                    .map(|e| e.value().1)
+                    .collect()
+            }
+        }
     }
-
-    // drop_index and create_index is left to the Table
+    pub fn locate_range(&self, begin: i64, end: i64) -> Vec<i64> {
+        match &self.inner {
+            IndexInner::Unique(map) => {
+                map.range(begin..=end)
+                    .map(|e| *e.value())
+                    .collect()
+            }
+            IndexInner::NonUnique(set) => {
+                set.range((Bound::Included(&(begin, i64::MIN)), Bound::Included(&(end, i64::MAX))))
+                    .map(|e| e.value().1)
+                    .collect()
+            }
+        }
+    }
 }

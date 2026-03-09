@@ -58,7 +58,11 @@ impl Query {
             return Err(DbError::KeyNotFound(key));
         }
 
-        Ok(vec![self.table.read_version_projected(projected_columns_index, rid, relative_version)?])
+        Ok(vec![self.table.read_version_projected(
+            projected_columns_index,
+            rid,
+            relative_version,
+        )?])
     }
 
     pub fn update(&mut self, key: i64, record: Vec<Option<i64>>) -> Result<bool, DbError> {
@@ -150,21 +154,22 @@ impl Query {
     }
 
     pub fn sum(&self, start_range: i64, end_range: i64, col: usize) -> Result<i64, DbError> {
-        if let Some(rids) = self.table.indices[self.table.key_index].locate_range(start_range, end_range) {
-            let mut sum: i64 = 0;
-            for rid in rids {
-                if self.table.is_deleted(rid)? {
-                    continue;
-                }
-                sum += self
-                    .table
-                    .read_latest_single(rid, col)?
-                    .ok_or(DbError::NullValue(col))?;
-            }
-            Ok(sum)
-        } else {
-            Err(DbError::KeyNotFound(start_range))
+        let rids = self.table.indices[self.table.key_index].locate_range(start_range, end_range);
+        if rids.is_empty() {
+            return Err(DbError::KeyNotFound(start_range));
         }
+        let mut sum: i64 = 0;
+
+        for rid in rids {
+            if self.table.is_deleted(rid)? {
+                continue;
+            }
+            sum += self
+                .table
+                .read_latest_single(rid, col)?
+                .ok_or(DbError::NullValue(col))?;
+        }
+        Ok(sum)
     }
 
     pub fn sum_version(
@@ -174,18 +179,21 @@ impl Query {
         col: usize,
         relative_version: i64,
     ) -> Result<i64, DbError> {
-        if let Some(rids) = self.table.indices[self.table.key_index].locate_range(start_range, end_range) {
-            let mut sum: i64 = 0;
-            for rid in rids {
-                sum += self
-                    .table
-                    .read_version_single(rid, col, relative_version)?
-                    .ok_or(DbError::NullValue(col))?;
-            }
-            Ok(sum)
-        } else {
-            Err(DbError::KeyNotFound(start_range))
+        let rids = self.table.indices[self.table.key_index].locate_range(start_range, end_range);
+        if rids.is_empty() {
+            return Err(DbError::KeyNotFound(start_range));
         }
+
+        // cumulative sum of all columns
+        let mut sum: i64 = 0;
+
+        for rid in rids {
+            sum += self
+                .table
+                .read_version_single(rid, col, relative_version)?
+                .ok_or(DbError::NullValue(col))?;
+        }
+        Ok(sum)
     }
 
     pub fn increment(&mut self, key: i64, col: usize) -> Result<bool, DbError> {
