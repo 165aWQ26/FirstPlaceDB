@@ -304,3 +304,40 @@ pub struct TableMeta {
     pub name: String,
 }
 
+fn write_file(path: &PathBuf, data: &[u8]) -> Result<(), DiskError> {
+    let file = OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
+    let mut w = BufWriter::new(file);
+    w.write_all(data)?;
+    w.flush()?;
+    Ok(())
+}
+
+fn read_file(path: &PathBuf) -> Result<Vec<u8>, DiskError> {
+    let mut data = Vec::new();
+    BufReader::new(File::open(path)?).read_to_end(&mut data)?;
+    Ok(data)
+}
+
+#[inline]
+fn read_u64(data: &[u8], offset: &mut usize) -> Result<u64, DiskError> {
+    if *offset + 8 > data.len() {
+        return Err(DiskError::CorruptedPage("Unexpected end of data (u64)".into()));
+    }
+    let bytes: [u8; 8] = data[*offset..*offset + 8]
+        .try_into()
+        .map_err(|_| DiskError::CorruptedPage("Bad u64 bytes".into()))?;
+    *offset += 8;
+    Ok(u64::from_be_bytes(bytes))
+}
+
+#[inline]
+fn read_i64(data: &[u8], offset: &mut usize) -> Result<i64, DiskError> {
+    if *offset + 8 > data.len() {
+        return Err(DiskError::CorruptedPage("Unexpected end of data (i64)".into()));
+    }
+    let bytes: [u8; 8] = data[*offset..*offset + 8]
+        .try_into()
+        .map_err(|_| DiskError::CorruptedPage("Bad i64 bytes".into()))?;
+    *offset += 8;
+    Ok(i64::from_be_bytes(bytes))
+}
