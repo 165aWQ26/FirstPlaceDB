@@ -118,7 +118,6 @@ impl Table {
             .map_err(|e| DbError::Storage(e))
     }
 
-
     pub fn read_single(
         &self,
         rid: i64,
@@ -126,9 +125,7 @@ impl Table {
         range: WhichRange,
     ) -> Result<Option<i64>, DbError> {
         let addr = self.page_directory.get(rid)?;
-        self.page_ranges
-            .read_single(column, &addr, range)
-            .map_err(|e| DbError::Storage(e))
+        self.read_col(column, &addr, range)
     }
 
     pub fn rid_for_key(&self, key: i64) -> Result<i64, DbError> {
@@ -141,91 +138,25 @@ impl Table {
         let addr = self.page_directory.get(rid)?;
         self.page_ranges
             .read_projected(projected, &addr)
-            .map_err(|e| DbError::Storage(e))
+            .map_err(DbError::Storage)
     }
 
     pub fn read_latest(&self, rid: i64) -> Result<Vec<Option<i64>>, DbError> {
-        let base_addr = self.page_directory.get(rid)?;
-        let mut result = self.read(rid)?;
-
-        let indirection = self.page_ranges.read_meta_col(
-            &base_addr,
-            MetaPage::IndirectionCol,
-            WhichRange::Base,
-        )?;
-
-        let tail_rid = match indirection {
-            Some(ind) if ind != rid => ind,
-            _ => return Ok(result), //No updates
-        };
-
-        let tps = self.page_ranges.get_tps(&base_addr);
-
-        //base page already merged/up to date
-        if tail_rid <= tps {
-            return Ok(result);
-        }
-
-        let mut current_tail_rid = tail_rid;
-        let mut accumulated_schema: i64 = 0;
-
-        loop {
-            let tail_addr = self.page_directory.get(current_tail_rid)?;
-            let tail_schema = self
-                .page_ranges
-                .read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)?
-                .unwrap_or(0);
-
-            let new_cols = tail_schema & !accumulated_schema;
-            for col in 0..self.num_data_columns {
-                if (new_cols >> col) & 1 == 1 {
-                    result[col] = self
-                        .page_ranges
-                        .read_single(col, &tail_addr, WhichRange::Tail)?;
-                }
-            }
-            accumulated_schema |= tail_schema;
-
-            let next_rid = self.page_ranges.read_meta_col(
-                &tail_addr,
-                MetaPage::IndirectionCol,
-                WhichRange::Tail,
-            )?;
-            match next_rid {
-                Some(next) if next == rid => break,
-                Some(next) if next <= tps => break,
-                Some(next) => current_tail_rid = next,
-                None => break,
-            }
-        }
-
-        Ok(result)
+        self.read_record_internal(rid, 0)
     }
 
     pub fn read_latest_single(&self, rid: i64, col: usize) -> Result<Option<i64>, DbError> {
-        let base_addr = self.page_directory.get(rid)?;
-        let indirection = self.page_ranges.read_meta_col(
-            &base_addr,
-            MetaPage::IndirectionCol,
-            WhichRange::Base,
-        )?;
-
-        let tail_rid = match indirection {
-            Some(ind) if ind != rid => ind,
-            _ => return self.page_ranges
-                .read_single(col, &base_addr, WhichRange::Base)
-                .map_err(DbError::Storage),
+        let (base_addr, tps, tail_opt) = self.get_unmerged_tail(rid)?;
+        let mut current_tail_rid = match tail_opt {
+            Some(r) => r,
+            None => {
+                return self
+                    .page_ranges
+                    .read_single(col, &base_addr, WhichRange::Base)
+                    .map_err(DbError::Storage);
+            }
         };
 
-        let tps = self.page_ranges.get_tps(&base_addr);
-
-        if tail_rid <= tps {
-            return self.page_ranges
-                .read_single(col, &base_addr, WhichRange::Base)
-                .map_err(DbError::Storage);
-        }
-
-        let mut current_tail_rid = tail_rid;
         loop {
             let tail_addr = self.page_directory.get(current_tail_rid)?;
             let tail_schema = self
@@ -258,24 +189,15 @@ impl Table {
             .map_err(DbError::Storage)
     }
 
-
     pub fn read_version_single(
         &self,
         rid: i64,
         col: usize,
         mut relative_version: i64,
     ) -> Result<Option<i64>, DbError> {
-        let base_addr = self.page_directory.get(rid)?;
-        let indirection = self.page_ranges.read_meta_col(
-            &base_addr,
-            MetaPage::IndirectionCol,
-            WhichRange::Base,
-        )?;
+        let (base_addr, tps, tail_opt) = self.get_unmerged_tail(rid)?;
 
-        if let Some(tail_rid) = indirection && tail_rid != rid {
-            let tps = self.page_ranges.get_tps(&base_addr);
-            let mut current_tail_rid = tail_rid;
-
+        if let Some(mut current_tail_rid) = tail_opt {
             loop {
                 // Stop walking once we reach merged region
                 if current_tail_rid <= tps {
@@ -312,9 +234,7 @@ impl Table {
         }
 
         // Fall back to base page (covers no-tail and merged-region cases)
-        self.page_ranges
-            .read_single(col, &base_addr, WhichRange::Base)
-            .map_err(DbError::Storage)
+        self.read_col(col, &base_addr, WhichRange::Base)
     }
 
     pub fn read_latest_projected(
@@ -336,104 +256,35 @@ impl Table {
         rid: i64,
         relative_version: i64,
     ) -> Result<Vec<Option<i64>>, DbError> {
-        let base_addr = self.page_directory.get(rid)?;
-        let mut result = self.read(rid)?;
-
-        let indirection = self.page_ranges.read_meta_col(
-            &base_addr,
-            MetaPage::IndirectionCol,
-            WhichRange::Base,
-        )?;
-
-        if let Some(tail_rid) = indirection
-            && tail_rid != rid
-        {
-            let tps = self.page_ranges.get_tps(&base_addr);
-
-            // Collect only the unmerged portion of the tail chain (> TPS)
-            let mut tail_chain: Vec<i64> = Vec::new();
-            let mut current = tail_rid;
-            loop {
-                if current <= tps {
-                    break; // the rest is already in the base page
-                }
-                tail_chain.push(current);
-                let tail_addr = self.page_directory.get(current)?;
-                let next = self.page_ranges.read_meta_col(
-                    &tail_addr,
-                    MetaPage::IndirectionCol,
-                    WhichRange::Tail,
-                )?;
-                match next {
-                    Some(n) if n == rid => break,
-                    Some(n) => current = n,
-                    None => break,
-                }
-            }
-
-            let skip = (-relative_version) as usize;
-            let applicable = if skip >= tail_chain.len() {
-                &[] as &[i64]
-            } else {
-                &tail_chain[skip..]
-            };
-
-            let mut accumulated_schema: i64 = 0;
-            for &t_rid in applicable {
-                let tail_addr = self.page_directory.get(t_rid)?;
-                let tail_schema = self
-                    .page_ranges
-                    .read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)?
-                    .unwrap_or(0);
-                let new_cols = tail_schema & !accumulated_schema;
-                for col in 0..self.num_data_columns {
-                    if (new_cols >> col) & 1 == 1 {
-                        result[col] =
-                            self.page_ranges.read_single(col, &tail_addr, WhichRange::Tail)?;
-                    }
-                }
-                accumulated_schema |= tail_schema;
-            }
-        }
+        let skip_count = (-relative_version) as usize;
+        let full = self.read_record_internal(rid, skip_count)?;
 
         Ok(projected
             .iter()
             .enumerate()
-            .map(|(col, &flag)| if flag == 1 { result[col] } else { None })
+            .map(|(col, &flag)| if flag == 1 { full[col] } else { None })
             .collect())
     }
 
     pub fn is_deleted(&self, rid: i64) -> Result<bool, DbError> {
-        let base_addr = self.page_directory.get(rid)?;
-        let indirection = self.page_ranges.read_meta_col(
-            &base_addr,
-            MetaPage::IndirectionCol,
-            WhichRange::Base,
-        )?;
+        let (base_addr, _tps, tail_opt) = self.get_unmerged_tail(rid)?;
 
-        let tail_rid = match indirection {
-            Some(ind) if ind != rid => ind,
-            _ => return Ok(false),
-        };
-
-        let tps = self.page_ranges.get_tps(&base_addr);
-
-        if tail_rid <= tps {
+        if let Some(tail_rid) = tail_opt {
+            let tail_addr = self.page_directory.get(tail_rid)?;
+            let schema = self.page_ranges.read_meta_col(
+                &tail_addr,
+                MetaPage::SchemaEncodingCol,
+                WhichRange::Tail,
+            )?;
+            Ok(schema.is_none())
+        } else {
             let base_schema = self.page_ranges.read_meta_col(
                 &base_addr,
                 MetaPage::SchemaEncodingCol,
                 WhichRange::Base,
             )?;
-            return Ok(base_schema.is_none());
+            Ok(base_schema.is_none())
         }
-
-        let tail_addr = self.page_directory.get(tail_rid)?;
-        let schema = self.page_ranges.read_meta_col(
-            &tail_addr,
-            MetaPage::SchemaEncodingCol,
-            WhichRange::Tail,
-        )?;
-        Ok(schema.is_none())
     }
 
     pub fn merge(&mut self) -> Result<(), DbError> {
@@ -456,7 +307,6 @@ impl Table {
                 Some(ind) if ind != base_rid => ind,
                 _ => continue,
             };
-
 
             let tail_addr = match self.page_directory.get(indirection) {
                 Ok(addr) => addr,
@@ -488,4 +338,93 @@ impl Table {
         }
         Ok(())
     }
+
+    #[inline]
+    fn read_record_internal (&self, rid: i64, skip_count: usize) -> Result<Vec<Option<i64>>, DbError> {
+        let (base_addr, tps, tail_opt) = self.get_unmerged_tail(rid)?;
+        let mut result = self.page_ranges.read(&base_addr).map_err(DbError::Storage)?;
+
+        let mut current_tail_rid = match tail_opt {
+            Some(tail_rid) => tail_rid,
+            None => return Ok(result),
+        };
+
+        let mut accumulated_schema: i64 = 0;
+        let mut updates_seen = 0;
+
+        loop {
+            let tail_addr = self.page_directory.get(current_tail_rid)?;
+
+            if updates_seen >= skip_count {
+                self.apply_tail_update(&tail_addr, &mut result, &mut accumulated_schema)?;
+            }
+            updates_seen += 1;
+
+            let next_rid = self.page_ranges.read_meta_col(
+                &tail_addr,
+                MetaPage::IndirectionCol,
+                WhichRange::Tail,
+            )?;
+
+            match next_rid {
+                Some(next) if next == rid => break,
+                Some(next) if next <= tps => break,
+                Some(next) => current_tail_rid = next,
+                None => break,
+            }
+        }
+        Ok(result)
+    }
+
+    #[inline]
+    fn apply_tail_update(
+        &self,
+        tail_addr: &PhysicalAddress,
+        result: &mut Vec<Option<i64>>,
+        accumulated_schema: &mut i64,
+    ) -> Result<(), DbError> {
+        let tail_schema = self
+            .page_ranges
+            .read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)?
+            .unwrap_or(0);
+
+        let new_cols = tail_schema & !*accumulated_schema;
+        for col in 0..self.num_data_columns {
+            if (new_cols >> col) & 1 == 1 {
+                result[col] = self
+                    .page_ranges
+                    .read_single(col, &tail_addr, WhichRange::Tail)?;
+            }
+        }
+        *accumulated_schema |= tail_schema;
+        Ok(())
+    }
+
+    #[inline]
+    fn read_col(&self, col: usize, addr: &PhysicalAddress, range: WhichRange) -> Result<Option<i64>, DbError> {
+        self.page_ranges.read_single(col, addr, range).map_err(DbError::Storage)
+    }
+
+    #[inline]
+    fn get_unmerged_tail(&self, rid: i64) -> Result<(PhysicalAddress, i64, Option<i64>), DbError> {
+        let base_addr = self.page_directory.get(rid)?;
+        let indirection = self.page_ranges.read_meta_col(
+            &base_addr,
+            MetaPage::IndirectionCol,
+            WhichRange::Base,
+        )?;
+
+        let tail_rid = match indirection {
+            Some(t) if t != rid => t,
+            _ => return Ok((base_addr, 0, None)),
+        };
+
+        let tps = self.page_ranges.get_tps(&base_addr);
+        if tail_rid <= tps {
+            return Ok((base_addr, tps, None));
+        }
+
+        Ok((base_addr, tps, Some(tail_rid)))
+    }
 }
+
