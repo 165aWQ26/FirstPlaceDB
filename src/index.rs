@@ -1,8 +1,10 @@
 use crossbeam_skiplist::{SkipSet,SkipMap};
 use std::ops::Bound;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct Index {
-    inner: IndexInner
+    inner: IndexInner,
+    enabled: AtomicBool
 }
 
 enum IndexInner {
@@ -13,15 +15,29 @@ enum IndexInner {
 impl Index {
     pub fn new_unique() -> Self {
         Self {
-            inner: IndexInner::Unique(SkipMap::new())
+            inner: IndexInner::Unique(SkipMap::new()),
+            enabled: AtomicBool::new(true)
         }
     }
     pub fn new_non_unique() -> Self {
         Self {
-            inner: IndexInner::NonUnique(SkipSet::new())
+            inner: IndexInner::NonUnique(SkipSet::new()),
+            enabled: AtomicBool::new(false)
         }
     }
+
+    pub fn enable(&self) {
+        self.enabled.store(true, Ordering::Release);
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::Acquire)
+    }
+
     pub fn insert(&self, key: i64, rid: i64) {
+        if !self.is_enabled() {
+            return;
+        }
         match &self.inner {
             IndexInner::Unique(map) => {map.insert(key,rid);}
             IndexInner::NonUnique(set) => {set.insert((key,rid));}
@@ -39,6 +55,9 @@ impl Index {
     }
 
     pub fn remove(&self, key: i64, rid: i64) {
+        if self.is_enabled() {
+            return;
+        }
         match &self.inner {
             IndexInner::Unique(map) => {map.remove(&key);}
             IndexInner::NonUnique(set) => {set.remove(&(key,rid));}
@@ -51,6 +70,8 @@ impl Index {
         }
     }
     pub fn locate_all(&self, key: i64) -> Vec<i64> {
+        //TODO maybe not panic
+        assert!(self.is_enabled(), "locate_all called on a disabled secondary index");
         match &self.inner {
             IndexInner::Unique(_) => panic!("locate_all called on unique index"),
             IndexInner::NonUnique(set) => {
