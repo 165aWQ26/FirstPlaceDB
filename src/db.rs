@@ -1,14 +1,14 @@
-use std::path::PathBuf;
-use dashmap::{DashMap, mapref::entry::Entry};
-use parking_lot::{RwLock};
-use std::sync::atomic::AtomicUsize;
-use crate::table::Table;
-use crate::bufferpool::{BufferPool, BufferPoolError};
-use std::sync::Arc;
 use crate::bufferpool::DiskManager;
-use crate::iterators::AtomicIterator;
-use sanitise_file_name::sanitize;
+use crate::bufferpool::{BufferPool, BufferPoolError};
 use crate::errors::DbError;
+use crate::iterators::AtomicIterator;
+use crate::table::Table;
+use dashmap::{mapref::entry::Entry, DashMap};
+use parking_lot::RwLock;
+use sanitise_file_name::sanitize;
+use std::path::PathBuf;
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
 
 pub(crate) struct Database {
     pub(crate) tables: DashMap<usize, Arc<Table>>,
@@ -20,7 +20,6 @@ pub(crate) struct Database {
 }
 
 impl Database {
-    
     pub const DEFAULT_PATH: &str = "db_data";
     pub fn new() -> Self {
         let temp_path = Self::create_temp_path();
@@ -41,14 +40,8 @@ impl Database {
         temp_path
     }
 
-    pub fn create_table(
-        &self,
-        name: String,
-        num_columns: usize,
-        key_index: usize,
-    ) {
-
-        //atomic check table_names and return an entry 
+    pub fn create_table(&self, name: String, num_columns: usize, key_index: usize) {
+        //atomic check table_names and return an entry
         match self.table_names.entry(name.clone()) {
             Entry::Vacant(vacant) => {
                 let table_id = self.table_id.next();
@@ -66,7 +59,7 @@ impl Database {
                 //insert into table_names
                 vacant.insert(table_id);
             }
-            Entry::Occupied(_) => {}, //Todo better error handling
+            Entry::Occupied(_) => {} //Todo better error handling
         }
     }
 
@@ -92,18 +85,18 @@ impl Database {
         //Todo: check test cases because sanitize path turns "" into "_"
         let sanitized_path = Some(PathBuf::from(Self::DEFAULT_PATH).join(sanitize(path)));
         self.path = sanitized_path.clone();
-        self.disk_manager.write().set_path(sanitized_path)?;
+        self.disk_manager
+            .write()
+            .set_path(sanitized_path)?;
         Ok(())
     }
 
     pub fn close(&self) -> Result<(), DbError> {
         let dm = self.disk_manager.read();
 
-        dm.write_table_names(&self.table_names)
-            .map_err(|e| DbError::Storage(e))?;
+        dm.write_table_names(&self.table_names)?;
 
-        dm.write_tables(&self.tables, self.table_id.current())
-            .map_err(|e| DbError::Storage(e))?;
+        dm.write_tables(&self.tables, self.table_id.current())?;
 
         drop(dm);
 
