@@ -1,38 +1,35 @@
 from lstore.table import Table
+from lstore._core import CoreDatabase
 
-class Database():
+class Database:
 
     def __init__(self):
-        self.tables = []
-        pass
+        self._core = CoreDatabase()
+        self._tables = {}
 
-    # Not required for milestone1
     def open(self, path):
-        pass
+        self._core.open(path)
 
     def close(self):
-        pass
+        self._core.close()
 
-    """
-    # Creates a new table
-    :param name: string         #Table name
-    :param num_columns: int     #Number of Columns: all columns are integer
-    :param key: int             #Index of table key in columns
-    """
     def create_table(self, name, num_columns, key_index):
-        table = Table(name, num_columns, key_index)
+        self._core.create_table(name, num_columns, key_index)
+        table = Table(name, num_columns, key_index, self._core)
+        self._tables[name] = table
         return table
 
-    
-    """
-    # Deletes the specified table
-    """
     def drop_table(self, name):
-        pass
+        self._core.drop_table(name)
+        self._tables.pop(name, None)
 
-    
-    """
-    # Returns table with the passed name
-    """
     def get_table(self, name):
-        pass
+        if name in self._tables:
+            return self._tables[name]
+        info = self._core.get_table(name)
+        if info is None:
+            return None
+        num_columns, key_index = info
+        table = Table(name, num_columns, key_index, self._core)
+        self._tables[name] = table
+        return table
