@@ -1,15 +1,25 @@
+use crate::bufferpool::DiskError;
+use crate::page::Page;
+use crate::page_collection::PageId;
+use crate::table::Table;
+use dashmap::DashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
-use dashmap::DashMap;
-use crate::bufferpool::DiskError;
-use crate::page::{Page};
-use crate::page_collection::PageId;
-use crate::table::Table;
+use crate::iterators::PhysicalAddress;
 
 pub struct DiskManager {
     base_path: PathBuf,
+}
+
+pub struct TableCounters {
+    pub next_rid: i64,
+    pub base_next_addr: usize,
+    pub tail_next_addr: usize,
+    pub pid_next_start: usize,
+    pub base_collections: Vec<(usize, usize)>,
+    pub tail_collections: Vec<(usize, usize)>,
 }
 
 impl DiskManager {
@@ -329,6 +339,78 @@ impl DiskManager {
         }
     Ok(pairs)
     }
+
+    pub fn write_table_counters(
+        &self,
+        table_id: usize,
+        c: &TableCounters,
+    ) -> Result<(), DiskError> {
+        let path = self.table_meta_dir(table_id).join("counters.bin");
+        fs::create_dir_all(path.parent().unwrap())?;
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&c.next_rid.to_be_bytes());
+        buf.extend_from_slice(&(c.base_next_addr as u64).to_be_bytes());
+        buf.extend_from_slice(&(c.tail_next_addr as u64).to_be_bytes());
+        buf.extend_from_slice(&(c.pid_next_start as u64).to_be_bytes());
+
+        buf.extend_from_slice(&(c.base_collections.len() as u64).to_be_bytes());
+        for (start, end) in &c.base_collections {
+            buf.extend_from_slice(&(*start as u64).to_be_bytes());
+            buf.extend_from_slice(&(*end as u64).to_be_bytes());
+        }
+        buf.extend_from_slice(&(c.tail_collections.len() as u64).to_be_bytes());
+        for (start, end) in &c.tail_collections {
+            buf.extend_from_slice(&(*start as u64).to_be_bytes());
+            buf.extend_from_slice(&(*end as u64).to_be_bytes());
+        }
+        write_file(&path, &buf)
+    }
+
+    pub fn read_table_counters(&self, table_id: usize) -> Result<TableCounters, DiskError> {
+        let path = self.table_meta_dir(table_id).join("counters.bin");
+        if !path.exists() {
+            return Ok(TableCounters {
+                next_rid: 0,
+                base_next_addr: 0,
+                tail_next_addr: 0,
+                pid_next_start: 0,
+                base_collections: vec![],
+                tail_collections: vec![],
+            });
+        }
+        let data = read_file(&path)?;
+        let mut offset = 0;
+        let next_rid = read_i64(&data, &mut offset)?;
+        let base_next_addr = read_u64(&data, &mut offset)? as usize;
+        let tail_next_addr = read_u64(&data, &mut offset)? as usize;
+        let pid_next_start = read_u64(&data, &mut offset)? as usize;
+
+        let base_count = read_u64(&data, &mut offset)? as usize;
+        let mut base_collections = Vec::with_capacity(base_count);
+        for _ in 0..base_count {
+            let start = read_u64(&data, &mut offset)? as usize;
+            let end = read_u64(&data, &mut offset)? as usize;
+            base_collections.push((start, end));
+        }
+        let tail_count = read_u64(&data, &mut offset)? as usize;
+        let mut tail_collections = Vec::with_capacity(tail_count);
+        for _ in 0..tail_count {
+            let start = read_u64(&data, &mut offset)? as usize;
+            let end = read_u64(&data, &mut offset)? as usize;
+            tail_collections.push((start, end));
+        }
+        Ok(TableCounters {
+            next_rid,
+            base_next_addr,
+            tail_next_addr,
+            pid_next_start,
+            base_collections,
+            tail_collections,
+        })
+    }
+
+
 }
 
 pub struct TableMeta {

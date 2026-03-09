@@ -1,14 +1,14 @@
 use crate::bufferpool::BufferPool;
+use crate::disk_manager::TableCounters;
 use crate::errors::DbError;
 use crate::index::Index;
+use crate::iterators::{AtomicIterator, PhysicalAddress};
 use crate::page_collection::MetaPage;
 use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
 use dashmap::DashSet;
-use std::sync::Arc;
 use std::sync::atomic::AtomicI64;
-use crate::disk_manager::TableMeta;
-use crate::iterators::AtomicIterator;
+use std::sync::Arc;
 
 pub struct Table {
     pub name: String,
@@ -56,6 +56,60 @@ impl Table {
             dirty_base_rids: DashSet::new(),
         }
     }
+
+    pub fn restore (
+        name: String,
+        num_columns: usize,
+        key_index: usize,
+        table_id: usize,
+        bufferpool: Arc<BufferPool>,
+        page_dir_pairs: Vec<(i64, PhysicalAddress)>,
+        counters: TableCounters,
+        primary_pairs: Vec<(i64, i64)>
+    ) -> Self {
+        let num_total_cols = num_columns + Table::NUM_META_PAGES;
+
+        let indices: Vec<Index> = (0..num_columns).map(|i| {
+            if i == key_index {
+                Index::new_unique()
+            } else {
+                Index::new_non_unique()
+            }
+        }).collect();
+        for (key, rid) in primary_pairs {
+            indices[key_index].insert(key, rid);
+        }
+
+        let page_ranges = PageRanges::restore(
+            num_total_cols,
+            table_id,
+            bufferpool,
+            counters.base_collections,
+            counters.tail_collections,
+            counters.base_next_addr,
+            counters.tail_next_addr,
+            counters.pid_next_start,
+        );
+
+        let page_directory = PageDirectory::restore(page_dir_pairs);
+
+        let rid: AtomicIterator<AtomicI64> = AtomicIterator::default();
+        rid.set(counters.next_rid);
+
+        Table {
+            name,
+            page_ranges,
+            page_directory,
+            rid,
+            key_index,
+            num_data_columns: num_columns,
+            indices,
+            table_id,
+            num_total_cols,
+            dirty_base_rids: DashSet::new()
+        }
+    }
+
 
     pub fn read(&self, rid: i64) -> Result<Vec<Option<i64>>, DbError> {
         let addr = self.page_directory.get(rid)?;
