@@ -1,10 +1,9 @@
 use std::sync::Arc;
 use crate::iterators::{PhysicalAddress, PhysicalAddressIterator, PidRange, PidRangeIterator};
-use crate::page::{Page};
+use crate::page::Page;
 use crate::page_collection::{MetaPage, PageCollection};
 use crate::table::Table;
 use crate::bufferpool::{BufferPool, BufferPoolError};
-
 
 pub struct PageRange {
     range: Vec<PageCollection>,
@@ -16,13 +15,18 @@ pub struct PageRange {
 }
 
 impl PageRange {
-    //Assumes equal base page and tail page num collections which is suboptimal. Better to over alloc
-    //These optimizations are more for fun than anything.
     pub const PROJECTED_NUM_PAGE_COLLECTIONS: usize =
         (Table::PROJECTED_NUM_RECORDS + Page::PAGE_SIZE - 1) / Page::PAGE_SIZE;
 
-    pub fn new(pages_per_collection: usize, first_pid: PidRange, table_id: usize, bufferpool: Arc<BufferPool>, pid_iterator: Arc<PidRangeIterator>) -> Self {
-        let mut init_range: Vec<PageCollection> = Vec::with_capacity(PageRange::PROJECTED_NUM_PAGE_COLLECTIONS);
+    pub fn new(
+        pages_per_collection: usize,
+        first_pid: PidRange,
+        table_id: usize,
+        bufferpool: Arc<BufferPool>,
+        pid_iterator: Arc<PidRangeIterator>,
+    ) -> Self {
+        let mut init_range: Vec<PageCollection> =
+            Vec::with_capacity(PageRange::PROJECTED_NUM_PAGE_COLLECTIONS);
         init_range.push(PageCollection::new(first_pid, table_id, bufferpool.clone()));
 
         Self {
@@ -35,23 +39,20 @@ impl PageRange {
         }
     }
 
-    fn append (&mut self, all_data: Vec<Option<i64>>) -> Result<PhysicalAddress, BufferPoolError> {
-        //get next addr
+    fn append(&mut self, all_data: Vec<Option<i64>>) -> Result<PhysicalAddress, BufferPoolError> {
         let addr = self.next_addr.next();
-
-        //Lazily create page collection and associated pages
         self.lazy_create_page_collection(addr.collection_num);
-
         self.range[addr.collection_num].write_cols(addr.offset, all_data)?;
-
-        Ok(addr) //return addr (from here add this addr to a page_dir)
+        Ok(addr)
     }
 
-    //iterators make this so cleannnnn
     fn lazy_create_page_collection(&mut self, page: usize) {
         while self.range.len() <= page {
-            self.range
-                .push(PageCollection::new(self.pid_iterator.next(), self.table_id, self.bufferpool.clone()));
+            self.range.push(PageCollection::new(
+                self.pid_iterator.next(),
+                self.table_id,
+                self.bufferpool.clone(),
+            ));
         }
     }
 
@@ -61,7 +62,6 @@ impl PageRange {
 
     #[inline]
     fn read_single(&self, col: usize, addr: &PhysicalAddress) -> Result<Option<i64>, BufferPoolError> {
-        //given single column, return value in row x column
         Ok(self.range[addr.collection_num].read_col(col, addr.offset)?)
     }
 
@@ -75,8 +75,29 @@ impl PageRange {
         self.range[addr.collection_num].update_meta_col(col, addr.offset, val)
     }
 
-    pub fn read_meta_col(&self, addr: &PhysicalAddress, col : MetaPage) -> Result<Option<i64>, BufferPoolError>{
+    pub fn read_meta_col(
+        &self,
+        addr: &PhysicalAddress,
+        col: MetaPage,
+    ) -> Result<Option<i64>, BufferPoolError> {
         Ok(self.range[addr.collection_num].read_meta_col(col, addr.offset)?)
+    }
+
+    /// Returns the TPS watermark for the collection that contains `addr`.
+    #[inline]
+    pub fn get_tps(&self, addr: &PhysicalAddress) -> i64 {
+        self.range
+            .get(addr.collection_num)
+            .map(|c| c.get_tps())
+            .unwrap_or(i64::MIN)
+    }
+
+    /// Advances the TPS watermark for the collection that contains `addr`.
+    #[inline]
+    pub fn update_tps(&self, addr: &PhysicalAddress, new_tps: i64) {
+        if let Some(collection) = self.range.get(addr.collection_num) {
+            collection.update_tps(new_tps);
+        }
     }
 
     fn read_projected(
@@ -104,33 +125,61 @@ pub enum WhichRange {
 }
 
 pub struct PageRanges {
-    tail: PageRange,
-    base: PageRange,
+    pub(crate) tail: PageRange,
+    pub(crate) base: PageRange,
 }
 
 impl PageRanges {
     pub fn new(pages_per_collection: usize, table_id: usize, bufferpool: Arc<BufferPool>) -> Self {
         let pid_range_iter = Arc::new(PidRangeIterator::new(pages_per_collection));
         Self {
-            tail: PageRange::new(pages_per_collection, pid_range_iter.next(), table_id, bufferpool.clone(), pid_range_iter.clone()),
-            base: PageRange::new(pages_per_collection, pid_range_iter.next(), table_id, bufferpool, pid_range_iter),
+            tail: PageRange::new(
+                pages_per_collection,
+                pid_range_iter.next(),
+                table_id,
+                bufferpool.clone(),
+                pid_range_iter.clone(),
+            ),
+            base: PageRange::new(
+                pages_per_collection,
+                pid_range_iter.next(),
+                table_id,
+                bufferpool,
+                pid_range_iter,
+            ),
         }
     }
 
-    // For inserts: stages metadata (rid, indirection=rid, schema=0) then appends to base
+    /// For inserts: new base record with indirection pointing to itself.
     pub fn append_base(
         &mut self,
         mut data_cols: Vec<Option<i64>>,
         rid: i64,
     ) -> Result<PhysicalAddress, BufferPoolError> {
         data_cols.push(Some(rid)); // RID
-        data_cols.push(Some(rid)); // indirection (self for new base record)
-        data_cols.push(Some(0)); // schema_encoding (no updates)
-        data_cols.push(None);
+        data_cols.push(Some(rid)); // indirection (self — no updates yet)
+        data_cols.push(Some(0));   // schema_encoding
+        data_cols.push(None);      // start_time
         self.base.append(data_cols)
     }
 
-    // For updates: caller provides indirection (previous version) and schema_encoding (which cols updated)
+    /// For merge: consolidated base record preserving the existing indirection pointer.
+    /// Merge never resets indirection — readers use TPS to know what is already baked in.
+    pub fn append_base_merged(
+        &mut self,
+        mut data_cols: Vec<Option<i64>>,
+        rid: i64,
+        indirection: i64,
+        schema_encoding: Option<i64>,
+    ) -> Result<PhysicalAddress, BufferPoolError> {
+        data_cols.push(Some(rid));       // RID
+        data_cols.push(Some(indirection)); // indirection preserved from existing base
+        data_cols.push(schema_encoding); // None = deleted, Some(0) = live
+        data_cols.push(None);            // start_time
+        self.base.append(data_cols)
+    }
+
+    /// For updates: append a tail record pointing back to the previous version.
     pub fn append_tail(
         &mut self,
         mut data_cols: Vec<Option<i64>>,
@@ -138,10 +187,10 @@ impl PageRanges {
         indirection: i64,
         schema_encoding: Option<i64>,
     ) -> Result<PhysicalAddress, BufferPoolError> {
-        data_cols.push(Some(rid)); // RID
+        data_cols.push(Some(rid));       // RID
         data_cols.push(Some(indirection)); // indirection (points to prev version)
-        data_cols.push(schema_encoding); // schema_encoding: None = deletion, Some(bitmask) = update
-        data_cols.push(None);
+        data_cols.push(schema_encoding); // schema_encoding: None = deletion
+        data_cols.push(None);            // start_time
         self.tail.append(data_cols)
     }
 
@@ -150,7 +199,7 @@ impl PageRanges {
         &self,
         column: usize,
         addr: &PhysicalAddress,
-        range: WhichRange
+        range: WhichRange,
     ) -> Result<Option<i64>, BufferPoolError> {
         match range {
             WhichRange::Base => self.base.read_single(column, addr),
@@ -172,14 +221,13 @@ impl PageRanges {
         &mut self,
         addr: &PhysicalAddress,
         val: Option<i64>,
-        range: WhichRange
+        range: WhichRange,
     ) -> Result<(), BufferPoolError> {
         match range {
             WhichRange::Base => self.base.write_meta_col(addr, val, MetaPage::IndirectionCol),
             WhichRange::Tail => self.tail.write_meta_col(addr, val, MetaPage::IndirectionCol),
         }
     }
-
 
     #[inline]
     pub fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, BufferPoolError> {
@@ -195,11 +243,25 @@ impl PageRanges {
         self.base.read_projected(projected, addr)
     }
 
-    pub fn read_meta_col(&self, addr: &PhysicalAddress, col_type : MetaPage, range: WhichRange) -> Result<Option<i64>, BufferPoolError>{
+    pub fn read_meta_col(
+        &self,
+        addr: &PhysicalAddress,
+        col_type: MetaPage,
+        range: WhichRange,
+    ) -> Result<Option<i64>, BufferPoolError> {
         match range {
             WhichRange::Base => self.base.read_meta_col(addr, col_type),
             WhichRange::Tail => self.tail.read_meta_col(addr, col_type),
         }
     }
-}
 
+    #[inline]
+    pub fn get_tps(&self, addr: &PhysicalAddress) -> i64 {
+        self.base.get_tps(addr)
+    }
+
+    #[inline]
+    pub fn update_tps(&self, addr: &PhysicalAddress, new_tps: i64) {
+        self.base.update_tps(addr, new_tps);
+    }
+}
