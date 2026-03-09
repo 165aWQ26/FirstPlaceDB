@@ -64,11 +64,11 @@ check_error() {
 }
 
 clean_data_dirs() {
-	rm -rf Grades/ ECS165/
+	rm -rf db_data/Grades/ db_data/.ECS165/
 }
 
 clean_m2_extended_dir() {
-  rm -r M2/ MT/ CT/
+  rm -r db_data/.M2/ db_data/.MT/ db_data/.CT/
 }
 
 #! m2 part2 depends on part1's persisted data, so they must be run in unison
