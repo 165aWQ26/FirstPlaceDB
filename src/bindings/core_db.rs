@@ -1,11 +1,8 @@
 use crate::db::Database;
-use crate::table::Table;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
-use crate::iterators::AtomicIterator;
 
 #[pyclass]
 pub struct CoreDatabase {
@@ -21,8 +18,8 @@ impl CoreDatabase {
         }
     }
 
-    fn open(&mut self, path: &str) {
-        self.inner.write().open(path);
+    fn open(&mut self, path: &str) -> PyResult<()> {
+        self.inner.write().open(path).map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
     fn close(&self) -> PyResult<()> {
@@ -36,13 +33,15 @@ impl CoreDatabase {
     }
 
     fn drop_table(&self, name: String) {
-        self.inner.lock().drop_table(name.as_str())
+        self.inner.write().drop_table(name.as_str());
     }
 
-    fn get_table(&self, name: String) -> PyResult<Option<(usize, usize)>> {
-        let mut lock = self.inner.lock();
-        let opt = lock.get_table(name.as_str()).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        Ok(opt.map(|t| (t.table_ctx.total_cols - Table::NUM_META_PAGES, t.key_index)))
+    fn get_table(&self, name: String) -> Option<(usize, usize)> {
+        self.inner.read().get_table(&name).map(|t| (t.num_data_columns, t.key_index))
+    }
+
+    fn table_exists(&self, name: String) -> bool {
+        self.inner.read().table_exists(name.as_str())
     }
     
 }
