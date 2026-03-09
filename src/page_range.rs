@@ -260,50 +260,48 @@ impl PageRanges {
         }
     }
 
-    /// For inserts: new base record with indirection pointing to itself.
     pub fn append_base(
         &self,
         data_cols: &Vec<Option<i64>>,
         rid: i64,
     ) -> Result<PhysicalAddress, BufferPoolError> {
         let mut all_cols = data_cols.clone();
-        all_cols.push(Some(rid)); // RID
-        all_cols.push(Some(rid)); // indirection (self — no updates yet)
-        all_cols.push(Some(0)); // schema_encoding
-        all_cols.push(None); // start_time
+        all_cols.push(Some(rid));
+        all_cols.push(Some(rid));
+        all_cols.push(Some(0));
+        all_cols.push(None);
 
         self.base.append(all_cols)
     }
 
-    /// For merge: consolidated base record preserving the existing indirection pointer.
-    /// Merge never resets indirection — readers use TPS to know what is already baked in.
     pub fn append_base_merged(
         &self,
-        mut data_cols: Vec<Option<i64>>,
+        data_cols: Vec<Option<i64>>,
         rid: i64,
         indirection: i64,
         schema_encoding: Option<i64>,
     ) -> Result<PhysicalAddress, BufferPoolError> {
-        data_cols.push(Some(rid)); // RID
-        data_cols.push(Some(indirection)); // indirection preserved from existing base
-        data_cols.push(schema_encoding); // None = deleted, Some(0) = live
-        data_cols.push(None); // start_time
-        self.base.append(data_cols)
+        let mut all_cols = data_cols.clone();
+        all_cols.push(Some(rid));
+        all_cols.push(Some(indirection));
+        all_cols.push(schema_encoding);
+        all_cols.push(None);
+        self.base.append(all_cols)
     }
 
-    /// For updates: append a tail record pointing back to the previous version.
     pub fn append_tail(
         &self,
-        mut data_cols: Vec<Option<i64>>,
+        data_cols: Vec<Option<i64>>,
         rid: i64,
         indirection: i64,
         schema_encoding: Option<i64>,
     ) -> Result<PhysicalAddress, BufferPoolError> {
-        data_cols.push(Some(rid)); // RID
-        data_cols.push(Some(indirection)); // indirection (points to prev version)
-        data_cols.push(schema_encoding); // schema_encoding: None = deletion
-        data_cols.push(None); // start_time
-        self.tail.append(data_cols)
+        let mut all_cols = data_cols.clone();
+        all_cols.push(Some(rid));
+        all_cols.push(Some(indirection));
+        all_cols.push(schema_encoding);
+        all_cols.push(None);
+        self.tail.append(all_cols)
     }
 
     #[inline]
