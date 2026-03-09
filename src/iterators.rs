@@ -25,6 +25,10 @@ impl PhysicalAddressIterator {
             collection_num: prev / Page::PAGE_SIZE,
         }
     }
+    pub fn current(&self) -> usize {
+        self.next.load(Ordering::Relaxed)
+    }
+
 }
 
 #[derive(Default)]

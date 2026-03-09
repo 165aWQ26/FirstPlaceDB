@@ -2,6 +2,7 @@ use crate::iterators::PidRange;
 use crate::page::{Page, PageError};
 use crate::table::Table;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use crate::bufferpool::{BufferPool, BufferPoolError};
 
 #[repr(usize)]
@@ -17,6 +18,7 @@ pub struct PageCollection {
     table_id: usize,
     bufferpool: Arc<BufferPool>,
     num_pages: usize,
+    tps: AtomicI64,
 }
 
 impl PageCollection {
@@ -26,7 +28,18 @@ impl PageCollection {
             pid_range,
             table_id,
             bufferpool,
+            tps: AtomicI64::new(i64::MIN),
         }
+    }
+
+    #[inline]
+    pub fn get_tps(&self) -> i64 {
+        self.tps.load(Ordering::Acquire)
+    }
+
+    #[inline]
+    pub fn update_tps(&self, new_tps: i64) {
+        self.tps.fetch_max(new_tps, Ordering::Release);
     }
 
     #[inline]
@@ -47,12 +60,12 @@ impl PageCollection {
     #[inline]
     pub fn update_meta_col(
         &self,
-        col : MetaPage,
+        col: MetaPage,
         offset: usize,
         val: Option<i64>,
     ) -> Result<(), BufferPoolError> {
         match col {
-            MetaPage::IndirectionCol =>  {
+            MetaPage::IndirectionCol => {
                 let actual_col = self.num_pages - Table::NUM_META_PAGES + col as usize;
                 self.bufferpool.update(self.make_pid(actual_col), offset, val)
             },
@@ -64,12 +77,11 @@ impl PageCollection {
 
     #[inline]
     pub fn read_meta_col(&self, col: MetaPage, offset: usize) -> Result<Option<i64>, BufferPoolError> {
-        self.read_col( self.num_pages - Table::NUM_META_PAGES + col as usize, offset)
+        self.read_col(self.num_pages - Table::NUM_META_PAGES + col as usize, offset)
     }
 
-    //Deleted get page: IDE said no usages
     #[inline]
-    pub fn read_all(&self, offset: usize) -> Result<Vec<Option<i64>>, BufferPoolError>  {
+    pub fn read_all(&self, offset: usize) -> Result<Vec<Option<i64>>, BufferPoolError> {
         (0..self.num_pages).map(|i| self.read_col(i, offset)).collect()
     }
 
@@ -79,8 +91,7 @@ impl PageCollection {
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Copy, Clone)]
-#[derive(Debug)]
+#[derive(Hash, Eq, PartialEq, Copy, Clone, Debug)]
 pub struct PageId {
     pub(crate) page_num: usize,
     pub(crate) table_id: usize,
