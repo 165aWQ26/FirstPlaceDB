@@ -1,32 +1,27 @@
-use std::path::Path;
+use crate::bufferpool::{BufferPool, DiskManager};
+use crate::query::Query;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use std::sync::Arc;
-use parking_lot::RwLock;
-use crate::bufferpool::{BufferPool, DiskManager};
-use crate::query::Query;
-use crate::table::Table;
+use crate::bindings::CoreDatabase;
 
 #[pyclass]
 pub struct CoreQuery {
     inner: Query,
-    disk_manager: DiskManager,
-    bufferpool: Arc<BufferPool>
 }
 
 #[pymethods]
 impl CoreQuery {
     // TODO fix when I figure out how wtf table is written to in diskmanager
     #[new]
-    fn new(name: String, num_columns: usize, key_index: usize, path: String) -> Self {
-        // let table_path = format!("{}/lstore_data/{}", path, name);
-        let table_path = Path::new(&path).join("tables").join(name).to_str().unwrap;
-        let dm = Arc::new(RwLock::new(DiskManager::new(&dir).expect("failed to create disk manager")));
-        let bp = Arc::new(BufferPool::new(dm));
-        let table = Table::new(name, num_columns, key_index, 0, bp);
-        Self {
+    fn new(table_name: String, db: &CoreDatabase) -> PyResult<Self> {
+        let db_read = db.inner.read();
+        let table = db_read
+            .get_table(&table_name)
+            .ok_or_else(|| PyRuntimeError::new_err(format!("table '{}' not found", table_name)))?;
+        Ok(Self {
             inner: Query::new(table),
-        }
+        })
     }
 
     #[pyo3(signature = (*columns))]
@@ -82,5 +77,4 @@ impl CoreQuery {
             .select_version(search_key, search_key_index, &projected_columns_index,relative_version)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
-    
 }
