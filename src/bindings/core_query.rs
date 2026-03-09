@@ -78,8 +78,15 @@ impl CoreQuery {
     }
 
     fn create_index(&self, col: usize) {
-        if col < self.inner.table.num_data_columns {
-            self.inner.table.indices[col].enable();
+        if col >= self.inner.table.num_data_columns || col == self.inner.table.key_index {
+            return;
+        }
+        let table = &self.inner.table;
+        table.indices[col].enable();
+        for (_,rid) in table.indices[table.key_index].all_pairs() {
+            if let Ok(Some(val)) = table.read_latest_single(rid, col) {
+                table.indices[col].insert(val, rid);
+            }
         }
     }
 
