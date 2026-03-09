@@ -107,11 +107,11 @@ impl DiskManager {
 
             match value {
                 Some(val) => {
-                    buffer.push(1);  // Tag: Some(i64)
+                    buffer.push(1); // Tag: Some(i64)
                     buffer.extend_from_slice(&val.to_be_bytes());
                 }
                 None => {
-                    buffer.push(0);  // Tag: None
+                    buffer.push(0); // Tag: None
                 }
             }
         }
@@ -123,14 +123,16 @@ impl DiskManager {
             return Err(DiskError::CorruptedPage("Data too short".into()));
         }
 
-        let len_bytes: [u8; 8] = data[0..8].try_into()
+        let len_bytes: [u8; 8] = data[0..8]
+            .try_into()
             .map_err(|_| DiskError::CorruptedPage("Invalid length bytes".into()))?;
         let len = u64::from_be_bytes(len_bytes) as usize;
 
         if len > Page::PAGE_SIZE {
-            return Err(DiskError::CorruptedPage(
-                format!("Invalid page length: {}", len)
-            ));
+            return Err(DiskError::CorruptedPage(format!(
+                "Invalid page length: {}",
+                len
+            )));
         }
 
         let mut page = Page::default();
@@ -148,7 +150,8 @@ impl DiskManager {
                 if file_offset + 8 > data.len() {
                     return Err(DiskError::CorruptedPage("Missing value bytes".into()));
                 }
-                let val_bytes: [u8; 8] = data[file_offset..file_offset + 8].try_into()
+                let val_bytes: [u8; 8] = data[file_offset..file_offset + 8]
+                    .try_into()
                     .map_err(|_| DiskError::CorruptedPage("Invalid value bytes".into()))?;
                 let val = i64::from_be_bytes(val_bytes);
                 file_offset += 8;
@@ -159,13 +162,18 @@ impl DiskManager {
                 return Err(DiskError::CorruptedPage(format!("Invalid tag: {}", tag)));
             };
 
-            page.write(value, slot).map_err(|e| DiskError::PageError(e))?;
+            page.write(value, slot)
+                .map_err(DiskError::PageError)?;
         }
 
         Ok(page)
     }
 
-    pub fn write_tables(&self, tables: &DashMap<usize, Arc<Table>>, next_table_id: usize) -> Result<(), DiskError> {
+    pub fn write_tables(
+        &self,
+        tables: &DashMap<usize, Arc<Table>>,
+        next_table_id: usize,
+    ) -> Result<(), DiskError> {
         let path = self.base_path.join("catalog.bin");
 
         let mut buffer = Vec::new();
@@ -179,7 +187,11 @@ impl DiskManager {
             buffer.extend_from_slice(&t.rid.current().to_be_bytes());
         }
 
-        let file = OpenOptions::new().write(true).create(true).truncate(true).open(&path)?;
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&path)?;
         let mut w = BufWriter::new(file);
         w.write_all(&buffer)?;
         w.flush()?;
@@ -197,7 +209,11 @@ impl DiskManager {
             buffer.extend_from_slice(&(*entry.value() as u64).to_be_bytes());
         }
 
-        let file = OpenOptions::new().write(true).create(true).truncate(true).open(&path)?;
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&path)?;
         let mut w = BufWriter::new(file);
         w.write_all(&buffer)?;
         w.flush()?;
@@ -220,14 +236,16 @@ impl DiskManager {
         let mut file_offset = 0;
 
         let next_table_id = u64::from_be_bytes(
-            data[file_offset..file_offset+8].try_into()
-                .map_err(|_| DiskError::CorruptedPage("Invalid next_table_id".into()))?
+            data[file_offset..file_offset + 8]
+                .try_into()
+                .map_err(|_| DiskError::CorruptedPage("Invalid next_table_id".into()))?,
         ) as usize;
         file_offset += 8;
 
         let count = u64::from_be_bytes(
-            data[file_offset..file_offset+8].try_into()
-                .map_err(|_| DiskError::CorruptedPage("Invalid count".into()))?
+            data[file_offset..file_offset + 8]
+                .try_into()
+                .map_err(|_| DiskError::CorruptedPage("Invalid count".into()))?,
         ) as usize;
         file_offset += 8;
 
@@ -236,19 +254,37 @@ impl DiskManager {
             if file_offset + 32 > data.len() {
                 return Err(DiskError::CorruptedPage("Unexpected end of catalog".into()));
             }
-            let table_id = u64::from_be_bytes(data[file_offset..file_offset+8].try_into()
-                .map_err(|_| DiskError::CorruptedPage("Invalid table_id".into()))?) as usize;
+            let table_id = u64::from_be_bytes(
+                data[file_offset..file_offset + 8]
+                    .try_into()
+                    .map_err(|_| DiskError::CorruptedPage("Invalid table_id".into()))?,
+            ) as usize;
             file_offset += 8;
-            let num_data_columns = u64::from_be_bytes(data[file_offset..file_offset+8].try_into()
-                .map_err(|_| DiskError::CorruptedPage("Invalid num_data_columns".into()))?) as usize;
+            let num_data_columns = u64::from_be_bytes(
+                data[file_offset..file_offset + 8]
+                    .try_into()
+                    .map_err(|_| DiskError::CorruptedPage("Invalid num_data_columns".into()))?,
+            ) as usize;
             file_offset += 8;
-            let key_index = u64::from_be_bytes(data[file_offset..file_offset+8].try_into()
-                .map_err(|_| DiskError::CorruptedPage("Invalid key_index".into()))?) as usize;
+            let key_index = u64::from_be_bytes(
+                data[file_offset..file_offset + 8]
+                    .try_into()
+                    .map_err(|_| DiskError::CorruptedPage("Invalid key_index".into()))?,
+            ) as usize;
             file_offset += 8;
-            let next_rid = i64::from_be_bytes(data[file_offset..file_offset+8].try_into()
-                .map_err(|_| DiskError::CorruptedPage("Invalid next_rid".into()))?);
+            let next_rid = i64::from_be_bytes(
+                data[file_offset..file_offset + 8]
+                    .try_into()
+                    .map_err(|_| DiskError::CorruptedPage("Invalid next_rid".into()))?,
+            );
             file_offset += 8;
-            tables.push(TableMeta { table_id, num_data_columns, key_index, next_rid, name: String::new() });
+            tables.push(TableMeta {
+                table_id,
+                num_data_columns,
+                key_index,
+                next_rid,
+                name: String::new(),
+            });
         }
 
         Ok((tables, next_table_id))
@@ -270,32 +306,39 @@ impl DiskManager {
         let mut file_offset = 0;
 
         let count = u64::from_be_bytes(
-            data[file_offset..file_offset+8].try_into()
-                .map_err(|_| DiskError::CorruptedPage("Invalid count".into()))?
+            data[file_offset..file_offset + 8]
+                .try_into()
+                .map_err(|_| DiskError::CorruptedPage("Invalid count".into()))?,
         ) as usize;
         file_offset += 8;
 
         let mut result = Vec::with_capacity(count);
         for _ in 0..count {
             if file_offset + 8 > data.len() {
-                return Err(DiskError::CorruptedPage("Unexpected end of table names".into()));
+                return Err(DiskError::CorruptedPage(
+                    "Unexpected end of table names".into(),
+                ));
             }
             let name_len = u64::from_be_bytes(
-                data[file_offset..file_offset+8].try_into()
-                    .map_err(|_| DiskError::CorruptedPage("Invalid name length".into()))?
+                data[file_offset..file_offset + 8]
+                    .try_into()
+                    .map_err(|_| DiskError::CorruptedPage("Invalid name length".into()))?,
             ) as usize;
             file_offset += 8;
 
             if file_offset + name_len + 8 > data.len() {
-                return Err(DiskError::CorruptedPage("Unexpected end of name bytes".into()));
+                return Err(DiskError::CorruptedPage(
+                    "Unexpected end of name bytes".into(),
+                ));
             }
-            let name = String::from_utf8(data[file_offset..file_offset+name_len].to_vec())
+            let name = String::from_utf8(data[file_offset..file_offset + name_len].to_vec())
                 .map_err(|_| DiskError::CorruptedPage("Invalid table name".into()))?;
             file_offset += name_len;
 
             let id = u64::from_be_bytes(
-                data[file_offset..file_offset+8].try_into()
-                    .map_err(|_| DiskError::CorruptedPage("Invalid table id".into()))?
+                data[file_offset..file_offset + 8]
+                    .try_into()
+                    .map_err(|_| DiskError::CorruptedPage("Invalid table id".into()))?,
             ) as usize;
             file_offset += 8;
 
@@ -322,7 +365,7 @@ impl DiskManager {
         write_file(&path, &buf)
     }
 
-    pub fn read_page_directory(&self, table_id: usize) -> Result<Vec<(i64,PhysicalAddress>, DiskError> {
+    pub fn read_page_directory(&self, table_id: usize) -> Result<Vec<(i64,PhysicalAddress)>, DiskError> {
         let path = self.table_meta_dir(table_id).join("page_directory.bin");
         if !path.exists() {
             return Ok(vec![]);
@@ -330,7 +373,7 @@ impl DiskManager {
         let data = std::fs::read(path)?;
         let mut file_offset = 0;
         let len = read_u64(&data,&mut file_offset)?;
-        let mut pairs = Vec::with_capacity(len);
+        let mut pairs = Vec::with_capacity(len as usize);
         for _ in 0..len {
             let rid = read_i64(&data,&mut file_offset)?;
             let o = read_u64(&data,&mut file_offset)? as usize;
