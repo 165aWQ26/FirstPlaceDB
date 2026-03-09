@@ -56,6 +56,15 @@ impl PidRangeIterator {
             pages_per_collection,
         }
     }
+
+    pub fn current(&self) -> usize {
+        self.start.load(Ordering::Relaxed)
+    }
+
+    pub fn set(&self, val: usize) {
+        self.start.store(val, Ordering::Relaxed);
+    }
+
     pub fn next(&self) -> PidRange {
         let start = self.start.fetch_add(self.pages_per_collection, Ordering::Relaxed);
         let end = start + self.pages_per_collection;

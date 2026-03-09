@@ -17,7 +17,7 @@ pub struct PageRange {
 
 impl PageRange {
     pub const PROJECTED_NUM_PAGE_COLLECTIONS: usize =
-        (Table::PROJECTED_NUM_RECORDS + Page::PAGE_SIZE - 1) / Page::PAGE_SIZE;
+        Table::PROJECTED_NUM_RECORDS.div_ceil(Page::PAGE_SIZE);
 
     pub fn new(
         pages_per_collection: usize,
@@ -182,6 +182,20 @@ impl PageRange {
             })
             .collect()
     }
+
+    pub fn collection_pid_ranges(&self) -> Vec<(usize, usize)> {
+        let mut pairs: Vec<(usize, usize, usize)> = self
+            .range
+            .iter()
+            .map(|e| (*e.key(), e.value().pid_range.start, e.value().pid_range.end))
+            .collect();
+        pairs.sort_unstable_by_key(|&(idx, _, _)| idx);
+        pairs.into_iter().map(|(_, s, e)| (s, e)).collect()
+    }
+
+    pub fn next_addr_value(&self) -> usize {
+        self.next_addr.current()
+    }
 }
 
 pub enum WhichRange {
@@ -322,10 +336,10 @@ impl PageRanges {
         match range {
             WhichRange::Base => self
                 .base
-                .write_meta_col(addr, val, MetaPage::IndirectionCol),
+                .write_meta_col(addr, val, MetaPage::Indirection),
             WhichRange::Tail => self
                 .tail
-                .write_meta_col(addr, val, MetaPage::IndirectionCol),
+                .write_meta_col(addr, val, MetaPage::Indirection),
         }
     }
 
@@ -363,5 +377,25 @@ impl PageRanges {
     #[inline]
     pub fn update_tps(&self, addr: &PhysicalAddress, new_tps: i64) {
         self.base.update_tps(addr, new_tps);
+    }
+
+    pub fn base_collection_pid_ranges(&self) -> Vec<(usize, usize)> {
+        self.base.collection_pid_ranges()
+    }
+
+    pub fn tail_collection_pid_ranges(&self) -> Vec<(usize, usize)> {
+        self.tail.collection_pid_ranges()
+    }
+
+    pub fn base_next_addr(&self) -> usize {
+        self.base.next_addr_value()
+    }
+
+    pub fn tail_next_addr(&self) -> usize {
+        self.tail.next_addr_value()
+    }
+
+    pub fn pid_next_start(&self) -> usize {
+        self.base.pid_iterator.current()
     }
 }

@@ -22,12 +22,16 @@ impl Index {
     pub fn new_non_unique() -> Self {
         Self {
             inner: IndexInner::NonUnique(SkipSet::new()),
-            enabled: AtomicBool::new(false)
+            enabled: AtomicBool::new(true)
         }
     }
 
     pub fn enable(&self) {
         self.enabled.store(true, Ordering::Release);
+    }
+
+    pub fn disable(&self) {
+        self.enabled.store(false, Ordering::Release);
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -55,7 +59,7 @@ impl Index {
     }
 
     pub fn remove(&self, key: i64, rid: i64) {
-        if self.is_enabled() {
+        if !self.is_enabled() {
             return;
         }
         match &self.inner {
@@ -70,8 +74,9 @@ impl Index {
         }
     }
     pub fn locate_all(&self, key: i64) -> Vec<i64> {
-        //TODO maybe not panic
-        assert!(self.is_enabled(), "locate_all called on a disabled secondary index");
+        if !self.is_enabled() {
+            return Vec::new();
+        }
         match &self.inner {
             IndexInner::Unique(_) => panic!("locate_all called on unique index"),
             IndexInner::NonUnique(set) => {
@@ -93,6 +98,13 @@ impl Index {
                     .map(|e| e.value().1)
                     .collect()
             }
+        }
+    }
+
+    pub fn all_pairs(&self) -> Vec<(i64, i64)> {
+        match &self.inner {
+            IndexInner::Unique(map) => map.iter().map(|e| (*e.key(), *e.value())).collect(),
+            IndexInner::NonUnique(set) => set.iter().map(|e| (e.value().0, e.value().1)).collect(),
         }
     }
 }
