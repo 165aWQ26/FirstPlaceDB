@@ -1,16 +1,15 @@
-use crate::iterators::PidRange;
-use crate::page::{Page, PageError};
-use crate::table::Table;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
 use crate::bufferpool::{BufferPool, BufferPoolError};
+use crate::iterators::PidRange;
+use crate::table::Table;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::Arc;
 
 #[repr(usize)]
 pub enum MetaPage {
-    RidCol = 0,
-    IndirectionCol = 1,
-    SchemaEncodingCol = 2,
-    StartTimeCol = 3,
+    Rid = 0,
+    Indirection = 1,
+    SchemaEncoding = 2,
+    StartTime = 3,
 }
 
 pub struct PageCollection {
@@ -65,13 +64,13 @@ impl PageCollection {
         val: Option<i64>,
     ) -> Result<(), BufferPoolError> {
         match col {
-            MetaPage::IndirectionCol => {
+            MetaPage::Indirection => {
                 let actual_col = self.num_pages - Table::NUM_META_PAGES + col as usize;
                 self.bufferpool.update(self.make_pid(actual_col), offset, val)
             },
-            MetaPage::SchemaEncodingCol => panic!("Cannot update schema encoding"),
-            MetaPage::StartTimeCol => panic!("Cannot update start time"),
-            MetaPage::RidCol => panic!("Cannot update RID"),
+            MetaPage::SchemaEncoding => panic!("Cannot update schema encoding"),
+            MetaPage::StartTime => panic!("Cannot update start time"),
+            MetaPage::Rid => panic!("Cannot update RID"),
         }
     }
 

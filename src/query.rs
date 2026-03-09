@@ -1,8 +1,8 @@
-use std::sync::Arc;
 use crate::errors::DbError;
 use crate::page_collection::MetaPage;
 use crate::page_range::WhichRange;
 use crate::table::Table;
+use std::sync::Arc;
 
 pub struct Query {
     pub table: Arc<Table>,
@@ -13,7 +13,9 @@ impl Query {
     pub const DEFAULT_SCHEMA_ENCODING: Option<i64> = Some(0);
 
     pub fn new(table: Arc<Table>) -> Self {
-        Self { table: table.clone() }
+        Self {
+            table: table.clone(),
+        }
     }
 
     pub fn insert(&self, record: Vec<Option<i64>>) -> Result<bool, DbError> {
@@ -27,13 +29,11 @@ impl Query {
         let address = self.table.page_ranges.append_base(&record, rid)?;
         self.table.page_directory.add(rid, address);
 
-        for (i, val) in record
+        for (i, _val) in record
             .iter()
             .enumerate().filter(|(i,_)| *i != self.table.key_index)
         {
-            if let Some(v) = val {
                 self.table.indices[i].insert(i as i64, rid)
-            }
         }
         Ok(true)
     }
@@ -44,15 +44,29 @@ impl Query {
         search_key_index: usize,
         projected_columns_index: &[i64],
     ) -> Result<Vec<Vec<Option<i64>>>, DbError> {
-        let rid = self.table.indices[search_key_index]
-            .locate(key)
-            .ok_or(DbError::KeyNotFound(key))?;
+        let rids = if search_key_index == self.table.key_index {
+            match self.table.indices[search_key_index].locate(key) {
+                Some(rid) => vec![rid],
+                None => return Ok(vec![]),
+            }
+        } else if self.table.indices[search_key_index].is_enabled() {
+            self.table.indices[search_key_index].locate_all(key)
+        } else {
+            self.table.indices[self.table.key_index].locate_range(i64::MIN, i64::MAX).into_iter().filter(|&rid| {
+                self.table
+                    .read_latest_single(rid, search_key_index)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|r| r == key)
+            }).collect()
+        };
 
-        if self.table.is_deleted(rid)? {
-            return Err(DbError::KeyNotFound(key));
-        }
-
-        Ok(vec![self.table.read_latest_projected(projected_columns_index, rid)?])
+        rids.iter()
+            .map(|&rid| {
+                self.table
+                    .read_latest_projected(projected_columns_index, rid)
+            })
+            .collect()
     }
 
     pub fn select_version(
@@ -63,10 +77,6 @@ impl Query {
         relative_version: i64,
     ) -> Result<Vec<Vec<Option<i64>>>, DbError> {
         let rid = self.table.rid_for_key(key)?;
-
-        if self.table.is_deleted(rid)? {
-            return Err(DbError::KeyNotFound(key));
-        }
 
         Ok(vec![self.table.read_version_projected(
             projected_columns_index,
@@ -88,7 +98,7 @@ impl Query {
         let current_indirection = self
             .table
             .page_ranges
-            .read_meta_col(&base_addr, MetaPage::IndirectionCol, WhichRange::Base)?
+            .read_meta_col(&base_addr, MetaPage::Indirection, WhichRange::Base)?
             .ok_or(DbError::NullValue(404))?;
 
         let mut schema_encoding: i64 = 0;
@@ -129,6 +139,7 @@ impl Query {
 
         Ok(true)
     }
+
 
     pub fn delete(&self, key: i64) -> Result<bool, DbError> {
         let rid = self.table.rid_for_key(key)?;
@@ -236,5 +247,7 @@ impl Query {
         record[col] = Some(temp);
 
         self.update(key, record)
+
+
     }
 }
