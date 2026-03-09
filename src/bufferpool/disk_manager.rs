@@ -17,6 +17,10 @@ impl DiskManager {
         Ok(Self { base_path })
     }
 
+    pub fn setPath(&mut self, path: Option<PathBuf>) {
+        self.base_path = path.unwrap();
+    }
+
     fn page_path(&self, pid: PageId) -> PathBuf {
         self.base_path
             .join("table")

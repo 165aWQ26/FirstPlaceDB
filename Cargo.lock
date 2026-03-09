@@ -85,19 +85,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
-name = "firstplace-db"
-version = "0.1.0"
-dependencies = [
- "bplustree",
- "dashmap",
- "lru",
- "parking_lot",
- "pyo3",
- "pyo3-build-config",
- "rustc-hash",
-]
-
-[[package]]
 name = "fixedbitset"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -170,6 +157,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1dc47f592c06f33f8e3aea9591776ec7c9f9e4124778ff8a3c3b87159f7e593"
 dependencies = [
  "hashbrown 0.16.1",
+]
+
+[[package]]
+name = "lstore-python"
+version = "0.1.0"
+dependencies = [
+ "bplustree",
+ "dashmap",
+ "lru",
+ "parking_lot",
+ "pyo3",
+ "pyo3-build-config",
+ "rustc-hash",
+ "sanitise-file-name",
 ]
 
 [[package]]
@@ -345,6 +346,12 @@ name = "rustc-hash"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "357703d41365b4b27c590e3ed91eabb1b663f07c4c084095e60cbed4362dff0d"
+
+[[package]]
+name = "sanitise-file-name"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19d36299972b96b8ae7e8f04ecbf75fb41a27bf3781af00abcf57609774cb911"
 
 [[package]]
 name = "scopeguard"
