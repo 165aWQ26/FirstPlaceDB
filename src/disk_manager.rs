@@ -319,7 +319,7 @@ impl DiskManager {
             buf.extend_from_slice(&(addr.offset as i64).to_be_bytes());
             buf.extend_from_slice(&(addr.collection_num as i64).to_be_bytes());
         }
-        write_file(&path, &buf)?;
+        write_file(&path, &buf)
     }
 
     pub fn read_page_directory(&self, table_id: usize) -> Result<Vec<(i64,PhysicalAddress>, DiskError> {
