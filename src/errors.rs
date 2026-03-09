@@ -1,10 +1,11 @@
 use crate::page::PageError;
 use std::fmt;
-use crate::bufferpool::BufferPoolError;
+use crate::bufferpool::{BufferPoolError, DiskError};
 
 #[derive(Debug)]
 pub enum DbError {
     Page(PageError),
+    Disk(DiskError),
     Storage(BufferPoolError),
     RecordNotFound(i64), // No such RID
     KeyNotFound(i64),    // Index look up return ()
@@ -17,6 +18,7 @@ impl fmt::Display for DbError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DbError::Page(e) => write!(f, "page error: {:?}", e),
+            DbError::Disk(e) => write!(f, "disk error: {:?}", e),
             DbError::Storage(e) => write!(f, "storage error: {:?}", e),
             DbError::RecordNotFound(rid) => write!(f, "record not found: RID {}", rid),
             DbError::KeyNotFound(key) => write!(f, "key not found: {}", key),
@@ -30,6 +32,12 @@ impl fmt::Display for DbError {
 impl From<PageError> for DbError {
     fn from(e: PageError) -> Self {
         DbError::Page(e)
+    }
+}
+
+impl From<DiskError> for DbError {
+    fn from(e: DiskError) -> Self {
+        DbError::Disk(e)
     }
 }
 
