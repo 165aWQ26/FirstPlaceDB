@@ -3,12 +3,12 @@ use dashmap::{DashMap, mapref::entry::Entry};
 use parking_lot::{RwLock};
 use std::sync::atomic::AtomicUsize;
 use crate::table::Table;
-use crate::bufferpool::BufferPool;
+use crate::bufferpool::{BufferPool, BufferPoolError};
 use std::sync::Arc;
 use crate::bufferpool::DiskManager;
 use crate::iterators::AtomicIterator;
 use sanitise_file_name::sanitize;
-
+use crate::errors::DbError;
 
 pub(crate) struct Database {
     pub(crate) tables: DashMap<usize, Arc<Table>>,
@@ -46,7 +46,7 @@ impl Database {
         name: String,
         num_columns: usize,
         key_index: usize,
-    ) -> Result<usize, String> {
+    ) {
 
         //atomic check table_names and return an entry 
         match self.table_names.entry(name.clone()) {
@@ -65,10 +65,8 @@ impl Database {
 
                 //insert into table_names
                 vacant.insert(table_id);
-
-                Ok(table_id)
             }
-            Entry::Occupied(_) => Err("Table alr exists".to_string()), //Todo better error handling
+            Entry::Occupied(_) => {}, //Todo better error handling
         }
     }
 
@@ -90,10 +88,27 @@ impl Database {
         self.table_names.contains_key(name)
     }
 
-    pub fn open(&mut self, path: &str) {
+    pub fn open(&mut self, path: &str) -> Result<(), DbError> {
         //Todo: check test cases because sanitize path turns "" into "_"
         let sanitized_path = Some(PathBuf::from(Self::DEFAULT_PATH).join(sanitize(path)));
         self.path = sanitized_path.clone();
-        self.disk_manager.write().setPath(sanitized_path);
+        self.disk_manager.write().set_path(sanitized_path)?;
+        Ok(())
+    }
+
+    pub fn close(&self) -> Result<(), DbError> {
+        let dm = self.disk_manager.read();
+
+        dm.write_table_names(&self.table_names)
+            .map_err(|e| DbError::Storage(e))?;
+
+        dm.write_tables(&self.tables, self.table_id.current())
+            .map_err(|e| DbError::Storage(e))?;
+
+        drop(dm);
+
+        self.bufferpool.evict_all()?;
+
+        Ok(())
     }
 }
