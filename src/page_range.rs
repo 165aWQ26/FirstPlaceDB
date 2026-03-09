@@ -263,14 +263,16 @@ impl PageRanges {
     /// For inserts: new base record with indirection pointing to itself.
     pub fn append_base(
         &self,
-        mut data_cols: Vec<Option<i64>>,
+        data_cols: &Vec<Option<i64>>,
         rid: i64,
     ) -> Result<PhysicalAddress, BufferPoolError> {
-        data_cols.push(Some(rid)); // RID
-        data_cols.push(Some(rid)); // indirection (self — no updates yet)
-        data_cols.push(Some(0)); // schema_encoding
-        data_cols.push(None); // start_time
-        self.base.append(data_cols)
+        let mut all_cols = data_cols.clone();
+        all_cols.push(Some(rid)); // RID
+        all_cols.push(Some(rid)); // indirection (self — no updates yet)
+        all_cols.push(Some(0)); // schema_encoding
+        all_cols.push(None); // start_time
+
+        self.base.append(all_cols)
     }
 
     /// For merge: consolidated base record preserving the existing indirection pointer.
