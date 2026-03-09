@@ -49,17 +49,16 @@ impl PageRange {
     pub fn restore(
         pages_per_collection: usize,
         collections: Vec<(usize, usize)>,
-        first_pid: PidRange,
         next_addr_val: usize,
         table_id: usize,
         bufferpool: Arc<BufferPool>,
         pid_iterator: Arc<PidRangeIterator>,
-    ) -> Self{
+    ) -> Self {
         let range: DashMap<usize, PageCollection> = DashMap::with_capacity(collections.len());
         for (i, (start, end)) in collections.into_iter().enumerate() {
             range.insert(
                 i,
-                PageCollection::new(PidRange{start, end},table_id, bufferpool.clone()),
+                PageCollection::new(PidRange { start, end }, table_id, bufferpool.clone()),
             );
         }
         let next_addr = PhysicalAddressIterator::new();
@@ -70,7 +69,7 @@ impl PageRange {
             pages_per_collection,
             table_id,
             bufferpool,
-            pid_iterator
+            pid_iterator,
         }
     }
 
@@ -212,6 +211,37 @@ impl PageRanges {
                 table_id,
                 bufferpool,
                 pid_range_iter,
+            ),
+        }
+    }
+
+    pub fn restore(
+        pages_per_collection: usize,
+        table_id: usize,
+        bufferpool: Arc<BufferPool>,
+        base_collection: Vec<(usize, usize)>,
+        tail_collection: Vec<(usize, usize)>,
+        base_next_addr: usize,
+        tail_next_addr: usize,
+        pid_next_start: usize,
+    ) -> Self {
+        let pid_iterator = Arc::new(PidRangeIterator::restore(pid_next_start, pages_per_collection, ));
+        Self {
+            tail: PageRange::restore(
+                pages_per_collection,
+                tail_collection,
+                tail_next_addr,
+                table_id,
+                bufferpool.clone(),
+                pid_iterator.clone(),
+            ),
+            base: PageRange::restore(
+                pages_per_collection,
+                base_collection,
+                base_next_addr,
+                table_id,
+                bufferpool.clone(),
+                pid_iterator.clone(),
             ),
         }
     }
