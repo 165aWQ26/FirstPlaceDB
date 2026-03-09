@@ -115,7 +115,7 @@ impl Table {
         let addr = self.page_directory.get(rid)?;
         self.page_ranges
             .read(&addr)
-            .map_err(|e| DbError::Storage(e))
+            .map_err( DbError::Storage)
     }
 
     pub fn read_single(
@@ -161,7 +161,7 @@ impl Table {
             let tail_addr = self.page_directory.get(current_tail_rid)?;
             let tail_schema = self
                 .page_ranges
-                .read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)?
+                .read_meta_col(&tail_addr, MetaPage::SchemaEncoding, WhichRange::Tail)?
                 .unwrap_or(0);
 
             if (tail_schema >> col) & 1 == 1 {
@@ -173,7 +173,7 @@ impl Table {
 
             let next_rid = self.page_ranges.read_meta_col(
                 &tail_addr,
-                MetaPage::IndirectionCol,
+                MetaPage::Indirection,
                 WhichRange::Tail,
             )?;
             match next_rid {
@@ -207,7 +207,7 @@ impl Table {
                 let tail_addr = self.page_directory.get(current_tail_rid)?;
                 let tail_schema = self
                     .page_ranges
-                    .read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)?
+                    .read_meta_col(&tail_addr, MetaPage::SchemaEncoding, WhichRange::Tail)?
                     .unwrap_or(0);
 
                 if (tail_schema >> col) & 1 == 1 {
@@ -222,7 +222,7 @@ impl Table {
 
                 let next_rid = self.page_ranges.read_meta_col(
                     &tail_addr,
-                    MetaPage::IndirectionCol,
+                    MetaPage::Indirection,
                     WhichRange::Tail,
                 )?;
                 match next_rid {
@@ -273,14 +273,14 @@ impl Table {
             let tail_addr = self.page_directory.get(tail_rid)?;
             let schema = self.page_ranges.read_meta_col(
                 &tail_addr,
-                MetaPage::SchemaEncodingCol,
+                MetaPage::SchemaEncoding,
                 WhichRange::Tail,
             )?;
             Ok(schema.is_none())
         } else {
             let base_schema = self.page_ranges.read_meta_col(
                 &base_addr,
-                MetaPage::SchemaEncodingCol,
+                MetaPage::SchemaEncoding,
                 WhichRange::Base,
             )?;
             Ok(base_schema.is_none())
@@ -301,7 +301,7 @@ impl Table {
             // Only process records that have an unmerged tail chain
             let indirection = match self.page_ranges.read_meta_col(
                 &base_addr,
-                MetaPage::IndirectionCol,
+                MetaPage::Indirection,
                 WhichRange::Base,
             )? {
                 Some(ind) if ind != base_rid => ind,
@@ -314,7 +314,7 @@ impl Table {
             };
             let latest_schema = self.page_ranges.read_meta_col(
                 &tail_addr,
-                MetaPage::SchemaEncodingCol,
+                MetaPage::SchemaEncoding,
                 WhichRange::Tail,
             )?;
 
@@ -362,13 +362,13 @@ impl Table {
 
             let next_rid = self.page_ranges.read_meta_col(
                 &tail_addr,
-                MetaPage::IndirectionCol,
+                MetaPage::Indirection,
                 WhichRange::Tail,
             )?;
 
             match next_rid {
-                Some(next) if next == rid => break,
                 Some(next) if next <= tps => break,
+                Some(next) if next == rid => break,
                 Some(next) => current_tail_rid = next,
                 None => break,
             }
@@ -385,15 +385,15 @@ impl Table {
     ) -> Result<(), DbError> {
         let tail_schema = self
             .page_ranges
-            .read_meta_col(&tail_addr, MetaPage::SchemaEncodingCol, WhichRange::Tail)?
+            .read_meta_col(&tail_addr, MetaPage::SchemaEncoding, WhichRange::Tail)?
             .unwrap_or(0);
 
         let new_cols = tail_schema & !*accumulated_schema;
-        for col in 0..self.num_data_columns {
+        for (col, schema) in result.iter_mut() .enumerate().take(self.num_data_columns) {
             if (new_cols >> col) & 1 == 1 {
-                result[col] = self
+                *schema = self
                     .page_ranges
-                    .read_single(col, &tail_addr, WhichRange::Tail)?;
+                    .read_single(col, tail_addr, WhichRange::Tail)?;
             }
         }
         *accumulated_schema |= tail_schema;
@@ -410,7 +410,7 @@ impl Table {
         let base_addr = self.page_directory.get(rid)?;
         let indirection = self.page_ranges.read_meta_col(
             &base_addr,
-            MetaPage::IndirectionCol,
+            MetaPage::Indirection,
             WhichRange::Base,
         )?;
 
@@ -427,4 +427,3 @@ impl Table {
         Ok((base_addr, tps, Some(tail_rid)))
     }
 }
-

@@ -32,7 +32,7 @@ impl BufferPoolWorker {
 
     pub(crate) fn run(self) {
         while let Ok(op) = self.cmd_rx.recv() {
-            match (op) {
+            match op {
                 BufferPoolOp::FlushPages { pages, res_tx } => {
                     let result = self.handle_evict(pages);
                     res_tx.send(result).unwrap();

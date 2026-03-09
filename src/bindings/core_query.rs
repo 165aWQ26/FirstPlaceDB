@@ -1,9 +1,7 @@
-use crate::bufferpool::{BufferPool, DiskManager};
+use crate::bindings::CoreDatabase;
 use crate::query::Query;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use std::sync::Arc;
-use crate::bindings::CoreDatabase;
 
 #[pyclass]
 pub struct CoreQuery {
@@ -12,7 +10,6 @@ pub struct CoreQuery {
 
 #[pymethods]
 impl CoreQuery {
-    // TODO fix when I figure out how wtf table is written to in diskmanager
     #[new]
     fn new(table_name: String, db: &CoreDatabase) -> PyResult<Self> {
         let db_read = db.inner.read();
