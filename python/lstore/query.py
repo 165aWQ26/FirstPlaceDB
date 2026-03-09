@@ -1,5 +1,5 @@
-from lstore.table import Table, Record
-from lstore._core import CoreQuery
+from lstore.table import Record
+from lstore._core import CoreQuery as _CoreQuery
 
 
 class Query:
@@ -11,7 +11,12 @@ class Query:
     """
     def __init__(self, table):
         self.table = table
-        self._core = CoreQuery(table.name, table.num_columns, table.key)
+        if table._core_db is None:
+            raise RuntimeError(
+                "Table has no CoreDatabase reference. "
+                "Create tables via db.create_table() or db.get_table()."
+            )
+        self._core = _CoreQuery(table.name, table._core_db)
 
     
     """
