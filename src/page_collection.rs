@@ -14,7 +14,7 @@ pub enum MetaPage {
 }
 
 pub struct PageCollection {
-    pid_range: PidRange,
+    pub (crate) pid_range: PidRange,
     table_id: usize,
     bufferpool: Arc<BufferPool>,
     num_pages: usize,
