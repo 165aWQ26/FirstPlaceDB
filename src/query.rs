@@ -24,8 +24,17 @@ impl Query {
             return Ok(false);
         }
 
-        let address = self.table.page_ranges.append_base(record, rid)?;
+        let address = self.table.page_ranges.append_base(&record, rid)?;
         self.table.page_directory.add(rid, address);
+
+        for (i, val) in record
+            .iter()
+            .enumerate().filter(|(i,_)| *i != self.table.key_index)
+        {
+            if let Some(v) = val {
+                self.table.indices[i].insert(i as i64, rid)
+            }
+        }
         Ok(true)
     }
 
@@ -65,8 +74,10 @@ impl Query {
             relative_version,
         )?])
     }
-
     pub fn update(&self, key: i64, record: Vec<Option<i64>>) -> Result<bool, DbError> {
+        if record[self.table.key_index].is_some() {
+            return Ok(false);
+        };
         let rid = match self.table.rid_for_key(key) {
             Ok(rid) => rid,
             _ => return Ok(false),
@@ -122,14 +133,28 @@ impl Query {
     pub fn delete(&self, key: i64) -> Result<bool, DbError> {
         let rid = self.table.rid_for_key(key)?;
 
+        let current_val = self.table.read_latest(rid)?;
+
         self.table.indices[self.table.key_index].remove(key, rid);
+
+        for (i, val) in current_val
+            .iter()
+            .enumerate()
+            .take(self.table.indices.len())
+        {
+            if i != self.table.key_index
+                && let Some(v) = val
+            {
+                self.table.indices[i].remove(*v, rid);
+            }
+        }
 
         let base_addr = self.table.page_directory.get(rid)?;
 
         let current_indirection = self
             .table
             .page_ranges
-            .read_meta_col(&base_addr, MetaPage::IndirectionCol, WhichRange::Base)?
+            .read_meta_col(&base_addr, MetaPage::Indirection, WhichRange::Base)?
             .ok_or(DbError::NullValue(404))?;
 
         let next_rid = self.table.rid.next();
@@ -162,9 +187,6 @@ impl Query {
         let mut sum: i64 = 0;
 
         for rid in rids {
-            if self.table.is_deleted(rid)? {
-                continue;
-            }
             sum += self
                 .table
                 .read_latest_single(rid, col)?
