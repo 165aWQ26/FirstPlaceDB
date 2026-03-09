@@ -1,21 +1,22 @@
+use std::sync::Arc;
 use crate::errors::DbError;
 use crate::page_collection::MetaPage;
 use crate::page_range::WhichRange;
 use crate::table::Table;
 
 pub struct Query {
-    pub table: Table,
+    pub table: Arc<Table>,
 }
 
 impl Query {
     pub const DEFAULT_INDIRECTION: Option<i64> = None;
     pub const DEFAULT_SCHEMA_ENCODING: Option<i64> = Some(0);
 
-    pub fn new(table: Table) -> Self {
-        Self { table }
+    pub fn new(table: Arc<Table>) -> Self {
+        Self { table: table.clone() }
     }
 
-    pub fn insert(&mut self, record: Vec<Option<i64>>) -> Result<bool, DbError> {
+    pub fn insert(&self, record: Vec<Option<i64>>) -> Result<bool, DbError> {
         let rid = self.table.rid.next();
         let key = record[self.table.key_index].ok_or(DbError::NullValue(self.table.key_index))?;
 
@@ -65,7 +66,7 @@ impl Query {
         )?])
     }
 
-    pub fn update(&mut self, key: i64, record: Vec<Option<i64>>) -> Result<bool, DbError> {
+    pub fn update(&self, key: i64, record: Vec<Option<i64>>) -> Result<bool, DbError> {
         let rid = match self.table.rid_for_key(key) {
             Ok(rid) => rid,
             _ => return Ok(false),
@@ -118,7 +119,7 @@ impl Query {
         Ok(true)
     }
 
-    pub fn delete(&mut self, key: i64) -> Result<bool, DbError> {
+    pub fn delete(&self, key: i64) -> Result<bool, DbError> {
         let rid = self.table.rid_for_key(key)?;
 
         self.table.indices[self.table.key_index].remove(key, rid);
