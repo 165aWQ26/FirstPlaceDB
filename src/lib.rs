@@ -25,4 +25,6 @@ mod _core {
     use crate::bindings::CoreQuery;
     #[pymodule_export]
     use crate::bindings::CoreDatabase;
+    #[pymodule_export]
+    use crate::bindings::CoreIndex;
 }
