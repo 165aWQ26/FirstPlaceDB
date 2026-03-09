@@ -294,6 +294,41 @@ impl DiskManager {
 
         Ok(result)
     }
+    fn table_meta_dir(&self, table_id: usize) -> PathBuf {
+        self.base_path.join("table").join(table_id.to_string())
+    }
+
+    pub fn write_page_directory(&self, table_id: usize, pairs: &[(i64, PhysicalAddress)]) -> Result<(), DiskError> {
+        let path = self.table_meta_dir(table_id).join("page_directory.bin");
+        fs::create_dir_all(path.parent().unwrap())?;
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&(pairs.len() as u64).to_be_bytes());
+        for (rid, addr) in pairs {
+            buf.extend_from_slice(&rid.to_be_bytes());
+            buf.extend_from_slice(&(addr.offset as i64).to_be_bytes());
+            buf.extend_from_slice(&(addr.collection_num as i64).to_be_bytes());
+        }
+        write_file(&path, &buf)?;
+    }
+
+    pub fn read_page_directory(&self, table_id: usize) -> Result<Vec<(i64,PhysicalAddress>, DiskError> {
+        let path = self.table_meta_dir(table_id).join("page_directory.bin");
+        if !path.exists() {
+            return Ok(vec![]);
+        }
+        let data = std::fs::read(path)?;
+        let mut file_offset = 0;
+        let len = read_u64(&data,&mut file_offset)?;
+        let mut pairs = Vec::with_capacity(len);
+        for _ in 0..len {
+            let rid = read_i64(&data,&mut file_offset)?;
+            let o = read_u64(&data,&mut file_offset)? as usize;
+            let c = read_u64(&data,&mut file_offset)? as usize;
+            pairs.push((rid, PhysicalAddress { offset: o, collection_num: c}));
+        }
+    Ok(pairs)
+    }
 }
 
 pub struct TableMeta {
