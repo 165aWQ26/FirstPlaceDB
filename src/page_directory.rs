@@ -1,5 +1,6 @@
 use dashmap::DashMap;
 use crate::errors::DbError;
+use crate::errors::DbError::Page;
 use crate::iterators::PhysicalAddress;
 
 pub struct PageDirectory {
@@ -29,6 +30,18 @@ impl PageDirectory {
     #[inline]
     pub fn get(&self, rid: i64) -> Result<PhysicalAddress, DbError> {
         self.directory.get(&rid).map(|addr| *addr.value()).ok_or(DbError::RecordNotFound(rid))
+    }
+
+    pub fn snapshot(&self) -> Vec<(i64,PhysicalAddress)> {
+        self.directory.iter().map(|e| (*e.key(), *e.value())).collect()
+    }
+
+    pub fn restore(pairs: Vec<(i64,PhysicalAddress)>) -> Self {
+        let dir = DashMap::with_capacity(pairs.len());
+        for (rid, addr) in pairs {
+            dir.insert(rid, addr);
+        }
+        PageDirectory { directory: dir }
     }
 }
 
