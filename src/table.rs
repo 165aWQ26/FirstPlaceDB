@@ -358,14 +358,13 @@ impl Table {
 
             // update tps --> track highest tail RID merged per base collection
             let col = base_addr.collection_num;
-            if col >= self.page_ranges.base.tps.len() {
-                self.page_ranges.base.tps.resize(col + 1, i64::MIN);
+            if col >= self.page_ranges.get_base_tps_len() {
+                self.page_ranges.resize_base_tps(col);
             }
-            self.page_ranges.base.tps[col] =
-                self.page_ranges.base.tps[col].max(indirection);
+            self.page_ranges.set_base_tps_col(col, indirection);
         }
 
-        self.page_ranges.tail.pages_since_merge = 0;
+        self.page_ranges.reset_merge_counter();
         Ok(())
     }
 

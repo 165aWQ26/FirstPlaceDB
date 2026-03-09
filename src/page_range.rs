@@ -225,5 +225,21 @@ impl PageRanges {
             WhichRange::Tail => self.tail.read_meta_col(addr, col_type),
         }
     }
+
+    // Merge get/set functions
+    pub fn get_base_tps_len(&self) -> usize {
+        self.base.tps.len()
+    }
+    pub fn set_base_tps_col(&mut self, col: usize, indirection: i64) {
+        self.base.tps[col] = self.base.tps[col].max(indirection)
+    }
+
+    pub fn resize_base_tps(&mut self, col:usize){
+        self.base.tps.resize(col + 1, i64::MIN)
+    }
+    
+    pub fn reset_merge_counter(&mut self){
+        self.tail.pages_since_merge = 0;
+    }
 }
 
