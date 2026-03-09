@@ -61,11 +61,25 @@ impl AtomicIterator<AtomicUsize> {
     pub fn next(&self) -> usize {
         self.next.fetch_add(1, Ordering::Relaxed)
     }
+
+    pub fn current(&self) -> usize {
+        self.next.load(Ordering::Relaxed)
+    }
+    pub fn set(&self, val: usize) {
+        self.next.store(val, Ordering::Relaxed);
+    }
 }
 
 impl AtomicIterator<AtomicI64> {
     pub fn next(&self) -> i64 {
         self.next.fetch_add(1, Ordering::Relaxed)
+    }
+
+    pub fn current(&self) -> i64 {
+        self.next.load(Ordering::Relaxed)
+    }
+    pub fn set(&self, val: i64) {
+        self.next.store(val, Ordering::Relaxed);
     }
 }
 

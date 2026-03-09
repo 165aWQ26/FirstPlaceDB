@@ -10,6 +10,7 @@ pub enum DbError {
     KeyNotFound(i64),    // Index look up return ()
     DuplicateKey(i64),   // Insertion is done with duplicate primary key
     NullValue(usize),    // Column was None when value is expected
+    WriteTableFailed,
 }
 
 impl fmt::Display for DbError {
@@ -21,6 +22,7 @@ impl fmt::Display for DbError {
             DbError::KeyNotFound(key) => write!(f, "key not found: {}", key),
             DbError::DuplicateKey(key) => write!(f, "duplicate key: {}", key),
             DbError::NullValue(col) => write!(f, "unexpected null in column {}", col),
+            DbError::WriteTableFailed => write!(f, "write table failed"),
         }
     }
 }

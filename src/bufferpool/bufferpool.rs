@@ -1,5 +1,5 @@
 use crate::bufferpool::bufferpool_worker::{BufferPoolOp, BufferPoolWorker};
-use crate::bufferpool::disk_manager::DiskManager;
+use crate::disk_manager::DiskManager;
 use crate::bufferpool::errors::BufferPoolError;
 use crate::bufferpool::eviction_policy::EvictionPolicy;
 use crate::page::{Page, PageError};

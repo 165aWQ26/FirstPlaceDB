@@ -346,6 +346,17 @@ impl Table {
                 Ok(schema.is_none())
             }
         }
+
+        pub fn to_meta(&self) -> TableMeta {
+            TableMeta {
+                table_id: self.table_id,
+                name: self.name.clone(),
+                num_data_columns: self.num_data_columns,
+                key_index: self.key_index,
+                next_rid: self.rid.current(),
+            }
+        }
+
     }
 
     // TODO do for m2 -- what the helly do these do

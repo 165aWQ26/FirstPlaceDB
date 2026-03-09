@@ -1,7 +1,7 @@
 use std::sync::mpsc::Receiver;
 use std::sync::{mpsc, Arc};
 use parking_lot::RwLock;
-use crate::bufferpool::disk_manager::DiskManager;
+use crate::disk_manager::DiskManager;
 use crate::bufferpool::errors::BufferPoolError;
 use crate::page::Page;
 use crate::page_collection::PageId;
