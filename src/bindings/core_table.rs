@@ -10,8 +10,6 @@ pub struct CoreTable {
 
 #[pymethods]
 impl CoreTable {
-
-
     #[getter]
     fn num_columns(&self) -> usize {
         self.inner.num_data_columns
