@@ -1,5 +1,4 @@
 use pyo3::prelude::*;
-
 pub mod db;
 pub mod errors;
 pub mod index;
@@ -24,4 +23,6 @@ mod disk_manager;
 mod _core {
     #[pymodule_export]
     use crate::bindings::CoreQuery;
+    #[pymodule_export]
+    use crate::bindings::CoreDatabase;
 }
