@@ -29,6 +29,13 @@ impl PhysicalAddressIterator {
         self.next.load(Ordering::Relaxed)
     }
 
+    pub fn get(&self) -> usize {
+        self.next.load(Ordering::Relaxed)
+    }
+
+    pub fn restore(&self, val: usize) {
+        self.next.store(val, Ordering::Relaxed);
+    }
 }
 
 #[derive(Default)]
@@ -54,6 +61,17 @@ impl PidRangeIterator {
         let end = start + self.pages_per_collection;
 
         PidRange { start, end }
+    }
+
+    pub fn get_next(&self) -> usize {
+        self.start.load(Ordering::Relaxed)
+    }
+
+    pub fn restore(start: usize, pages_per_collection: usize) -> Self{
+        Self {
+            start: AtomicUsize::new(start),
+            pages_per_collection,
+        }
     }
 }
 
