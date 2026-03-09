@@ -370,7 +370,7 @@ impl DiskManager {
         if !path.exists() {
             return Ok(vec![]);
         }
-        let data = std::fs::read(path)?;
+        let data = fs::read(path)?;
         let mut file_offset = 0;
         let len = read_u64(&data,&mut file_offset)?;
         let mut pairs = Vec::with_capacity(len as usize);
@@ -452,8 +452,38 @@ impl DiskManager {
             tail_collections,
         })
     }
+    pub fn write_primary_index(
+        &self,
+        table_id: usize,
+        pairs: &[(i64, i64)],
+    ) -> Result<(), DiskError> {
+        let path = self.table_meta_dir(table_id).join("primary_index.bin");
+        fs::create_dir_all(path.parent().unwrap())?;
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&(pairs.len() as u64).to_be_bytes());
+        for (key, rid) in pairs {
+            buf.extend_from_slice(&key.to_be_bytes());
+            buf.extend_from_slice(&rid.to_be_bytes());
+        }
+        write_file(&path, &buf)
+    }
 
-
+    pub fn read_primary_index(&self, table_id: usize) -> Result<Vec<(i64, i64)>, DiskError> {
+        let path = self.table_meta_dir(table_id).join("primary_index.bin");
+        if !path.exists() {
+            return Ok(vec![]);
+        }
+        let data = read_file(&path)?;
+        let mut offset = 0;
+        let count = read_u64(&data, &mut offset)? as usize;
+        let mut pairs = Vec::with_capacity(count);
+        for _ in 0..count {
+            let key = read_i64(&data, &mut offset)?;
+            let rid = read_i64(&data, &mut offset)?;
+            pairs.push((key, rid));
+        }
+        Ok(pairs)
+    }
 }
 
 pub struct TableMeta {
