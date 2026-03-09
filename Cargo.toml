@@ -1,10 +1,10 @@
 [package]
-name = "firstplace-db"
+name = "lstore-python"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "firstplace_db"
+name = "lstore_python"
 # "cdylib" is necessary to produce a shared library for Python to import from.
 crate-type = ["cdylib", "rlib"]
 
@@ -17,6 +17,7 @@ rustc-hash = "2.1.1"
 dashmap = "7.0.0-rc2"
 lru = "0.16.3"
 parking_lot = { version = "0.12.5", features = ["deadlock_detection"] }
+sanitise-file-name = "1"
 
 [build-dependencies]
 pyo3-build-config = "0.28.0"

@@ -1,26 +1,44 @@
+use std::path::PathBuf;
 use dashmap::{DashMap, mapref::entry::Entry};
-use std::sync::Arc;
+use parking_lot::{RwLock};
 use std::sync::atomic::AtomicUsize;
 use crate::table::Table;
 use crate::bufferpool::BufferPool;
+use std::sync::Arc;
 use crate::bufferpool::DiskManager;
 use crate::iterators::AtomicIterator;
+use sanitise_file_name::sanitize;
 
-struct Database {
-    tables: DashMap<usize, Arc<Table>>,
+
+pub(crate) struct Database {
+    pub(crate) tables: DashMap<usize, Arc<Table>>,
     table_names: DashMap<String, usize>,
     table_id: AtomicIterator<AtomicUsize>,
     bufferpool: Arc<BufferPool>,
+    pub path: Option<PathBuf>,
+    disk_manager: Arc<RwLock<DiskManager>>,
 }
 
 impl Database {
+    
+    pub const DEFAULT_PATH: &str = "db_data";
     pub fn new() -> Self {
+        let temp_path = Self::create_temp_path();
+        let disk_manager = Arc::new(RwLock::new(DiskManager::new(temp_path).unwrap()));
         Self {
             tables: DashMap::new(),
             table_names: DashMap::new(),
             table_id: AtomicIterator::default(),
-            bufferpool: Arc::new(BufferPool::new(DiskManager::new("db").unwrap())),
+            bufferpool: Arc::new(BufferPool::new(disk_manager.clone())),
+            path: None,
+            disk_manager,
         }
+    }
+
+    fn create_temp_path() -> PathBuf {
+        let temp_path = std::env::temp_dir().join(format!("firstplacedb_{}", std::process::id()));
+        std::fs::create_dir_all(&temp_path).expect("TODO: panic message");
+        temp_path
     }
 
     pub fn create_table(
@@ -70,5 +88,12 @@ impl Database {
 
     pub fn table_exists(&self, name: &str) -> bool {
         self.table_names.contains_key(name)
+    }
+
+    pub fn open(&mut self, path: &str) {
+        //Todo: check test cases because sanitize path turns "" into "_"
+        let sanitized_path = Some(PathBuf::from(Self::DEFAULT_PATH).join(sanitize(path)));
+        self.path = sanitized_path.clone();
+        self.disk_manager.write().setPath(sanitized_path);
     }
 }
