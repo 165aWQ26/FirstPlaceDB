@@ -1,10 +1,10 @@
+use dashmap::DashMap;
 use crate::errors::DbError;
 use crate::iterators::PhysicalAddress;
-use crate::table::Table;
 
 pub struct PageDirectory {
     /// RID -> Address
-    directory: Vec<Option<PhysicalAddress>>,
+    directory: DashMap<i64, PhysicalAddress>,
 }
 /* We do not need a hashmap here. There is No benefit...
 Instead just use a vec and the rid as the index directly.
@@ -12,22 +12,15 @@ Everything is None by default.
 Don't know if we every need to delete, RID isn't reused
 */
 impl PageDirectory {
-    //TODO: Calculate this by looking at testers
     #[inline]
-    pub fn add(&mut self, rid: i64, address: PhysicalAddress) {
-        let index = rid as usize;
-        if index >= self.directory.len() {
-            self.directory.resize(index + 1, None);
-        }
-        self.directory[index] = Some(address);
+    pub fn add(&self, rid: i64, address: PhysicalAddress) {
+        self.directory.insert(rid, address);
     }
 
-    pub fn delete(&mut self, rid: i64) -> Result<(), DbError> {
-        let index = rid as usize;
-        self.directory
-            .get(index)
-            .ok_or(DbError::RecordNotFound(rid))?;
-        self.directory[index] = None;
+    pub fn delete(&self, rid: i64) -> Result<(), DbError> {
+        if self.directory.remove(&rid).is_none() {
+            return Err(DbError::RecordNotFound(rid));
+        }
         Ok(())
     }
 
@@ -35,18 +28,26 @@ impl PageDirectory {
     //DNE or has been deleted... Too lazy to write real exception handling DAANNNYYY Fix me
     #[inline]
     pub fn get(&self, rid: i64) -> Result<PhysicalAddress, DbError> {
-        self.directory
-            .get(rid as usize)
-            .copied()
-            .flatten()
-            .ok_or(DbError::RecordNotFound(rid))
+        self.directory.get(&rid).map(|addr| *addr.value()).ok_or(DbError::RecordNotFound(rid))
+    }
+
+    pub fn snapshot(&self) -> Vec<(i64,PhysicalAddress)> {
+        self.directory.iter().map(|e| (*e.key(), *e.value())).collect()
+    }
+
+    pub fn restore(pairs: Vec<(i64,PhysicalAddress)>) -> Self {
+        let dir = DashMap::with_capacity(pairs.len());
+        for (rid, addr) in pairs {
+            dir.insert(rid, addr);
+        }
+        PageDirectory { directory: dir }
     }
 }
 
 impl Default for PageDirectory {
     fn default() -> Self {
         PageDirectory {
-            directory: vec![None; Table::PROJECTED_NUM_RECORDS],
+            directory: DashMap::new(),
         }
     }
 }

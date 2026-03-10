@@ -1,22 +1,23 @@
-use crate::iterators::PidRange;
-use crate::page::{Page, PageError};
-use crate::table::Table;
-use std::sync::Arc;
 use crate::bufferpool::{BufferPool, BufferPoolError};
+use crate::iterators::PidRange;
+use crate::table::Table;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::Arc;
 
 #[repr(usize)]
 pub enum MetaPage {
-    RidCol = 0,
-    IndirectionCol = 1,
-    SchemaEncodingCol = 2,
-    StartTimeCol = 3,
+    Rid = 0,
+    Indirection = 1,
+    SchemaEncoding = 2,
+    StartTime = 3,
 }
 
 pub struct PageCollection {
-    pid_range: PidRange,
+    pub (crate) pid_range: PidRange,
     table_id: usize,
     bufferpool: Arc<BufferPool>,
     num_pages: usize,
+    tps: AtomicI64,
 }
 
 impl PageCollection {
@@ -26,7 +27,18 @@ impl PageCollection {
             pid_range,
             table_id,
             bufferpool,
+            tps: AtomicI64::new(i64::MIN),
         }
+    }
+
+    #[inline]
+    pub fn get_tps(&self) -> i64 {
+        self.tps.load(Ordering::Acquire)
+    }
+
+    #[inline]
+    pub fn update_tps(&self, new_tps: i64) {
+        self.tps.fetch_max(new_tps, Ordering::Release);
     }
 
     #[inline]
@@ -47,30 +59,34 @@ impl PageCollection {
     #[inline]
     pub fn update_meta_col(
         &self,
-        col : MetaPage,
+        col: MetaPage,
         offset: usize,
         val: Option<i64>,
     ) -> Result<(), BufferPoolError> {
         match col {
-            MetaPage::IndirectionCol =>  {
+            MetaPage::Indirection => {
                 let actual_col = self.num_pages - Table::NUM_META_PAGES + col as usize;
                 self.bufferpool.update(self.make_pid(actual_col), offset, val)
             },
-            MetaPage::SchemaEncodingCol => panic!("Cannot update schema encoding"),
-            MetaPage::StartTimeCol => panic!("Cannot update start time"),
-            MetaPage::RidCol => panic!("Cannot update RID"),
+            MetaPage::SchemaEncoding => panic!("Cannot update schema encoding"),
+            MetaPage::StartTime => panic!("Cannot update start time"),
+            MetaPage::Rid => panic!("Cannot update RID"),
         }
     }
 
     #[inline]
     pub fn read_meta_col(&self, col: MetaPage, offset: usize) -> Result<Option<i64>, BufferPoolError> {
-        self.read_col( self.num_pages - Table::NUM_META_PAGES + col as usize, offset)
+        self.read_col(self.num_pages - Table::NUM_META_PAGES + col as usize, offset)
     }
 
-    //Deleted get page: IDE said no usages
     #[inline]
-    pub fn read_all(&self, offset: usize) -> Result<Vec<Option<i64>>, BufferPoolError>  {
-        (self.pid_range.start..self.pid_range.end).map(|i| self.read_col(i, offset)).collect()
+    pub fn read_all(&self, offset: usize) -> Result<Vec<Option<i64>>, BufferPoolError> {
+        (0..self.num_pages).map(|i| self.read_col(i, offset)).collect()
+    }
+
+    #[inline]
+    pub fn read_data_cols(&self, offset: usize, num_data: usize) -> Result<Vec<Option<i64>>, BufferPoolError> {
+        (0..num_data).map(|i| self.read_col(i, offset)).collect()
     }
 
     #[inline]
@@ -79,8 +95,7 @@ impl PageCollection {
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Copy, Clone)]
-#[derive(Debug)]
+#[derive(Hash, Eq, PartialEq, Copy, Clone, Debug)]
 pub struct PageId {
     pub(crate) page_num: usize,
     pub(crate) table_id: usize,

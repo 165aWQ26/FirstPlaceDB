@@ -1,8 +1,8 @@
 use crate::bufferpool::bufferpool_worker::{BufferPoolOp, BufferPoolWorker};
-use crate::bufferpool::disk_manager::DiskManager;
 use crate::bufferpool::errors::BufferPoolError;
 use crate::bufferpool::eviction_policy::EvictionPolicy;
-use crate::page::{Page, PageError};
+use crate::disk_manager::DiskManager;
+use crate::page::Page;
 use crate::page_collection::PageId;
 use dashmap::DashMap;
 use parking_lot::{Mutex, RwLock};
@@ -11,7 +11,9 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 
 pub type FrameId = usize;
-pub const BP_CAP: usize = 32;
+// What the TA ended up using
+
+pub const BP_CAP: usize = 256;
 
 struct InnerFrame {
     page: Page,
@@ -19,15 +21,6 @@ struct InnerFrame {
 }
 
 pub struct Frame {
-    //Todo: you don't always write back dirty pages & either your explanation was bad or I misunderstood.
-    //I think a disconnect was that you are using this to check if you should evict/if a frame was already evicted... wrong idea
-    //This only checks if you write back on evict.
-    //You should have pin count on each frame too
-    //Possible race condition: between when fid is returned in load and when the locks are acquired.
-    //Consider: cache t1: hit --> return fid --> interrupt
-    //                t2: cache miss --> evict --> picks fid --> acquires lock --> writes new value releases lock.
-    //                t1: resume --> incorrect read
-    //                Logical Sol: Maintain a pin count on a frame.
     dirty: AtomicBool,
     inner: RwLock<InnerFrame>,
 }
@@ -35,7 +28,6 @@ pub struct Frame {
 impl Frame {
     pub fn new() -> Self {
         Self {
-            //todo there should be one lock on page and pid
             dirty: AtomicBool::new(false),
             inner: RwLock::new(InnerFrame {
                 page: Default::default(),
@@ -58,27 +50,8 @@ impl Frame {
         self.dirty.store(false, Ordering::Release);
     }
 
-    pub fn read(&self, offset: usize) -> Result<Option<i64>, PageError> {
-        let guard = self.inner.read();
-        guard.page.read(offset)
-    }
-
-    pub fn write(&self, value: Option<i64>, offset: usize) -> Result<(), PageError> {
-        let mut guard = self.inner.write();
-        guard.page.write(value, offset)?;
-        self.dirty.store(true, Ordering::Release);
-        Ok(())
-    }
-
-    pub fn update(&self, offset: usize, value: Option<i64>) -> Result<(), PageError> {
-        let mut guard = self.inner.write();
-        guard.page.update(offset, value)?;
-        self.dirty.store(true, Ordering::Release);
-        Ok(())
-    }
-
     pub fn get_page_copy(&self) -> Page {
-        let guard = self.inner.write();
+        let guard = self.inner.read();
         guard.page.clone()
     }
 
@@ -86,11 +59,6 @@ impl Frame {
         let mut guard = self.inner.write();
         guard.pid = None;
         self.dirty.store(false, Ordering::Release);
-    }
-
-    pub fn has_capacity(&self) -> bool {
-        let guard = self.inner.read();
-        guard.page.has_capacity()
     }
 
     pub fn is_dirty(&self) -> bool {
@@ -105,48 +73,30 @@ impl Frame {
     }
 }
 
-struct EvictionState {
-    pub(super) policy: EvictionPolicy,
-    pub(super) free_list: Vec<FrameId>,
-}
-
-impl EvictionState {
-    pub fn new(capacity: usize) -> Self {
-        Self {
-            policy: EvictionPolicy::new(capacity),
-            free_list: (0..capacity).collect(),
-        }
-    }
-}
-
 pub struct BufferPool {
     page_table: DashMap<PageId, FrameId>,
     frames: Vec<Frame>,
-    eviction_state: Mutex<EvictionState>,
-    disk_manager: Arc<DiskManager>,
+    eviction_policy: Mutex<EvictionPolicy>,
+    disk_manager: Arc<RwLock<DiskManager>>,
     command_tx: mpsc::Sender<BufferPoolOp>,
     _bg_thread: thread::JoinHandle<()>,
 }
 
 impl BufferPool {
-    pub fn new(disk_manager: DiskManager) -> BufferPool {
-        let disk_manager = Arc::new(disk_manager);
+    pub fn new(disk_manager: Arc<RwLock<DiskManager>>) -> BufferPool {
         let worker_dm = Arc::clone(&disk_manager);
         let (tx, rx) = mpsc::channel(); // unbounded
         let handle = thread::spawn(move || BufferPoolWorker::new(rx, worker_dm).run());
         Self {
             page_table: DashMap::new(),
             frames: (0..BP_CAP).map(|_| Frame::new()).collect(),
-            eviction_state: Mutex::new(EvictionState::new(BP_CAP)),
+            eviction_policy: Mutex::new(EvictionPolicy::new(BP_CAP)),
             disk_manager,
             command_tx: tx,
             _bg_thread: handle,
         }
     }
 
-    //todo: when writing close table later, consider the race condition where a write occurs after
-    //this function scans the bp. Need to hold write locks on everything before proceeding and reject
-    //essentially this function on its own does not guarantee a fully flushed bp.
     pub fn evict_all(&self) -> Result<(), BufferPoolError> {
         let pages: Vec<(PageId, Page)> = self
             .page_table
@@ -163,20 +113,25 @@ impl BufferPool {
             .collect();
         self.flush_pages(pages)?;
 
-        let mut ev = self.eviction_state.lock();
+        let mut ev = self.eviction_policy.lock();
         let pids: Vec<PageId> = self.page_table.iter().map(|e| *e.key()).collect();
         for pid in pids {
             if let Some((_, fid)) = self.page_table.remove(&pid) {
                 self.frames[fid].release();
-                ev.free_list.push(fid);
+                ev.release_frame(fid)
             }
         }
-
         Ok(())
     }
+
     pub fn read(&self, pid: PageId, offset: usize) -> Result<Option<i64>, BufferPoolError> {
-        let fid = self.resolve_or_load(pid)?;
-        Ok(self.frames[fid].read(offset)?)
+        loop {
+            let fid = self.resolve_or_load(pid)?;
+            let guard = self.frames[fid].inner.read();
+            if guard.pid == Some(pid) { //pathological edge case, loop if the race occurs
+                return Ok(guard.page.read(offset)?);
+            }
+        }
     }
 
     pub fn write(
@@ -185,8 +140,15 @@ impl BufferPool {
         val: Option<i64>,
         offset: usize,
     ) -> Result<(), BufferPoolError> {
-        let fid = self.resolve_or_load(pid)?;
-        Ok(self.frames[fid].write(val, offset)?)
+        loop {
+            let fid = self.resolve_or_load(pid)?;
+            let mut guard = self.frames[fid].inner.write();
+            if guard.pid == Some(pid) { //pathological edge case, loop if the race occurs
+                guard.page.write(val, offset)?;
+                self.frames[fid].dirty.store(true, Ordering::Release);
+                return Ok(());
+            }
+        }
     }
 
     pub fn update(
@@ -195,8 +157,15 @@ impl BufferPool {
         offset: usize,
         val: Option<i64>,
     ) -> Result<(), BufferPoolError> {
-        let fid = self.resolve_or_load(pid)?;
-        Ok(self.frames[fid].update(offset, val)?)
+        loop {
+            let fid = self.resolve_or_load(pid)?;
+            let mut guard = self.frames[fid].inner.write();
+            if guard.pid == Some(pid) { //pathological edge case, loop if the race occurs
+                guard.page.update(offset, val)?;
+                self.frames[fid].dirty.store(true, Ordering::Release);
+                return Ok(())
+            }
+        }
     }
 
     // TODO wire up for transaction
@@ -237,68 +206,78 @@ impl BufferPool {
     fn flush_frame(&self, pid: PageId, fid: FrameId) -> Result<(), BufferPoolError> {
         if self.frames[fid].is_dirty() {
             let page = self.frames[fid].get_page_copy();
-            self.disk_manager.write_page(pid, &page)?;
+            self.disk_manager.read().write_page(pid, &page)?;
             self.frames[fid].clear_dirty();
         }
         Ok(())
     }
 
-    /* Notes
-
-    todo Try to make it RwLock the eviction policy with on_access being read only
-        This would allow us to simplify logic.
-
-    todo Move the free list check into the eviction policy
-     */
-
-    fn resolve_or_load(&self, pid: PageId) -> Result<FrameId, BufferPoolError> {
-        // Case 1: cache hit
-
-        if let Some(entry) = self.page_table.get(&pid) {
-            //todo: eviction lock should be held here otherwise race condition.
-            let fid = *entry;
-            self.eviction_state.lock().policy.on_access(fid);
-            return Ok(fid);
-        }
-
-        // Case 2: cache miss
-        let mut eviction_lock = self.eviction_state.lock();
-
-        // Check if another thread loaded it while waiting for lock
+    fn check_cache_hit(&self, pid: PageId) -> Option<FrameId> {
         if let Some(entry) = self.page_table.get(&pid) {
             let fid = *entry;
-            eviction_lock.policy.on_access(fid);
-            return Ok(*entry);
+            drop(entry);
+            self.eviction_policy.lock().on_access(fid);
+            return Some(fid)
         }
+        None
+    }
 
-        // Free spot, then load immediately
-        let fid = if let Some(free) = eviction_lock.free_list.pop() {
-            free
-        } else {
-            // Eviction to make space then load
-            let victim_fid = eviction_lock
-                .policy
-                .evict_victim()
-                .ok_or(BufferPoolError::AllFramesPinned)?;
-            let victim_pid = self.frames[victim_fid]
-                .pid()
-                .ok_or(BufferPoolError::PidNotInFrame)?;
+    fn check_cache_race(&self, pid: PageId, policy: &mut EvictionPolicy) -> Option<FrameId> {
+        if let Some(entry) = self.page_table.get(&pid) {
+            let fid = *entry;
+            drop(entry);
+            policy.on_access(fid);
+            return Some(fid)
+        }
+        None
+    }
 
-            self.page_table.remove(&victim_pid);
-            self.flush_frame(victim_pid, victim_fid)?;
-            self.frames[victim_fid].release();
-            victim_fid
-        };
+    fn evict_frame(&self, fid: FrameId) -> Result<(), BufferPoolError> {
+        let victim_pid = self.frames[fid]
+            .pid()
+            .ok_or(BufferPoolError::PidNotInFrame)?;
+        self.page_table.remove(&victim_pid);
+        self.flush_frame(victim_pid, fid)?;
+        self.frames[fid].release();
+        Ok(())
+    }
 
-        if self.disk_manager.page_exists(pid) {
-            let page = self.disk_manager.read_page(pid)?;
+    fn read_or_init_page(&self, pid: PageId, fid: FrameId) -> Result<(), BufferPoolError> {
+        if self.disk_manager.read().page_exists(pid) {
+            let page = self.disk_manager.read().read_page(pid)?;
             self.frames[fid].load(pid, page);
         } else {
             self.frames[fid].init(pid);
         }
+        Ok(())
+    }
+
+    fn resolve_or_load(&self, pid: PageId) -> Result<FrameId, BufferPoolError> {
+        if let Some(fid) = self.check_cache_hit(pid) {
+            return Ok(fid);
+        }
+
+        let mut policy = self.eviction_policy.lock();
+
+        if let Some(fid) = self.check_cache_race(pid, &mut policy) {
+            return Ok(fid);
+        }
+
+        let (fid, was_evicted) = policy
+            .acquire_frame()
+            .ok_or(BufferPoolError::AllFramesPinned)?;
+
+        // DO NOT drop(policy) here!
+
+        if was_evicted {
+            self.evict_frame(fid)?;
+        }
+
+        self.read_or_init_page(pid, fid)?;
 
         self.page_table.insert(pid, fid);
-        eviction_lock.policy.on_insert(fid);
+        policy.on_insert(fid);
+        drop(policy);  // release lock AFTER page_table is updated
 
         Ok(fid)
     }

@@ -1,53 +1,31 @@
-use crate::bindings::core_db::CoreDatabase;
-use parking_lot::Mutex;
+use crate::bindings::CoreDatabase;
+use crate::query::Query;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use std::sync::Arc;
-
-use crate::db::Database;
-use crate::query::Query;
 
 #[pyclass]
 pub struct CoreQuery {
-    db: Arc<Mutex<Database>>,
-    table_name: String,
-}
-
-impl CoreQuery {
-    fn with_query<F, T>(&self, f: F) -> PyResult<T>
-    where
-        F: FnOnce(&mut Query) -> Result<T, crate::db_error::DbError>,
-    {
-        let mut db = self.db.lock();
-        let table = db.tables.get_mut(self.table_name.as_str()).ok_or_else(|| {
-            PyRuntimeError::new_err(format!("table '{}' not found", self.table_name))
-        })?;
-        let mut query = Query::new(table);
-        f(&mut query).map_err(|e| PyRuntimeError::new_err(e.to_string()))
-    }
+    pub(crate) inner: Query,
 }
 
 #[pymethods]
 impl CoreQuery {
     #[new]
-    fn new(db: &CoreDatabase, table_name: String) -> PyResult<Self> {
-        {
-            let db_lock = db.inner.lock();
-            if !db_lock.tables.contains_key(table_name.as_str()) {
-                return Err(PyRuntimeError::new_err(format!(
-                    "table '{}' not found",
-                    table_name
-                )));
-            }
-        }
+    fn new(table_name: String, db: &CoreDatabase) -> PyResult<Self> {
+        let db_read = db.inner.read();
+        let table = db_read
+            .get_table(&table_name)
+            .ok_or_else(|| PyRuntimeError::new_err(format!("table '{}' not found", table_name)))?;
         Ok(Self {
-            db: Arc::clone(&db.inner),
-            table_name,
+            inner: Query::new(table),
         })
     }
 
-    fn insert(&self, record: Vec<Option<i64>>) -> PyResult<bool> {
-        self.with_query(|q| q.insert(record))
+    #[pyo3(signature = (*columns))]
+    fn insert(&mut self, columns: Vec<i64>) -> bool {
+        let mut nullable_rec = Vec::with_capacity(columns.len() + 4);
+        nullable_rec.extend(columns.into_iter().map(Some));
+        self.inner.insert(nullable_rec).unwrap_or(false)
     }
 
     fn select(
@@ -56,7 +34,9 @@ impl CoreQuery {
         search_key_index: usize,
         projected_columns_index: Vec<i64>,
     ) -> PyResult<Vec<Vec<Option<i64>>>> {
-        self.with_query(|q| q.select(search_key, search_key_index, &projected_columns_index))
+        self.inner
+            .select(search_key, search_key_index, &projected_columns_index)
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
     fn select_version(
@@ -64,41 +44,52 @@ impl CoreQuery {
         search_key: i64,
         search_key_index: usize,
         projected_columns_index: Vec<i64>,
-        relative_version: i64,
+        relative_version: i64
     ) -> PyResult<Vec<Vec<Option<i64>>>> {
-        self.with_query(|q| {
-            q.select_version(
-                search_key,
-                search_key_index,
-                &projected_columns_index,
-                relative_version,
-            )
-        })
+        self.inner
+            .select_version(search_key, search_key_index, &projected_columns_index,relative_version)
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
-    fn update(&self, primary_key: i64, record: Vec<Option<i64>>) -> PyResult<bool> {
-        self.with_query(|q| q.update(primary_key, record))
+    #[pyo3(signature = (primary_key, *columns))]
+    fn update(&mut self, primary_key: i64, columns: Vec<Option<i64>>) -> bool {
+        self.inner.update(primary_key, columns).unwrap_or(false)
     }
 
-    fn delete(&self, primary_key: i64) -> PyResult<bool> {
-        self.with_query(|q| q.delete(primary_key))
+    fn delete(&mut self, key: i64) -> bool {
+        self.inner.delete(key).unwrap_or(false)
     }
 
     fn sum(&self, start_range: i64, end_range: i64, col: usize) -> PyResult<i64> {
-        self.with_query(|q| q.sum(start_range, end_range, col))
+        self.inner
+            .sum(start_range, end_range, col)
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+    fn sum_version(&self, start_range: i64, end_range: i64, column: usize, relative_version: i64) -> PyResult<i64>{
+        self.inner.sum_version(start_range, end_range, column, relative_version)
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
-    fn sum_version(
-        &self,
-        start_range: i64,
-        end_range: i64,
-        col: usize,
-        relative_version: i64,
-    ) -> PyResult<i64> {
-        self.with_query(|q| q.sum_version(start_range, end_range, col, relative_version))
+    fn increment(&mut self, key: i64, column: usize) -> bool {
+        self.inner.increment(key, column).unwrap_or(false)
     }
 
-    fn increment(&self, key: i64, column: usize) -> PyResult<bool> {
-        self.with_query(|q| q.increment(key, column))
+    fn create_index(&self, col: usize) {
+        if col >= self.inner.table.num_data_columns || col == self.inner.table.key_index {
+            return;
+        }
+        let table = &self.inner.table;
+        table.indices[col].enable();
+        for (_,rid) in table.indices[table.key_index].all_pairs() {
+            if let Ok(Some(val)) = table.read_latest_single(rid, col) {
+                table.indices[col].insert(val, rid);
+            }
+        }
+    }
+
+    fn drop_index(&self, col: usize) {
+        if col < self.inner.table.num_data_columns {
+            self.inner.table.indices[col].disable();
+        }
     }
 }

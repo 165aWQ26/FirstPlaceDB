@@ -1,6 +1,7 @@
 use std::sync::mpsc::Receiver;
 use std::sync::{mpsc, Arc};
-use crate::bufferpool::disk_manager::DiskManager;
+use parking_lot::RwLock;
+use crate::disk_manager::DiskManager;
 use crate::bufferpool::errors::BufferPoolError;
 use crate::page::Page;
 use crate::page_collection::PageId;
@@ -18,11 +19,11 @@ pub enum BufferPoolOp {
 
 pub struct BufferPoolWorker {
     cmd_rx: Receiver<BufferPoolOp>,
-    disk_manager: Arc<DiskManager>,
+    disk_manager: Arc<RwLock<DiskManager>>,
 }
 
 impl BufferPoolWorker {
-    pub fn new(receiver: Receiver<BufferPoolOp>, disk_manager: Arc<DiskManager>) -> Self {
+    pub fn new(receiver: Receiver<BufferPoolOp>, disk_manager: Arc<RwLock<DiskManager>>) -> Self {
         Self {
             cmd_rx: receiver,
             disk_manager,
@@ -31,7 +32,7 @@ impl BufferPoolWorker {
 
     pub(crate) fn run(self) {
         while let Ok(op) = self.cmd_rx.recv() {
-            match (op) {
+            match op {
                 BufferPoolOp::FlushPages { pages, res_tx } => {
                     let result = self.handle_evict(pages);
                     res_tx.send(result).unwrap();
@@ -45,7 +46,7 @@ impl BufferPoolWorker {
 
     fn handle_evict(&self, pages: Vec<(PageId, Page)>) -> Result<(), BufferPoolError> {
         for (pid, page) in pages {
-            self.disk_manager.write_page(pid, &page)?;
+            self.disk_manager.read().write_page(pid, &page)?;
         }
         Ok(())
     }

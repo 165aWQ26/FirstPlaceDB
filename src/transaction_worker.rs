@@ -1,19 +1,41 @@
+use crate::transaction::{Transaction, QueryOp};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use crate::table::Table;
 
-#[allow(dead_code)]
-pub fn create_merge_worker(table: Arc<Mutex<Table>>){
-    //TODO: WRAP TABLE IN Arc<Mutex<Table>> AT QUERY/DB LEVEL
-    // gives thread value ownership via move
-    thread::spawn(move || {
-        loop {
-            thread::sleep(std::time::Duration::from_millis(10));
-            if let Ok(mut t) = table.lock() {
-                if t.page_ranges.tail.full_pages_since_merge >= 10 {
-                    let _ = t.merge();
+pub struct TransactionWorker {
+    pub transactions: Vec<Vec<QueryOp>>,   // each inner Vec is one transaction's ops
+    handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
+}
+
+impl TransactionWorker {
+    pub fn new() -> Self {
+        Self {
+            transactions: Vec::new(),
+            handle: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn add_transaction(&mut self, ops: Vec<QueryOp>) {
+        self.transactions.push(ops);
+    }
+
+    pub fn run(&mut self) {
+        let transactions = self.transactions.clone();
+        let handle = thread::spawn(move || {
+            for ops in transactions {
+                loop { //add max retries if desired
+                    if Transaction::from_ops(ops.clone()).run() {
+                        break;
+                    }
                 }
             }
+        });
+        *self.handle.lock().unwrap() = Some(handle);
+    }
+
+    pub fn join(&self) {
+        if let Some(h) = self.handle.lock().unwrap().take() {
+            h.join().ok();
         }
-    });
+    }
 }

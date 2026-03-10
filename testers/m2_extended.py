@@ -70,7 +70,7 @@ def run_tests():
             'agg_time': 0,
             'delete_time': 0
         }
-    
+
     ######################################
     # HELPER FUNCTION
     ######################################
@@ -80,7 +80,7 @@ def run_tests():
             val.append(r.columns)
         val.sort()
         return val
-    
+
     ######################################
     # EXTENDED CORRECTNESS TESTS (using "./CT" database)
     ######################################
@@ -104,21 +104,21 @@ def run_tests():
             query_ct.insert(*rec)
     except Exception as e:
         m_tests["CT Setup"] = {"status": "Failed", "message": str(e)}
-    
+
     # Test 1: Select with index.
     test_name = "Select with index"
     try:
         test_table.index.create_index(2)
         res = reorganize_result(query_ct.select(1, 2, [1, 1, 1, 1, 1]))
         if (len(res) == 4 and
-            fixed_records[0] in res and fixed_records[1] in res and 
-            fixed_records[5] in res and fixed_records[7] in res):
+                fixed_records[0] in res and fixed_records[1] in res and
+                fixed_records[5] in res and fixed_records[7] in res):
             m_tests[test_name] = {"status": "Passed", "message": "Select with index: expected records found."}
         else:
             m_tests[test_name] = {"status": "Failed", "message": "Expected 4 matching records, got: " + str(res)}
     except Exception as e:
         m_tests[test_name] = {"status": "Failed", "message": "Exception: " + str(e)}
-    
+
     # Test 2: Select without index (one record).
     test_name = "Select without index (one record)"
     try:
@@ -130,20 +130,20 @@ def run_tests():
             m_tests[test_name] = {"status": "Failed", "message": "Expected one record matching fixed_records[2], got: " + str(res)}
     except Exception as e:
         m_tests[test_name] = {"status": "Failed", "message": "Exception: " + str(e)}
-    
+
     # Test 3: Select without index (multiple records).
     test_name = "Select without index (multiple records)"
     try:
         res = reorganize_result(query_ct.select(1, 2, [1, 1, 1, 1, 1]))
-        if (len(res) == 4 and 
-            fixed_records[0] in res and fixed_records[1] in res and 
-            fixed_records[5] in res and fixed_records[7] in res):
+        if (len(res) == 4 and
+                fixed_records[0] in res and fixed_records[1] in res and
+                fixed_records[5] in res and fixed_records[7] in res):
             m_tests[test_name] = {"status": "Passed", "message": "Select without index (multiple records): expected records found."}
         else:
             m_tests[test_name] = {"status": "Failed", "message": "Expected 4 records for multiple records select, got: " + str(res)}
     except Exception as e:
         m_tests[test_name] = {"status": "Failed", "message": "Exception: " + str(e)}
-    
+
     # Test 4: Select without index (empty result).
     test_name = "Select without index (empty result)"
     try:
@@ -154,7 +154,7 @@ def run_tests():
             m_tests[test_name] = {"status": "Failed", "message": "Expected empty result, got: " + str(res)}
     except Exception as e:
         m_tests[test_name] = {"status": "Failed", "message": "Exception: " + str(e)}
-    
+
     # Test 5: Update on non-existent primary key.
     test_name = "Update on non-existent primary key"
     try:
@@ -166,7 +166,7 @@ def run_tests():
             m_tests[test_name] = {"status": "Failed", "message": "Record with primary key 8 should not exist, but got: " + str(res)}
     except Exception as e:
         m_tests[test_name] = {"status": "Failed", "message": "Exception: " + str(e)}
-    
+
     # Test 6: Update that changes primary key (should be disallowed).
     test_name = "Update that changes primary key"
     try:
@@ -182,7 +182,7 @@ def run_tests():
 
     except Exception as e:
         m_tests[test_name] = {"status": "Failed", "message": "Exception: " + str(e)}
-    
+
     # Test 7: Delete a record.
     test_name = "Delete record"
     try:
@@ -194,7 +194,7 @@ def run_tests():
             m_tests[test_name] = {"status": "Failed", "message": "Record with primary key 5 was not deleted, got: " + str(res)}
     except Exception as e:
         m_tests[test_name] = {"status": "Failed", "message": "Exception: " + str(e)}
-    
+
     # Test 8: Multiple tables test.
     test_name = "Multiple tables test"
     try:
@@ -219,7 +219,7 @@ def run_tests():
             m_tests[test_name] = {"status": "Failed", "message": "Multiple tables test did not return expected result, got: " + str(res)}
     except Exception as e:
         m_tests[test_name] = {"status": "Failed", "message": "Exception: " + str(e)}
-    
+
     # Test 9: Different primary key test.
     test_name = "Different primary key test"
     try:
@@ -248,7 +248,7 @@ def run_tests():
         db_ct.close()
     except Exception as e:
         m_tests["CT Close"] = {"status": "Failed", "message": str(e)}
-    
+
     ######################################
     # M2 TESTS AND DURABILITY TESTS (using "./M2" database)
     ######################################
@@ -279,7 +279,7 @@ def run_tests():
             m_tests[test_name] = {"status": "Passed", "message": "M2 Insert test: all records inserted successfully."}
         except Exception as e:
             m_tests[test_name] = {"status": "Failed", "message": "Exception: " + str(e)}
-        
+
         # Test 11: M2 Select test.
         test_name = "M2 Select test"
         try:
@@ -290,7 +290,7 @@ def run_tests():
             m_tests[test_name] = {"status": "Passed", "message": "M2 Select test: all records selected correctly."}
         except Exception as e:
             m_tests[test_name] = {"status": "Failed", "message": "Exception: " + str(e)}
-        
+
         # Test 12: M2 Update test.
         test_name = "M2 Update test"
         m2_original = copy.deepcopy(m2_records)
@@ -312,7 +312,7 @@ def run_tests():
             db_m2.close()
         except Exception:
             pass
-        
+
         # Durability tests: reopen the M2 database.
         try:
             db_m2 = Database()
@@ -329,7 +329,7 @@ def run_tests():
                 m_tests[test_name] = {"status": "Passed", "message": "Durability select test: all records persisted correctly."}
             except Exception as e:
                 m_tests[test_name] = {"status": "Failed", "message": "Exception: " + str(e)}
-            
+
             # Test 14: Durability aggregate test.
             test_name = "Durability aggregate test"
             try:
@@ -353,7 +353,7 @@ def run_tests():
             m_tests["M2 Durability"] = {"status": "Failed", "message": str(e)}
     except Exception as e:
         m_tests["M2 Setup"] = {"status": "Failed", "message": str(e)}
-    
+
     ######################################
     # MERGING TESTS (using "./MT" database)
     ######################################
@@ -393,7 +393,7 @@ def run_tests():
         except Exception as e:
             return {"status": "Failed", "message": str(e)}
     m_tests["Merging tester"] = merging_tester()
-    
+
     ######################################
     # OUTPUT
     ######################################

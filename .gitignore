@@ -238,10 +238,12 @@ __marimo__/
 cspell.json
 .python-version
 
-# Testor generated dir
+# Tester generated dir
 MT/
 M2/
 CT/
+db_data/
+
 
 # windows lock file
 .lock

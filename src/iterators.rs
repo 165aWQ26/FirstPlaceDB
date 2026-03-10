@@ -25,6 +25,13 @@ impl PhysicalAddressIterator {
             collection_num: prev / Page::PAGE_SIZE,
         }
     }
+    pub fn current(&self) -> usize {
+        self.next.load(Ordering::Relaxed)
+    }
+
+    pub fn restore(&self, val: usize) {
+        self.next.store(val, Ordering::Relaxed);
+    }
 }
 
 #[derive(Default)]
@@ -45,27 +52,53 @@ impl PidRangeIterator {
             pages_per_collection,
         }
     }
+
+    pub fn current(&self) -> usize {
+        self.start.load(Ordering::Relaxed)
+    }
+    
     pub fn next(&self) -> PidRange {
         let start = self.start.fetch_add(self.pages_per_collection, Ordering::Relaxed);
         let end = start + self.pages_per_collection;
 
         PidRange { start, end }
     }
+
+    pub fn restore(start: usize, pages_per_collection: usize) -> Self{
+        Self {
+            start: AtomicUsize::new(start),
+            pages_per_collection,
+        }
+    }
 }
 
 pub struct AtomicIterator<T> {
-    next: T,
+    pub(crate) next: T,
 }
 
 impl AtomicIterator<AtomicUsize> {
     pub fn next(&self) -> usize {
         self.next.fetch_add(1, Ordering::Relaxed)
     }
+
+    pub fn current(&self) -> usize {
+        self.next.load(Ordering::Relaxed)
+    }
+    pub fn set(&self, val: usize) {
+        self.next.store(val, Ordering::Relaxed);
+    }
 }
 
 impl AtomicIterator<AtomicI64> {
     pub fn next(&self) -> i64 {
         self.next.fetch_add(1, Ordering::Relaxed)
+    }
+
+    pub fn current(&self) -> i64 {
+        self.next.load(Ordering::Relaxed)
+    }
+    pub fn set(&self, val: i64) {
+        self.next.store(val, Ordering::Relaxed);
     }
 }
 

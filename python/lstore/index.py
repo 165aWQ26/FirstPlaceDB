@@ -6,32 +6,14 @@ class Index:
 
     def __init__(self, table):
         # One index for each column. All our empty initially.
-        pass
-
-    """
-    # returns the location of all records with the given value on column "column"
-    """
-
-    def locate(self, value):
-        pass
-
-    """
-    # Returns the RIDs of all records with values in column "column" between "begin" and "end"
-    """
-
-    def locate_range(self, begin, end):
-        pass
-
-    """
-    # optional: Create index on specific column
-    """
+        self.table = table
 
     def create_index(self, column_number):
-        pass
-
-    """
-    # optional: Drop index of specific column
-    """
+        if self.table._core_db is not None:
+            from lstore._core import CoreQuery as _CoreQuery
+            _CoreQuery(self.table.name, self.table._core_db).create_index(column_number)
 
     def drop_index(self, column_number):
-        pass
+        if self.table._core_db is not None:
+            from lstore._core import CoreQuery as _CoreQuery
+            _CoreQuery(self.table.name, self.table._core_db).drop_index(column_number)

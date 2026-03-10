@@ -9,6 +9,7 @@ pub struct EvictionPolicy {
     p: usize,
     capacity: usize,
     ghost_cap: usize,
+    free_list: Vec<FrameId>,
 }
 
 impl EvictionPolicy {
@@ -25,14 +26,22 @@ impl EvictionPolicy {
             p: 0,
             capacity,
             ghost_cap,
+            free_list: (0..capacity).collect(),
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.t1.len() + self.t2.len()
+    pub fn acquire_frame(&mut self) -> Option<(FrameId, bool)> {
+        if let Some(fid) = self.free_list.pop() {
+            return Some((fid, false));
+        }
+        let victim = self.evict_victim()?;
+        Some((victim, true))
     }
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+
+    pub fn release_frame(&mut self, fid: FrameId) {
+        self.t1.pop(&fid);
+        self.t2.pop(&fid);
+        self.free_list.push(fid);
     }
 
     fn replace(&mut self, prefer_t2: bool) -> Option<FrameId> {
@@ -41,13 +50,13 @@ impl EvictionPolicy {
 
         if evict_t1 {
             let (victim, _) = self.t1.pop_lru().unwrap();
+            self.push_b1(victim);
             Some(victim)
         } else if !self.t2.is_empty() {
             let (victim, _) = self.t2.pop_lru().unwrap();
             self.push_b2(victim);
             Some(victim)
         } else if !self.t1.is_empty() {
-            // Fallback: T2 empty, evict T1 regardless.
             let (victim, _) = self.t1.pop_lru().unwrap();
             self.push_b1(victim);
             Some(victim)
@@ -96,7 +105,6 @@ impl EvictionPolicy {
 
     pub(crate) fn on_insert(&mut self, fid: FrameId) {
         if self.b1.contains(&fid) {
-            // B1 ghost hit → recency demand strong -> grow p.
             let delta = if !self.b1.is_empty() {
                 (self.b2.len() / self.b1.len()).max(1)
             } else {
@@ -109,19 +117,17 @@ impl EvictionPolicy {
         }
 
         if self.b2.contains(&fid) {
-            // B2 ghost hit → frequency demand strong → shrink p.
             let delta = if !self.b2.is_empty() {
                 (self.b1.len() / self.b2.len()).max(1)
             } else {
                 1
             };
             self.p = self.p.saturating_sub(delta);
-
             self.remove_b2(fid);
             self.t2.push(fid, ());
             return;
         }
-        // Full miss
+
         self.t1.push(fid, ());
     }
 
@@ -137,7 +143,9 @@ impl EvictionPolicy {
             }
             victim
         } else {
-            self.b1.pop_lru().map(|(fid, _)| fid)
+            let (victim, _) = self.t1.pop_lru()?;
+            self.push_b1(victim);
+            Some(victim)
         }
     }
 }
