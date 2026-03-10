@@ -101,6 +101,13 @@ impl PageRange {
             .read_all(addr.offset)
     }
 
+    fn read_data(&self, addr: &PhysicalAddress, num_data: usize) -> Result<Vec<Option<i64>>, BufferPoolError> {
+        self.range
+            .get(&addr.collection_num)
+            .ok_or(BufferPoolError::PidNotInFrame)?
+            .read_data_cols(addr.offset, num_data)
+    }
+
     #[inline]
     fn read_single(
         &self,
@@ -336,6 +343,11 @@ impl PageRanges {
     #[inline]
     pub fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, BufferPoolError> {
         self.base.read(addr)
+    }
+
+    #[inline]
+    pub fn read_data(&self, addr: &PhysicalAddress, num_data: usize) -> Result<Vec<Option<i64>>, BufferPoolError> {
+        self.base.read_data(addr, num_data)
     }
 
     #[inline]
