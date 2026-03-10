@@ -20,7 +20,6 @@ impl CoreTransaction {
     #[pyo3(signature = (query_fn, _table, *args))]
     pub fn add_query(
         &mut self,
-        py: Python,
         query_fn: &Bound<PyAny>,
         _table: &Bound<PyAny>,
         args: &Bound<PyTuple>,

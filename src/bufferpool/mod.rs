@@ -3,6 +3,7 @@ mod eviction_policy;
 mod bufferpool;
 mod errors;
 
-pub use bufferpool::{BufferPool, FrameId};
+#[allow(unused_imports)]
+pub use bufferpool::{BufferPool, BP_CAP};
 pub use crate::disk_manager::DiskManager;
 pub use errors::*;

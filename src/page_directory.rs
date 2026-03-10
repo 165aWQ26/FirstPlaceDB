@@ -1,6 +1,5 @@
 use dashmap::DashMap;
 use crate::errors::DbError;
-use crate::errors::DbError::Page;
 use crate::iterators::PhysicalAddress;
 
 pub struct PageDirectory {

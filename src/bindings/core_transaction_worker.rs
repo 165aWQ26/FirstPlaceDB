@@ -14,7 +14,7 @@ impl CoreTransactionWorker {
         Self { inner: TransactionWorker::new() }
     }
 
-    pub fn add_transaction(&mut self, py: Python, txn: &Bound<CoreTransaction>) {
+    pub fn add_transaction(&mut self, txn: &Bound<CoreTransaction>) {
         // Snapshot ops out of the Python object while GIL is held.
         // After this the worker holds no Python objects.
         self.inner.add_transaction(txn.borrow().inner.ops.clone());
