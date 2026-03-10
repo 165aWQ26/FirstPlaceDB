@@ -287,58 +287,6 @@ impl Table {
         }
     }
 
-    pub fn merge(&mut self) -> Result<(), DbError> {
-        let dirty: Vec<i64> = self.dirty_base_rids.iter().map(|r| *r).collect();
-
-        for &base_rid in &dirty {
-            self.dirty_base_rids.remove(&base_rid);
-
-            let base_addr = match self.page_directory.get(base_rid) {
-                Ok(addr) => addr,
-                Err(_) => continue,
-            };
-
-            // Only process records that have an unmerged tail chain
-            let indirection = match self.page_ranges.read_meta_col(
-                &base_addr,
-                MetaPage::Indirection,
-                WhichRange::Base,
-            )? {
-                Some(ind) if ind != base_rid => ind,
-                _ => continue,
-            };
-
-            let tail_addr = match self.page_directory.get(indirection) {
-                Ok(addr) => addr,
-                Err(_) => continue,
-            };
-            let latest_schema = self.page_ranges.read_meta_col(
-                &tail_addr,
-                MetaPage::SchemaEncoding,
-                WhichRange::Tail,
-            )?;
-
-            let (consolidated_data, new_schema) = if latest_schema.is_none() {
-                (vec![None; self.num_data_columns], None)
-            } else {
-                let latest = self.read_latest(base_rid)?;
-                (latest[..self.num_data_columns].to_vec(), Some(0i64))
-            };
-
-            let new_addr = self.page_ranges.append_base_merged(
-                consolidated_data,
-                base_rid,
-                indirection,
-                new_schema,
-            )?;
-
-            self.page_directory.add(base_rid, new_addr);
-
-            self.page_ranges.update_tps(&new_addr, indirection);
-        }
-        Ok(())
-    }
-
     #[inline]
     fn read_record_internal (&self, rid: i64, skip_count: usize) -> Result<Vec<Option<i64>>, DbError> {
         let (base_addr, tps, tail_opt) = self.get_unmerged_tail(rid)?;
@@ -425,5 +373,57 @@ impl Table {
         }
 
         Ok((base_addr, tps, Some(tail_rid)))
+    }
+
+    pub fn merge(&mut self) -> Result<(), DbError> {
+        let dirty: Vec<i64> = self.dirty_base_rids.iter().map(|r| *r).collect();
+
+        for &base_rid in &dirty {
+            self.dirty_base_rids.remove(&base_rid);
+
+            let base_addr = match self.page_directory.get(base_rid) {
+                Ok(addr) => addr,
+                Err(_) => continue,
+            };
+
+            // Only process records that have an unmerged tail chain
+            let indirection = match self.page_ranges.read_meta_col(
+                &base_addr,
+                MetaPage::Indirection,
+                WhichRange::Base,
+            )? {
+                Some(ind) if ind != base_rid => ind,
+                _ => continue,
+            };
+
+            let tail_addr = match self.page_directory.get(indirection) {
+                Ok(addr) => addr,
+                Err(_) => continue,
+            };
+            let latest_schema = self.page_ranges.read_meta_col(
+                &tail_addr,
+                MetaPage::SchemaEncoding,
+                WhichRange::Tail,
+            )?;
+
+            let (consolidated_data, new_schema) = if latest_schema.is_none() {
+                (vec![None; self.num_data_columns], None)
+            } else {
+                let latest = self.read_latest(base_rid)?;
+                (latest[..self.num_data_columns].to_vec(), Some(0i64))
+            };
+
+            let new_addr = self.page_ranges.append_base_merged(
+                consolidated_data,
+                base_rid,
+                indirection,
+                new_schema,
+            )?;
+
+            self.page_directory.add(base_rid, new_addr);
+
+            self.page_ranges.update_tps(&new_addr, indirection);
+        }
+        Ok(())
     }
 }

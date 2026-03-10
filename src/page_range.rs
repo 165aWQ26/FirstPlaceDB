@@ -94,16 +94,6 @@ impl PageRange {
         Ok(addr)
     }
 
-    // fn lazy_create_page_collection(&mut self, page: &usize) {
-    //     // while self.range.len() <= page {
-    //     //     self.range.push(PageCollection::new(
-    //     //         self.pid_iterator.next(),
-    //     //         self.table_id,
-    //     //         self.bufferpool.clone(),
-    //     //     ));
-    //     // }
-    // }
-
     fn read(&self, addr: &PhysicalAddress) -> Result<Vec<Option<i64>>, BufferPoolError> {
         self.range
             .get(&addr.collection_num)

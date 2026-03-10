@@ -85,7 +85,7 @@ impl PidRangeIterator {
 }
 
 pub struct AtomicIterator<T> {
-    next: T,
+    pub(crate) next: T,
 }
 
 impl AtomicIterator<AtomicUsize> {
