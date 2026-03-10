@@ -28,11 +28,11 @@ impl PageDirectory {
     //DNE or has been deleted... Too lazy to write real exception handling DAANNNYYY Fix me
     #[inline]
     pub fn get(&self, rid: i64) -> Result<PhysicalAddress, DbError> {
-        self.directory.get(&rid).map(|addr| *addr.value()).ok_or(DbError::RecordNotFound(rid))
+        self.directory.get(&rid).map(|addr| addr.value().clone()).ok_or(DbError::RecordNotFound(rid))
     }
 
     pub fn snapshot(&self) -> Vec<(i64,PhysicalAddress)> {
-        self.directory.iter().map(|e| (*e.key(), *e.value())).collect()
+        self.directory.iter().map(|e| (*e.key(), e.value().clone())).collect()
     }
 
     pub fn restore(pairs: Vec<(i64,PhysicalAddress)>) -> Self {

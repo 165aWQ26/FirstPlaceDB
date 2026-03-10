@@ -145,24 +145,6 @@ impl PageRange {
             .read_meta_col(col, addr.offset)
     }
 
-    /// Returns the TPS watermark for the collection that contains `addr`.
-    #[inline]
-    pub fn get_tps(&self, addr: &PhysicalAddress) -> i64 {
-        self.range
-            .get(&addr.collection_num)
-            .map(|c| c.get_tps())
-            .ok_or(BufferPoolError::PidNotInFrame)
-            .unwrap_or(i64::MIN)
-    }
-
-    /// Advances the TPS watermark for the collection that contains `addr`.
-    #[inline]
-    pub fn update_tps(&self, addr: &PhysicalAddress, new_tps: i64) {
-        if let Some(collection) = self.range.get(&addr.collection_num) {
-            collection.update_tps(new_tps)
-        }
-    }
-
     fn read_projected(
         &self,
         projected: &[i64],
@@ -370,16 +352,6 @@ impl PageRanges {
             WhichRange::Base => self.base.read_meta_col(addr, col_type),
             WhichRange::Tail => self.tail.read_meta_col(addr, col_type),
         }
-    }
-
-    #[inline]
-    pub fn get_tps(&self, addr: &PhysicalAddress) -> i64 {
-        self.base.get_tps(addr)
-    }
-
-    #[inline]
-    pub fn update_tps(&self, addr: &PhysicalAddress, new_tps: i64) {
-        self.base.update_tps(addr, new_tps);
     }
 
     pub fn base_collection_pid_ranges(&self) -> Vec<(usize, usize)> {

@@ -378,9 +378,9 @@ impl DiskManager {
             let rid = read_i64(&data,&mut file_offset)?;
             let o = read_u64(&data,&mut file_offset)? as usize;
             let c = read_u64(&data,&mut file_offset)? as usize;
-            pairs.push((rid, PhysicalAddress { offset: o, collection_num: c}));
+            pairs.push((rid, PhysicalAddress::new(o, c)));
         }
-    Ok(pairs)
+        Ok(pairs)
     }
 
     pub fn write_table_counters(

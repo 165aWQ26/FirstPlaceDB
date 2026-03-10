@@ -1,7 +1,6 @@
 use crate::bufferpool::{BufferPool, BufferPoolError};
 use crate::iterators::PidRange;
 use crate::table::Table;
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 
 #[repr(usize)]
@@ -17,7 +16,6 @@ pub struct PageCollection {
     table_id: usize,
     bufferpool: Arc<BufferPool>,
     num_pages: usize,
-    tps: AtomicI64,
 }
 
 impl PageCollection {
@@ -27,18 +25,7 @@ impl PageCollection {
             pid_range,
             table_id,
             bufferpool,
-            tps: AtomicI64::new(i64::MIN),
         }
-    }
-
-    #[inline]
-    pub fn get_tps(&self) -> i64 {
-        self.tps.load(Ordering::Acquire)
-    }
-
-    #[inline]
-    pub fn update_tps(&self, new_tps: i64) {
-        self.tps.fetch_max(new_tps, Ordering::Release);
     }
 
     #[inline]

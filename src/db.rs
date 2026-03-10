@@ -2,6 +2,7 @@ use crate::bufferpool::DiskManager;
 use crate::bufferpool::BufferPool;
 use crate::errors::DbError;
 use crate::iterators::AtomicIterator;
+use crate::merge_worker::MergeWorker;
 use crate::table::Table;
 use dashmap::{mapref::entry::Entry, DashMap};
 use parking_lot::RwLock;
@@ -18,10 +19,12 @@ pub(crate) struct Database {
     bufferpool: Arc<BufferPool>,
     pub path: Option<PathBuf>,
     disk_manager: Arc<RwLock<DiskManager>>,
+    merge_worker: MergeWorker,
 }
 
 impl Database {
     pub const DEFAULT_PATH: &str = "db_data";
+
     pub fn new() -> Self {
         let temp_path = Self::create_temp_path();
         let disk_manager = Arc::new(RwLock::new(DiskManager::new(temp_path).unwrap()));
@@ -32,6 +35,7 @@ impl Database {
             bufferpool: Arc::new(BufferPool::new(disk_manager.clone())),
             path: None,
             disk_manager,
+            merge_worker: MergeWorker::new(),
         }
     }
 
@@ -42,7 +46,6 @@ impl Database {
     }
 
     pub fn create_table(&self, name: String, num_columns: usize, key_index: usize) {
-        //atomic check table_names and return an entry
         match self.table_names.entry(name.clone()) {
             Entry::Vacant(vacant) => {
                 let table_id = self.table_id.next();
@@ -54,13 +57,11 @@ impl Database {
                     self.bufferpool.clone(),
                 ));
 
-                //insert into tables
+                self.merge_worker.spawn_for_table(table.clone());
                 self.tables.insert(table_id, table);
-
-                //insert into table_names
                 vacant.insert(table_id);
             }
-            Entry::Occupied(_) => {} //Todo better error handling
+            Entry::Occupied(_) => {}
         }
     }
 
@@ -83,12 +84,9 @@ impl Database {
     }
 
     pub fn open(&mut self, path: &str) -> Result<(), DbError> {
-        //Todo: check test cases because sanitize path turns "" into "_"
         let sanitized_path = Some(PathBuf::from(Self::DEFAULT_PATH).join(sanitize(path)));
         self.path = sanitized_path.clone();
-        self.disk_manager
-            .write()
-            .set_path(sanitized_path)?;
+        self.disk_manager.write().set_path(sanitized_path)?;
 
         let (table_metas, next_table_id) = {
             let dm = self.disk_manager.read();
@@ -121,9 +119,10 @@ impl Database {
                     self.bufferpool.clone(),
                     page_dir_pairs,
                     counters,
-                    primary_pairs
+                    primary_pairs,
                 ));
 
+                self.merge_worker.spawn_for_table(table.clone());
                 self.tables.insert(table_id, table);
             }
         }
@@ -131,10 +130,11 @@ impl Database {
     }
 
     pub fn close(&self) -> Result<(), DbError> {
+        self.merge_worker.stop();
+
         let dm = self.disk_manager.read();
 
         dm.write_table_names(&self.table_names)?;
-
         dm.write_tables(&self.tables, self.table_id.current())?;
 
         for entry in self.tables.iter() {

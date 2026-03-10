@@ -31,9 +31,10 @@ impl Query {
 
         for (i, _val) in record
             .iter()
-            .enumerate().filter(|(i,_)| *i != self.table.key_index)
+            .enumerate()
+            .filter(|(i, _)| *i != self.table.key_index)
         {
-                self.table.indices[i].insert(i as i64, rid)
+            self.table.indices[i].insert(i as i64, rid)
         }
         Ok(true)
     }
@@ -52,13 +53,17 @@ impl Query {
         } else if self.table.indices[search_key_index].is_enabled() {
             self.table.indices[search_key_index].locate_all(key)
         } else {
-            self.table.indices[self.table.key_index].locate_range(i64::MIN, i64::MAX).into_iter().filter(|&rid| {
-                self.table
-                    .read_latest_single(rid, search_key_index)
-                    .ok()
-                    .flatten()
-                    .is_some_and(|r| r == key)
-            }).collect()
+            self.table.indices[self.table.key_index]
+                .locate_range(i64::MIN, i64::MAX)
+                .into_iter()
+                .filter(|&rid| {
+                    self.table
+                        .read_latest_single(rid, search_key_index)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|r| r == key)
+                })
+                .collect()
         };
 
         rids.iter()
@@ -84,6 +89,7 @@ impl Query {
             relative_version,
         )?])
     }
+
     pub fn update(&self, key: i64, record: Vec<Option<i64>>) -> Result<bool, DbError> {
         if record[self.table.key_index].is_some() {
             return Ok(false);
@@ -128,18 +134,21 @@ impl Query {
 
         self.table.page_directory.add(next_rid, address);
 
-        self.table
-            .page_ranges
-            .write_indirection(&base_addr, Some(next_rid), WhichRange::Base)?;
+        //Hacky way to get around a race with merge
+        loop {
+            let current_base = self.table.page_directory.get(rid)?;
+            self.table
+                .page_ranges
+                .write_indirection(&current_base, Some(next_rid), WhichRange::Base)?;
+            if self.table.page_directory.get(rid)? == current_base {
+                break;
+            }
+        }
 
-        // Mark this base RID as having unmerged tail data.
-        // DashSet deduplicates automatically so repeated updates to the same
-        // record are cheap and don't inflate the dirty set.
         self.table.dirty_base_rids.insert(rid);
 
         Ok(true)
     }
-
 
     pub fn delete(&self, key: i64) -> Result<bool, DbError> {
         let rid = self.table.rid_for_key(key)?;
@@ -179,12 +188,17 @@ impl Query {
 
         self.table.page_directory.add(next_rid, address);
 
-        self.table
-            .page_ranges
-            .write_indirection(&base_addr, Some(next_rid), WhichRange::Base)?;
+        //Same retry pattern as update.
+        loop {
+            let current_base = self.table.page_directory.get(rid)?;
+            self.table
+                .page_ranges
+                .write_indirection(&current_base, Some(next_rid), WhichRange::Base)?;
+            if self.table.page_directory.get(rid)? == current_base {
+                break;
+            }
+        }
 
-        // Deleted records also need to be merged so the base page reflects
-        // the deletion, is_deleted can skip the tail
         self.table.dirty_base_rids.insert(rid);
 
         Ok(true)
@@ -218,7 +232,6 @@ impl Query {
             return Err(DbError::KeyNotFound(start_range));
         }
 
-        // cumulative sum of all columns
         let mut sum: i64 = 0;
 
         for rid in rids {
@@ -248,7 +261,5 @@ impl Query {
         record[col] = Some(temp);
 
         self.update(key, record)
-
-
     }
 }

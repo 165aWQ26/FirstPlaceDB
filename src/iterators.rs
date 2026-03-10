@@ -1,10 +1,68 @@
 use crate::page::Page;
+use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
-#[derive(Hash, Eq, PartialEq, Copy, Clone, Debug, Default)]
+
 pub struct PhysicalAddress {
     pub(crate) offset: usize,
     pub(crate) collection_num: usize,
+    pub(crate) tps: AtomicI64,
 }
+
+impl PhysicalAddress {
+    pub fn new(offset: usize, collection_num: usize) -> Self {
+        Self {
+            offset,
+            collection_num,
+            tps: AtomicI64::new(i64::MIN),
+        }
+    }
+}
+
+impl Clone for PhysicalAddress {
+    fn clone(&self) -> Self {
+        Self {
+            offset: self.offset,
+            collection_num: self.collection_num,
+            tps: AtomicI64::new(self.tps.load(Ordering::Acquire)),
+        }
+    }
+}
+
+impl PartialEq for PhysicalAddress {
+    fn eq(&self, other: &Self) -> bool {
+        self.offset == other.offset && self.collection_num == other.collection_num
+    }
+}
+
+impl Eq for PhysicalAddress {}
+
+impl Hash for PhysicalAddress {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.offset.hash(state);
+        self.collection_num.hash(state);
+    }
+}
+
+impl Default for PhysicalAddress {
+    fn default() -> Self {
+        Self {
+            offset: 0,
+            collection_num: 0,
+            tps: AtomicI64::new(i64::MIN),
+        }
+    }
+}
+
+impl std::fmt::Debug for PhysicalAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PhysicalAddress")
+            .field("offset", &self.offset)
+            .field("collection_num", &self.collection_num)
+            .field("tps", &self.tps.load(Ordering::Relaxed))
+            .finish()
+    }
+}
+
 #[derive(Default)]
 pub struct PhysicalAddressIterator {
     next: AtomicUsize,
@@ -20,10 +78,10 @@ impl PhysicalAddressIterator {
     pub fn next(&self) -> PhysicalAddress {
         let prev = self.next.fetch_add(1, Ordering::Relaxed);
 
-        PhysicalAddress {
-            offset: prev % Page::PAGE_SIZE,
-            collection_num: prev / Page::PAGE_SIZE,
-        }
+        PhysicalAddress::new(
+            prev % Page::PAGE_SIZE,
+            prev / Page::PAGE_SIZE,
+        )
     }
     pub fn current(&self) -> usize {
         self.next.load(Ordering::Relaxed)
@@ -56,7 +114,7 @@ impl PidRangeIterator {
     pub fn current(&self) -> usize {
         self.start.load(Ordering::Relaxed)
     }
-    
+
     pub fn next(&self) -> PidRange {
         let start = self.start.fetch_add(self.pages_per_collection, Ordering::Relaxed);
         let end = start + self.pages_per_collection;
