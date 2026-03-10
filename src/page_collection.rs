@@ -85,6 +85,11 @@ impl PageCollection {
     }
 
     #[inline]
+    pub fn read_data_cols(&self, offset: usize, num_data: usize) -> Result<Vec<Option<i64>>, BufferPoolError> {
+        (0..num_data).map(|i| self.read_col(i, offset)).collect()
+    }
+
+    #[inline]
     pub fn make_pid(&self, col: usize) -> PageId {
         PageId::new(col + self.pid_range.start, self.table_id)
     }

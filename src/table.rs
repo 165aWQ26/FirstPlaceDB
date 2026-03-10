@@ -290,7 +290,7 @@ impl Table {
     #[inline]
     fn read_record_internal (&self, rid: i64, skip_count: usize) -> Result<Vec<Option<i64>>, DbError> {
         let (base_addr, tps, tail_opt) = self.get_unmerged_tail(rid)?;
-        let mut result = self.page_ranges.read(&base_addr).map_err(DbError::Storage)?;
+        let mut result = self.page_ranges.read_data(&base_addr, self.num_data_columns).map_err(DbError::Storage)?;
 
         let mut current_tail_rid = match tail_opt {
             Some(tail_rid) => tail_rid,
