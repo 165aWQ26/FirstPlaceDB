@@ -6,7 +6,8 @@ pub enum PageError {
 
 #[derive(Clone, Debug)]
 pub struct Page {
-    data: Vec<Option<i64>>,
+    data: [Option<i64>; Page::PAGE_SIZE],
+    num_records: usize,
 }
 
 impl Page {
@@ -14,16 +15,16 @@ impl Page {
 
     #[inline]
     pub fn has_capacity(&self) -> bool {
-        self.data.len() < Page::PAGE_SIZE
+        self.num_records < Page::PAGE_SIZE
     }
 
     #[inline]
     pub fn write(&mut self, val: Option<i64>, offset: usize) -> Result<(), PageError> {
-        if !self.has_capacity() {
+        if offset >= Page::PAGE_SIZE {
             return Err(PageError::Full);
         }
-
-        self.data.insert(offset, val);
+        self.data[offset] = val;
+        self.num_records += 1;
         Ok(())
     }
 
@@ -37,7 +38,7 @@ impl Page {
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.data.len()
+        self.num_records
     }
 
     #[inline]
@@ -53,7 +54,8 @@ impl Page {
 impl Default for Page {
     fn default() -> Self {
         Self {
-            data: Vec::with_capacity(Page::PAGE_SIZE),
+            data: [None; Page::PAGE_SIZE],
+            num_records: 0,
         }
     }
 }

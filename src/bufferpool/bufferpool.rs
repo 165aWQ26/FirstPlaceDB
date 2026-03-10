@@ -277,20 +277,20 @@ impl BufferPool {
 
     fn resolve_or_load(&self, pid: PageId) -> Result<FrameId, BufferPoolError> {
         if let Some(fid) = self.check_cache_hit(pid) {
-            return Ok(fid)
+            return Ok(fid);
         }
 
         let mut policy = self.eviction_policy.lock();
 
         if let Some(fid) = self.check_cache_race(pid, &mut policy) {
-            return Ok(fid)
+            return Ok(fid);
         }
 
         let (fid, was_evicted) = policy
             .acquire_frame()
             .ok_or(BufferPoolError::AllFramesPinned)?;
 
-        drop(policy);
+        // DO NOT drop(policy) here!
 
         if was_evicted {
             self.evict_frame(fid)?;
@@ -298,10 +298,9 @@ impl BufferPool {
 
         self.read_or_init_page(pid, fid)?;
 
-        let mut policy = self.eviction_policy.lock();
         self.page_table.insert(pid, fid);
         policy.on_insert(fid);
-        drop(policy);
+        drop(policy);  // release lock AFTER page_table is updated
 
         Ok(fid)
     }
