@@ -6,6 +6,7 @@ use crate::table::Table;
 use dashmap::DashMap;
 use std::sync::Arc;
 
+#[allow(dead_code)] //don't care about pages_per_collection being unused
 pub struct PageRange {
     range: DashMap<usize, PageCollection>,
     pub(crate) next_addr: PhysicalAddressIterator,

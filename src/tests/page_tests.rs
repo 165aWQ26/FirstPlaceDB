@@ -53,12 +53,8 @@ fn write_beyond_capacity_fails() {
 #[test]
 fn read_out_of_bounds() {
     let page = Page::default();
-    assert_eq!(page.read(0), Err(PageError::IndexOutOfBounds(0)));
-
-    let mut page2 = Page::default();
-    page2.write(Some(1), 0).unwrap();
-    assert_eq!(page2.read(1), Err(PageError::IndexOutOfBounds(1)));
-    assert_eq!(page2.read(100), Err(PageError::IndexOutOfBounds(100)));
+    assert_eq!(page.read(Page::PAGE_SIZE), Err(PageError::IndexOutOfBounds(Page::PAGE_SIZE)));
+    assert_eq!(page.read(Page::PAGE_SIZE + 1), Err(PageError::IndexOutOfBounds(Page::PAGE_SIZE + 1)));
 }
 
 #[test]
@@ -80,10 +76,7 @@ fn update_to_none() {
 #[test]
 fn update_out_of_bounds() {
     let mut page = Page::default();
-    assert_eq!(page.update(0, Some(1)), Err(PageError::IndexOutOfBounds(0)));
-
-    page.write(Some(10), 0).unwrap();
-    assert_eq!(page.update(1, Some(1)), Err(PageError::IndexOutOfBounds(1)));
+    assert_eq!(page.update(Page::PAGE_SIZE, Some(1)), Err(PageError::IndexOutOfBounds(Page::PAGE_SIZE)));
 }
 
 #[test]

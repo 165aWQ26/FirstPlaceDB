@@ -2,8 +2,6 @@ use crate::transaction::{Transaction, QueryOp};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-const MAX_RETRIES: usize = 20;
-
 pub struct TransactionWorker {
     pub transactions: Vec<Vec<QueryOp>>,   // each inner Vec is one transaction's ops
     handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,

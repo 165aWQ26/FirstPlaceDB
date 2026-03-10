@@ -30,14 +30,6 @@ impl EvictionPolicy {
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.t1.len() + self.t2.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
     pub fn acquire_frame(&mut self) -> Option<(FrameId, bool)> {
         if let Some(fid) = self.free_list.pop() {
             return Some((fid, false));

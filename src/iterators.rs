@@ -29,10 +29,6 @@ impl PhysicalAddressIterator {
         self.next.load(Ordering::Relaxed)
     }
 
-    pub fn get(&self) -> usize {
-        self.next.load(Ordering::Relaxed)
-    }
-
     pub fn restore(&self, val: usize) {
         self.next.store(val, Ordering::Relaxed);
     }
@@ -60,20 +56,12 @@ impl PidRangeIterator {
     pub fn current(&self) -> usize {
         self.start.load(Ordering::Relaxed)
     }
-
-    pub fn set(&self, val: usize) {
-        self.start.store(val, Ordering::Relaxed);
-    }
-
+    
     pub fn next(&self) -> PidRange {
         let start = self.start.fetch_add(self.pages_per_collection, Ordering::Relaxed);
         let end = start + self.pages_per_collection;
 
         PidRange { start, end }
-    }
-
-    pub fn get_next(&self) -> usize {
-        self.start.load(Ordering::Relaxed)
     }
 
     pub fn restore(start: usize, pages_per_collection: usize) -> Self{

@@ -1,8 +1,8 @@
 use crate::bufferpool::bufferpool_worker::{BufferPoolOp, BufferPoolWorker};
-use crate::disk_manager::DiskManager;
 use crate::bufferpool::errors::BufferPoolError;
 use crate::bufferpool::eviction_policy::EvictionPolicy;
-use crate::page::{Page, PageError};
+use crate::disk_manager::DiskManager;
+use crate::page::Page;
 use crate::page_collection::PageId;
 use dashmap::DashMap;
 use parking_lot::{Mutex, RwLock};
@@ -12,6 +12,7 @@ use std::thread;
 
 pub type FrameId = usize;
 // What the TA ended up using
+
 pub const BP_CAP: usize = 256;
 
 struct InnerFrame {
@@ -49,25 +50,6 @@ impl Frame {
         self.dirty.store(false, Ordering::Release);
     }
 
-    pub fn read(&self, offset: usize) -> Result<Option<i64>, PageError> {
-        let guard = self.inner.read();
-        guard.page.read(offset)
-    }
-
-    pub fn write(&self, value: Option<i64>, offset: usize) -> Result<(), PageError> {
-        let mut guard = self.inner.write();
-        guard.page.write(value, offset)?;
-        self.dirty.store(true, Ordering::Release);
-        Ok(())
-    }
-
-    pub fn update(&self, offset: usize, value: Option<i64>) -> Result<(), PageError> {
-        let mut guard = self.inner.write();
-        guard.page.update(offset, value)?;
-        self.dirty.store(true, Ordering::Release);
-        Ok(())
-    }
-
     pub fn get_page_copy(&self) -> Page {
         let guard = self.inner.read();
         guard.page.clone()
@@ -77,11 +59,6 @@ impl Frame {
         let mut guard = self.inner.write();
         guard.pid = None;
         self.dirty.store(false, Ordering::Release);
-    }
-
-    pub fn has_capacity(&self) -> bool {
-        let guard = self.inner.read();
-        guard.page.has_capacity()
     }
 
     pub fn is_dirty(&self) -> bool {

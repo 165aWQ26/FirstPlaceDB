@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use parking_lot::RwLock;
 use crate::bufferpool::{BufferPool, DiskManager};
 use crate::errors::DbError;
 use crate::query::Query;
@@ -11,18 +12,19 @@ fn make_bp(prefix: &str) -> Arc<BufferPool> {
     let id = TEST_DIR_CTR.fetch_add(1, Ordering::Relaxed);
     let dir = format!("./test_tmp/{}_{}", prefix, id);
     let _ = std::fs::remove_dir_all(&dir);
-    Arc::new(BufferPool::new(DiskManager::new(&dir).unwrap()))
+    let dm = Arc::new(RwLock::new(DiskManager::new(&dir).unwrap()));
+    Arc::new(BufferPool::new(dm))
 }
 
 fn setup(num_columns: usize) -> Query {
     let bp = make_bp("qtest");
     let table = Table::new(String::from("test"), num_columns, 0, 0, bp);
-    Query::new(table)
+    Query::new(Arc::from(table))
 }
 
 #[test]
 fn insert_and_select() {
-    let mut q = setup(3);
+    let q = setup(3);
     q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
 
     let mask = [1i64, 1, 1];
@@ -33,59 +35,57 @@ fn insert_and_select() {
 
 #[test]
 fn insert_and_select_version_1() {
-    let mut q = setup(3);
+    let  q = setup(3);
     q.insert(vec![Some(10), Some(20), Some(30)]).unwrap();
 
-    q.update(10,vec![None, Some(2), Some(3)]).unwrap();
+    q.update(10, vec![None, Some(2), Some(3)]).unwrap();
 
     let mask = [1i64, 1, 1];
-    let result = q.select_version(10, 0, &mask,-1).unwrap();
+    let result = q.select_version(10, 0, &mask, -1).unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], vec![Some(10), Some(20), Some(30)]);
 }
 
 #[test]
 fn insert_and_select_version_2() {
-    let mut q = setup(3);
+    let  q = setup(3);
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
 
-    q.update(1,vec![None, None, Some(6)]).unwrap();
-    q.update(1,vec![None, None, Some(5)]).unwrap();
-    q.update(1,vec![None, Some(10), Some(4)]).unwrap();
+    q.update(1, vec![None, None, Some(6)]).unwrap();
+    q.update(1, vec![None, None, Some(5)]).unwrap();
+    q.update(1, vec![None, Some(10), Some(4)]).unwrap();
 
     let mask = [1i64, 1, 1];
-    let result = q.select_version(1, 0, &mask,-2).unwrap();
+    let result = q.select_version(1, 0, &mask, -2).unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], vec![Some(1), Some(2), Some(6)]);
 }
+
 #[test]
 fn remove_and_select_version_error() {
-    //Very important to look at this case.
-    //It's possible other behavior is wanted
-    let mut q = setup(3);
+    let  q = setup(3);
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
 
-    q.update(10,vec![None, None, Some(6)]).unwrap();
-    q.update(10,vec![None, None, Some(5)]).unwrap();
+    q.update(10, vec![None, None, Some(6)]).unwrap();
+    q.update(10, vec![None, None, Some(5)]).unwrap();
     q.delete(1).unwrap();
 
-
     let mask = [1i64, 1, 1];
-    assert!(matches!(q.select_version(1, 0, &mask,-1), Err(DbError::KeyNotFound(1))));
+    assert!(matches!(q.select_version(1, 0, &mask, -1), Err(DbError::KeyNotFound(1))));
 }
+
 #[test]
 fn insert_duplicate_key_fails() {
-    let mut q = setup(3);
+    let  q = setup(3);
     assert!(q.insert(vec![Some(1), Some(2), Some(3)]).unwrap());
     assert!(!q.insert(vec![Some(1), Some(5), Some(6)]).unwrap());
 }
 
 #[test]
 fn update_and_select() {
-    let mut q = setup(4);
+    let  q = setup(4);
     q.insert(vec![Some(1), Some(2), Some(3), Some(4)]).unwrap();
 
-    // Update columns 1 and 3
     q.update(1, vec![None, Some(20), None, Some(40)]).unwrap();
 
     let mask = [1i64, 1, 1, 1];
@@ -95,32 +95,31 @@ fn update_and_select() {
 
 #[test]
 fn delete_removes_from_index() {
-    let mut q = setup(3);
+    let  q = setup(3);
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
     q.delete(1).unwrap();
     assert!(q.table.indices[0].locate(1).is_none());
 }
 
 #[test]
-fn select_deleted_key_fails() {
-    let mut q = setup(3);
+fn select_deleted_key_returns_empty() {
+    let  q = setup(3);
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
     q.delete(1).unwrap();
 
     let mask = [1i64, 1, 1];
-    assert!(matches!(q.select(1, 0, &mask), Err(DbError::KeyNotFound(1))));
+    let result = q.select(1, 0, &mask).unwrap();
+    assert!(result.is_empty());
 }
 
 #[test]
 fn sum_range() {
-    let mut q = setup(3);
+    let  q = setup(3);
     q.insert(vec![Some(1), Some(10), Some(100)]).unwrap();
     q.insert(vec![Some(2), Some(20), Some(200)]).unwrap();
     q.insert(vec![Some(3), Some(30), Some(300)]).unwrap();
 
-    // Sum column 1 for keys 1..3
     assert_eq!(q.sum(1, 3, 1).unwrap(), 60);
-    // Sum column 2 for keys 1..2
     assert_eq!(q.sum(1, 2, 2).unwrap(), 300);
 }
 
@@ -129,23 +128,21 @@ fn increment() {
     let mut q = setup(3);
     q.insert(vec![Some(1), Some(10), Some(100)]).unwrap();
 
-    q.increment(1, 1).unwrap(); // col 1: 10 → 11
-    q.increment(1, 1).unwrap(); // col 1: 11 → 12
+    q.increment(1, 1).unwrap();
+    q.increment(1, 1).unwrap();
 
     let mask = [1i64, 1, 1];
     let result = q.select(1, 0, &mask).unwrap();
     assert_eq!(result[0][1], Some(12));
-    // Other columns unchanged
     assert_eq!(result[0][0], Some(1));
     assert_eq!(result[0][2], Some(100));
 }
 
-// Keep the original integration test
 #[test]
 fn quick_test_all() {
     let bp = make_bp("quick");
     let table: Table = Table::new(String::from("test"), 5, 0, 0, bp);
-    let mut query: Query = Query::new(table);
+    let mut query: Query = Query::new(Arc::from(table));
 
     let rec_one: Vec<Option<i64>> = vec![Some(1); 5];
     let rec_two: Vec<Option<i64>> = vec![Some(2); 5];
@@ -165,7 +162,6 @@ fn quick_test_all() {
 
     query.insert(rec_three).unwrap();
 
-    // key 1: col3=1, key 2: col3=2, key 3: col3=6 → 1+2+6=9
     let ans: i64 = query.sum(1, 3, 3).unwrap();
     assert_eq!(ans, 9);
 
@@ -181,7 +177,6 @@ fn quick_test_all() {
     query.increment(2, 0).unwrap();
     query.increment(1, 0).unwrap();
 
-    // After increment(2,0): key 2→3. After increment(1,0): key 1→2.
     let full_mask: [i64; 5] = [1, 1, 1, 1, 1];
     let ans_list_two: Vec<Vec<Option<i64>>> = query.select(2, 0, &full_mask).unwrap();
     assert_eq!(ans_list_two[0][0], Some(2));
@@ -192,7 +187,7 @@ fn quick_test_all() {
 
 #[test]
 fn sum_version_1() {
-    let mut q = setup(3);
+    let  q = setup(3);
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
     q.insert(vec![Some(5), Some(6), Some(7)]).unwrap();
     q.insert(vec![Some(2), Some(6), Some(8)]).unwrap();
@@ -203,13 +198,11 @@ fn sum_version_1() {
 
     let ans = q.sum_version(1, 5, 2, -1).unwrap();
     assert_eq!(ans, 15);
-    // q.sum_version(1, 5, 1, -1);
-    // q.sum_version(1, 5, 1, 0);
 }
 
 #[test]
 fn sum_version_2() {
-    let mut q = setup(3);
+    let q = setup(3);
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
     q.insert(vec![Some(2), Some(6), Some(1)]).unwrap();
     q.insert(vec![Some(3), Some(10), Some(8)]).unwrap();
@@ -227,17 +220,12 @@ fn sum_version_2() {
     q.update(6, vec![None, Some(8), None]).unwrap();
 
     let ans = q.sum_version(6, 6, 2, -1).unwrap();
-    // assert_eq!(ans, 3 + 3 + 8 + 13 + 7 + 6);
-    // let num = q.table.read_version_single(2,2,0).unwrap();
-    assert_eq!(ans, 18)
-    // q.sum_version(1, 5, 1, -1);
-    // q.sum_version(1, 5, 1, 0);
+    assert_eq!(ans, 18);
 }
 
 #[test]
 fn sum_version_3() {
-    //Similar to previous but negatives are used
-    let mut q = setup(3);
+    let q = setup(3);
     q.insert(vec![Some(1), Some(52), Some(-3)]).unwrap();
     q.insert(vec![Some(2), Some(63), Some(-1)]).unwrap();
     q.insert(vec![Some(3), Some(210), Some(8)]).unwrap();
@@ -262,53 +250,32 @@ fn sum_version_3() {
     q.update(6, vec![None, Some(8), None]).unwrap();
 
     let ans = q.sum_version(2, 6, 2, -2).unwrap();
-    // assert_eq!(ans, 3 + 3 + 8 + 13 + 7 + 6);
-    // let num = q.table.read_version_single(2,2,0).unwrap();
-    assert_eq!(ans, 175)
-    // q.sum_version(1, 5, 1, -1);
-    // q.sum_version(1, 5, 1, 0);
+    assert_eq!(ans, 175);
 }
 
 #[test]
 fn select_version_disjoint_column_updates() {
-    // Two updates that touch diffrent columns.
-    // Version -1 should undo only the latest update (col 2),
-    // leaving the earlier update (col 1) intact.
-    // THIS IS WHERE I WAS WRONG. It's not go back N update per col it's skip N tail records. So this is simpler then what I thought about
-    //
-    // This will fails with per-column version counting (read_version_single)
-    // because it independently goes back 1 relevant version for each column,
-    // which for col 1 means going all the way back to base.
-    let mut q = setup(3);
+    let q = setup(3);
     q.insert(vec![Some(100), Some(10), Some(20)]).unwrap();
 
-    // Update 1: only col 1 → tail schema 0b010
     q.update(100, vec![None, Some(11), None]).unwrap();
-    // Update 2: only col 2 → tail schema 0b100
     q.update(100, vec![None, None, Some(22)]).unwrap();
 
     let mask = [1i64, 1, 1];
 
-    // Version 0 (latest): both updates merged
     let latest = q.select_version(100, 0, &mask, 0).unwrap();
     assert_eq!(latest[0], vec![Some(100), Some(11), Some(22)]);
 
-    // Version -1: undo update 2 only. Col 1 should still be 11.
     let prev = q.select_version(100, 0, &mask, -1).unwrap();
     assert_eq!(prev[0], vec![Some(100), Some(11), Some(20)]);
-    //                                   ^^^^^^^^
-    // Per-column counting (read_version_single) returns 10 here (base),
-    // because it goes back 1 col-1-relevant version, skipping past tail 1.
-    // If you guys still wants to do read_version_single, you need to at least check RID
 
-    // Version -2: undo both updates, back to base
     let base = q.select_version(100, 0, &mask, -2).unwrap();
     assert_eq!(base[0], vec![Some(100), Some(10), Some(20)]);
 }
 
 #[test]
 fn test_version_single() {
-    let mut q = setup(3);
+    let q = setup(3);
     q.insert(vec![Some(1), Some(2), Some(3)]).unwrap();
     q.insert(vec![Some(5), Some(6), Some(7)]).unwrap();
     q.insert(vec![Some(2), Some(6), Some(8)]).unwrap();
@@ -317,13 +284,10 @@ fn test_version_single() {
     q.update(2, vec![None, Some(4), Some(5)]).unwrap();
     q.update(2, vec![None, Some(4), Some(6)]).unwrap();
 
-    let num1 = q.table.read_version_single(0,2,-2).unwrap();
-    let num2 = q.table.read_version_single(1,2,-5).unwrap();
-    let num3 = q.table.read_version_single(2,2,0).unwrap();
+    let num1 = q.table.read_version_single(0, 2, -2).unwrap();
+    let num2 = q.table.read_version_single(1, 2, -5).unwrap();
+    let num3 = q.table.read_version_single(2, 2, 0).unwrap();
     assert_eq!(num1.unwrap(), 3);
     assert_eq!(num2.unwrap(), 7);
     assert_eq!(num3.unwrap(), 6);
-
-    // q.sum_version(1, 5, 1, -1);
-    // q.sum_version(1, 5, 1, 0);
 }
