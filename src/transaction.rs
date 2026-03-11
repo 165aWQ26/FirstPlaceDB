@@ -46,57 +46,105 @@ impl Transaction {
         let txn_id = TXN_COUNTER.next();
         let lm = lock_manager();
         let mut undo: Vec<UndoEntry> = Vec::new();
+        let mut held_locks: Vec<(usize, i64)> = Vec::new();
 
         for op in &self.ops {
-            if !Self::acquire_locks(lm, op, txn_id) {
-                Self::rollback(undo, txn_id);
+            if !Self::acquire_locks(lm, op, txn_id, &mut held_locks) {
+                Self::rollback(undo, txn_id, &held_locks);
                 return false;
             }
             if !Self::execute_op(op, &mut undo) {
-                Self::rollback(undo, txn_id);
+                Self::rollback(undo, txn_id, &held_locks);
                 return false;
             }
         }
 
-        lm.release_all(txn_id);
+        lm.release_locks(txn_id, &held_locks);
         true
     }
 
-    fn acquire_locks(lm: &crate::lock_manager::LockManager, op: &QueryOp, txn_id: usize) -> bool {
+    fn acquire_locks(
+        lm: &crate::lock_manager::LockManager,
+        op: &QueryOp,
+        txn_id: usize,
+        held: &mut Vec<(usize, i64)>,
+    ) -> bool {
         match op {
             QueryOp::Insert { table, args } => {
                 if let Some(Some(key)) = args.get(table.key_index) {
-                    lm.acquire_exclusive(table.table_id, *key, txn_id)
+                    if lm.acquire_exclusive(table.table_id, *key, txn_id) {
+                        held.push((table.table_id, *key));
+                        true
+                    } else {
+                        false
+                    }
                 } else {
                     true
                 }
             }
-            QueryOp::Update   { table, key, .. } => lm.acquire_exclusive(table.table_id, *key, txn_id),
-            QueryOp::Delete   { table, key }     => lm.acquire_exclusive(table.table_id, *key, txn_id),
-            QueryOp::Increment{ table, key, .. } => lm.acquire_exclusive(table.table_id, *key, txn_id),
-            QueryOp::Select        { table, key, .. } => lm.acquire_shared(table.table_id, *key, txn_id),
-            QueryOp::SelectVersion { table, key, .. } => lm.acquire_shared(table.table_id, *key, txn_id),
+            QueryOp::Update { table, key, .. } => {
+                if lm.acquire_exclusive(table.table_id, *key, txn_id) {
+                    held.push((table.table_id, *key));
+                    true
+                } else {
+                    false
+                }
+            }
+            QueryOp::Delete { table, key } => {
+                if lm.acquire_exclusive(table.table_id, *key, txn_id) {
+                    held.push((table.table_id, *key));
+                    true
+                } else {
+                    false
+                }
+            }
+            QueryOp::Increment { table, key, .. } => {
+                if lm.acquire_exclusive(table.table_id, *key, txn_id) {
+                    held.push((table.table_id, *key));
+                    true
+                } else {
+                    false
+                }
+            }
+            QueryOp::Select { table, key, .. } => {
+                if lm.acquire_shared(table.table_id, *key, txn_id) {
+                    held.push((table.table_id, *key));
+                    true
+                } else {
+                    false
+                }
+            }
+            QueryOp::SelectVersion { table, key, .. } => {
+                if lm.acquire_shared(table.table_id, *key, txn_id) {
+                    held.push((table.table_id, *key));
+                    true
+                } else {
+                    false
+                }
+            }
             QueryOp::Sum { table, start, end, .. } => {
-                table.indices[table.key_index]
-                    .locate_range(*start, *end)
-                    .iter()
-                    .all(|&rid| {
-                        table.read_latest_single(rid, table.key_index)
-                            .ok()
-                            .flatten()
-                            .map_or(true, |key| lm.acquire_shared(table.table_id, key, txn_id))
-                    })
+                let rids = table.indices[table.key_index].locate_range(*start, *end);
+                for &rid in &rids {
+                    if let Ok(Some(key)) = table.read_latest_single(rid, table.key_index) {
+                        if !lm.acquire_shared(table.table_id, key, txn_id) {
+                            return false;
+                        }
+                        held.push((table.table_id, key));
+                    }
+                }
+                true
             }
             QueryOp::SumVersion { table, start, end, .. } => {
-                table.indices[table.key_index]
-                    .locate_range(*start, *end)
-                    .iter()
-                    .all(|&rid| {
-                        table.read_latest_single(rid, table.key_index)
-                            .ok()
-                            .flatten()
-                            .map_or(true, |key| lm.acquire_shared(table.table_id, key, txn_id))
-                    })
+                let rids = table.indices[table.key_index].locate_range(*start, *end);
+                for &rid in &rids {
+                    if let Ok(Some(key)) = table.read_latest_single(rid, table.key_index) {
+                        if !lm.acquire_shared(table.table_id, key, txn_id) {
+                            return false;
+                        }
+                        held.push((table.table_id, key));
+                    }
+                }
+                true
             }
         }
     }
@@ -115,8 +163,11 @@ impl Transaction {
                 }
             }
             QueryOp::Update { table, key, cols } => {
+                let mut update_cols = cols.clone();
+                update_cols[table.key_index] = None;
+
                 let before = Self::read_before_image(table, *key);
-                match Query::new(table.clone()).update(*key, cols.clone()) {
+                match Query::new(table.clone()).update(*key, update_cols) {
                     Ok(true) => {
                         if let Some(b) = before {
                             undo.push(UndoEntry::UpdateUndo { table: table.clone(), key: *key, before: b });
@@ -157,7 +208,7 @@ impl Transaction {
         Some(full[..table.num_data_columns].to_vec())
     }
 
-    fn rollback(undo: Vec<UndoEntry>, txn_id: usize) {
+    fn rollback(undo: Vec<UndoEntry>, txn_id: usize, held_locks: &[(usize, i64)]) {
         for entry in undo.into_iter().rev() {
             match entry {
                 UndoEntry::InsertUndo { table, key } => {
@@ -173,6 +224,6 @@ impl Transaction {
                 }
             }
         }
-        lock_manager().release_all(txn_id);
+        lock_manager().release_locks(txn_id, held_locks);
     }
 }
