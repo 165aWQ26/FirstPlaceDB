@@ -43,11 +43,11 @@ check_error() {
 }
 
 clean_data_dirs() {
-	rm -rf db_data/Grades/ db_data/.ECS165/
+	rm -rf db_data/Grades/ db_data/ECS165/
 }
 
 clean_m2_extended_dir() {
-	rm -rf db_data/.M2/ db_data/.MT/ db_data/.CT/
+	rm -rf db_data/M2/ db_data/MT/ db_data/CT/
 }
 
 # Suppress warnings

@@ -23,10 +23,11 @@ impl TransactionWorker {
         let transactions = self.transactions.clone();
         let handle = thread::spawn(move || {
             for ops in transactions {
-                loop { //add max retries if desired
+                loop {
                     if Transaction::from_ops(ops.clone()).run() {
                         break;
                     }
+                    std::thread::yield_now();
                 }
             }
         });

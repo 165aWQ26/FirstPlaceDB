@@ -9,3 +9,4 @@ mod repro_tests;
 pub mod setup_tests;
 mod table_tests;
 mod bufferpool_test;
+mod transaction_tests;

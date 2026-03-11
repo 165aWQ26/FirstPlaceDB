@@ -18,7 +18,7 @@ fn make_bp(prefix: &str) -> Arc<BufferPool> {
 
 fn setup(num_columns: usize) -> Query {
     let bp = make_bp("qtest");
-    let table = Table::new(String::from("test"), num_columns, 0, 0, bp);
+    let table = Table::new_no_transaction(String::from("test"), num_columns, 0, 0, bp);
     Query::new(Arc::from(table))
 }
 
@@ -141,7 +141,7 @@ fn increment() {
 #[test]
 fn quick_test_all() {
     let bp = make_bp("quick");
-    let table: Table = Table::new(String::from("test"), 5, 0, 0, bp);
+    let table: Table = Table::new_no_transaction(String::from("test"), 5, 0, 0, bp);
     let mut query: Query = Query::new(Arc::from(table));
 
     let rec_one: Vec<Option<i64>> = vec![Some(1); 5];

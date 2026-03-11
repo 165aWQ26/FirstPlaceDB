@@ -243,10 +243,11 @@ MT/
 M2/
 CT/
 db_data/
-
+test_tmp/
 
 # windows lock file
 .lock
 
 # Coverage report
 htmlReport/
+

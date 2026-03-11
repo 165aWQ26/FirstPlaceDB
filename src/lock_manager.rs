@@ -1,5 +1,4 @@
 use dashmap::DashMap;
-use std::sync::OnceLock;
 
 #[derive(Default)]
 struct LockEntry {
@@ -12,7 +11,7 @@ pub struct LockManager {
 }
 
 impl LockManager {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self { table: DashMap::new() }
     }
 
@@ -47,19 +46,14 @@ impl LockManager {
         true
     }
 
-    pub fn release_all(&self, txn_id: usize) {
-        self.table.retain(|_, entry| {
-            entry.shared.retain(|&id| id != txn_id);
-            if entry.exclusive == Some(txn_id) {
-                entry.exclusive = None;
+    pub fn release_locks(&self, txn_id: usize, held: &[(usize, i64)]) {
+        for &(table_id, key) in held {
+            if let Some(mut entry) = self.table.get_mut(&(table_id, key)) {
+                entry.shared.retain(|&id| id != txn_id);
+                if entry.exclusive == Some(txn_id) {
+                    entry.exclusive = None;
+                }
             }
-            !entry.shared.is_empty() || entry.exclusive.is_some()
-        });
+        }
     }
-}
-
-static LOCK_MANAGER: OnceLock<LockManager> = OnceLock::new();
-
-pub fn lock_manager() -> &'static LockManager {
-    LOCK_MANAGER.get_or_init(LockManager::new)
 }
