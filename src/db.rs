@@ -11,6 +11,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use crate::disk_manager::TableCounters;
 use crate::lock_manager::LockManager;
+use crate::merge_worker::MergeWorker;
 
 pub(crate) struct Database {
     pub(crate) tables: DashMap<usize, Arc<Table>>,
@@ -57,12 +58,10 @@ impl Database {
                     self.bufferpool.clone(),
                     self.lock_manager.clone(),
                 ));
-
-                //insert into tables
-                self.tables.insert(table_id, table);
-
-                //insert into table_names
+                self.tables.insert(table_id, table.clone());
                 vacant.insert(table_id);
+                let worker = MergeWorker::new(table.clone(), self.lock_manager.clone());
+                table.merge_worker.set(worker).ok();
             }
             Entry::Occupied(_) => {} //Todo better error handling
         }
@@ -128,7 +127,9 @@ impl Database {
                     self.lock_manager.clone(),
                 ));
 
-                self.tables.insert(table_id, table);
+                self.tables.insert(table_id, table.clone());
+                let worker = MergeWorker::new(table.clone(), self.lock_manager.clone());
+                table.merge_worker.set(worker).ok();
             }
         }
         Ok(())

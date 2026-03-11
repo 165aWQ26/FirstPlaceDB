@@ -3,6 +3,7 @@ use crate::page_collection::MetaPage;
 use crate::page_range::WhichRange;
 use crate::table::Table;
 use std::sync::Arc;
+use crate::page::Page;
 
 pub struct Query {
     pub table: Arc<Table>,
@@ -136,6 +137,7 @@ impl Query {
         // DashSet deduplicates automatically so repeated updates to the same
         // record are cheap and don't inflate the dirty set.
         self.table.dirty_base_rids.insert(rid);
+        self.maybe_trigger_merge();
 
         Ok(true)
     }
@@ -186,6 +188,7 @@ impl Query {
         // Deleted records also need to be merged so the base page reflects
         // the deletion, is_deleted can skip the tail
         self.table.dirty_base_rids.insert(rid);
+        self.maybe_trigger_merge();
 
         Ok(true)
     }
@@ -250,5 +253,16 @@ impl Query {
         self.update(key, record)
 
 
+    }
+    #[inline]
+    fn maybe_trigger_merge(&self) {
+        let prev = self.table.tail_append_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let new_count = prev + 1;
+        let interval = Table::MERGE_TAIL_PAGE_INTERVAL * Page::PAGE_SIZE;
+        if new_count % interval == 0 {
+            if let Some(worker) = self.table.merge_worker.get() {
+                worker.trigger();
+            }
+        }
     }
 }

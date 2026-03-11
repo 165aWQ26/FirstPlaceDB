@@ -56,4 +56,10 @@ impl LockManager {
             }
         }
     }
+
+    pub fn is_exclusively_locked(&self, table_id: usize, key: i64) -> bool {
+        self.table
+            .get(&(table_id, key))
+            .map_or(false, |e| e.exclusive.is_some())
+    }
 }

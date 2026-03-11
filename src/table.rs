@@ -8,8 +8,9 @@ use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
 use crate::lock_manager::LockManager;
 use dashmap::DashSet;
-use std::sync::atomic::AtomicI64;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
+use crate::merge_worker::MergeWorker;
 
 pub struct Table {
     pub name: String,
@@ -23,11 +24,14 @@ pub struct Table {
     pub num_total_cols: usize,
     pub dirty_base_rids: DashSet<i64>,
     pub lock_manager: Arc<LockManager>,
+    pub tail_append_count: AtomicUsize,
+    pub merge_worker: OnceLock<MergeWorker>,
 }
 
 impl Table {
     pub const PROJECTED_NUM_RECORDS: usize = 10001;
     pub const NUM_META_PAGES: usize = 4;
+    pub const MERGE_TAIL_PAGE_INTERVAL: usize = 10;
     
     pub fn new_no_transaction(
         table_name: String,
@@ -76,6 +80,8 @@ impl Table {
             num_total_cols,
             dirty_base_rids: DashSet::new(),
             lock_manager,
+            tail_append_count: AtomicUsize::new(0),
+            merge_worker: OnceLock::new(),
         }
     }
 
@@ -112,6 +118,7 @@ impl Table {
             counters.base_next_addr,
             counters.tail_next_addr,
             counters.pid_next_start,
+
         );
 
         let page_directory = PageDirectory::restore(page_dir_pairs);
@@ -131,6 +138,8 @@ impl Table {
             num_total_cols,
             dirty_base_rids: DashSet::new(),
             lock_manager,
+            tail_append_count: AtomicUsize::new(0),
+            merge_worker: OnceLock::new(),
         }
     }
 
@@ -399,6 +408,61 @@ impl Table {
         Ok((base_addr, tps, Some(tail_rid)))
     }
 
+    pub fn merge_rids(&self, rids: &[i64]) -> Result<(), DbError> {
+        for &base_rid in rids {
+            self.dirty_base_rids.remove(&base_rid);
+
+            let base_addr = match self.page_directory.get(base_rid) {
+                Ok(addr) => addr,
+                Err(_) => continue,
+            };
+
+            let indirection = match self.page_ranges.read_meta_col(
+                &base_addr,
+                MetaPage::Indirection,
+                WhichRange::Base,
+            )? {
+                Some(ind) if ind != base_rid => ind,
+                _ => continue,
+            };
+
+            let tail_addr = match self.page_directory.get(indirection) {
+                Ok(addr) => addr,
+                Err(_) => continue,
+            };
+
+            let latest_schema = self.page_ranges.read_meta_col(
+                &tail_addr,
+                MetaPage::SchemaEncoding,
+                WhichRange::Tail,
+            )?;
+
+            let (consolidated_data, new_schema) = if latest_schema.is_none() {
+                (vec![None; self.num_data_columns], None)
+            } else {
+                let latest = self.read_latest(base_rid)?;
+                (latest[..self.num_data_columns].to_vec(), Some(0i64))
+            };
+
+            let new_addr = self.page_ranges.append_base_merged(
+                consolidated_data,
+                base_rid,
+                indirection,
+                new_schema,
+            )?;
+
+            self.page_directory.add(base_rid, new_addr);
+            self.page_ranges.update_tps(&new_addr, indirection);
+        }
+        Ok(())
+    }
+
+    pub fn merge(&mut self) -> Result<(), DbError> {
+        let dirty: Vec<i64> = self.dirty_base_rids.iter().map(|r| *r).collect();
+        self.merge_rids(&dirty)
+    }
+
+    /*
     pub fn merge(&mut self) -> Result<(), DbError> {
         let dirty: Vec<i64> = self.dirty_base_rids.iter().map(|r| *r).collect();
 
@@ -450,4 +514,5 @@ impl Table {
         }
         Ok(())
     }
+     */
 }
