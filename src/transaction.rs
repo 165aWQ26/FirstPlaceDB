@@ -1,5 +1,5 @@
 use crate::iterators::AtomicIterator;
-use crate::lock_manager::lock_manager;
+use crate::lock_manager::LockManager;
 use crate::query::Query;
 use crate::table::Table;
 use std::sync::atomic::AtomicUsize;
@@ -42,19 +42,37 @@ impl Transaction {
         self.ops.push(op);
     }
 
+    /// Extract the table reference from any op variant.
+    fn table_of(op: &QueryOp) -> &Arc<Table> {
+        match op {
+            QueryOp::Insert        { table, .. } => table,
+            QueryOp::Update        { table, .. } => table,
+            QueryOp::Delete        { table, .. } => table,
+            QueryOp::Select        { table, .. } => table,
+            QueryOp::SelectVersion { table, .. } => table,
+            QueryOp::Sum           { table, .. } => table,
+            QueryOp::SumVersion    { table, .. } => table,
+            QueryOp::Increment     { table, .. } => table,
+        }
+    }
+
     pub fn run(&self) -> bool {
+        if self.ops.is_empty() {
+            return true;
+        }
+
         let txn_id = TXN_COUNTER.next();
-        let lm = lock_manager();
+        let lm = &Self::table_of(&self.ops[0]).lock_manager;
         let mut undo: Vec<UndoEntry> = Vec::new();
         let mut held_locks: Vec<(usize, i64)> = Vec::new();
 
         for op in &self.ops {
             if !Self::acquire_locks(lm, op, txn_id, &mut held_locks) {
-                Self::rollback(undo, txn_id, &held_locks);
+                Self::rollback(undo, txn_id, &held_locks, lm);
                 return false;
             }
             if !Self::execute_op(op, &mut undo) {
-                Self::rollback(undo, txn_id, &held_locks);
+                Self::rollback(undo, txn_id, &held_locks, lm);
                 return false;
             }
         }
@@ -64,7 +82,7 @@ impl Transaction {
     }
 
     fn acquire_locks(
-        lm: &crate::lock_manager::LockManager,
+        lm: &LockManager,
         op: &QueryOp,
         txn_id: usize,
         held: &mut Vec<(usize, i64)>,
@@ -163,6 +181,8 @@ impl Transaction {
                 }
             }
             QueryOp::Update { table, key, cols } => {
+                // Normalise: force the key column to None so
+                // Query::update doesn't reject the op.
                 let mut update_cols = cols.clone();
                 update_cols[table.key_index] = None;
 
@@ -208,7 +228,7 @@ impl Transaction {
         Some(full[..table.num_data_columns].to_vec())
     }
 
-    fn rollback(undo: Vec<UndoEntry>, txn_id: usize, held_locks: &[(usize, i64)]) {
+    fn rollback(undo: Vec<UndoEntry>, txn_id: usize, held_locks: &[(usize, i64)], lm: &LockManager) {
         for entry in undo.into_iter().rev() {
             match entry {
                 UndoEntry::InsertUndo { table, key } => {
@@ -224,6 +244,6 @@ impl Transaction {
                 }
             }
         }
-        lock_manager().release_locks(txn_id, held_locks);
+        lm.release_locks(txn_id, held_locks);
     }
 }

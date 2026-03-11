@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use crate::disk_manager::TableCounters;
+use crate::lock_manager::LockManager;
 
 pub(crate) struct Database {
     pub(crate) tables: DashMap<usize, Arc<Table>>,
@@ -18,6 +19,7 @@ pub(crate) struct Database {
     bufferpool: Arc<BufferPool>,
     pub path: Option<PathBuf>,
     disk_manager: Arc<RwLock<DiskManager>>,
+    lock_manager: Arc<LockManager>,
 }
 
 impl Database {
@@ -32,6 +34,7 @@ impl Database {
             bufferpool: Arc::new(BufferPool::new(disk_manager.clone())),
             path: None,
             disk_manager,
+            lock_manager: Arc::new(LockManager::new()), //Could wrap in option, but I'm lazy
         }
     }
 
@@ -52,6 +55,7 @@ impl Database {
                     key_index,
                     table_id,
                     self.bufferpool.clone(),
+                    self.lock_manager.clone(),
                 ));
 
                 //insert into tables
@@ -83,8 +87,7 @@ impl Database {
     }
 
     pub fn open(&mut self, path: &str) -> Result<(), DbError> {
-        //Todo: check test cases because sanitize path turns "" into "_"
-        let sanitized_path = Some(PathBuf::from(Self::DEFAULT_PATH).join(sanitize(path)));
+        let sanitized_path = Some(PathBuf::from(Self::DEFAULT_PATH).join(sanitize(path.trim_start_matches('.'))));
         self.path = sanitized_path.clone();
         self.disk_manager
             .write()
@@ -121,7 +124,8 @@ impl Database {
                     self.bufferpool.clone(),
                     page_dir_pairs,
                     counters,
-                    primary_pairs
+                    primary_pairs,
+                    self.lock_manager.clone(),
                 ));
 
                 self.tables.insert(table_id, table);

@@ -6,6 +6,7 @@ use crate::iterators::{AtomicIterator, PhysicalAddress};
 use crate::page_collection::MetaPage;
 use crate::page_directory::PageDirectory;
 use crate::page_range::{PageRanges, WhichRange};
+use crate::lock_manager::LockManager;
 use dashmap::DashSet;
 use std::sync::atomic::AtomicI64;
 use std::sync::Arc;
@@ -21,11 +22,30 @@ pub struct Table {
     pub table_id: usize,
     pub num_total_cols: usize,
     pub dirty_base_rids: DashSet<i64>,
+    pub lock_manager: Arc<LockManager>,
 }
 
 impl Table {
     pub const PROJECTED_NUM_RECORDS: usize = 10001;
     pub const NUM_META_PAGES: usize = 4;
+    
+    pub fn new_no_transaction(
+        table_name: String,
+        num_columns: usize,
+        key_index: usize,
+        table_id: usize,
+        bufferpool: Arc<BufferPool>,
+    ) -> Table {
+        Table::new(
+            table_name,
+            num_columns,
+            key_index,
+            table_id,
+            bufferpool,
+            Arc::new(LockManager::new()),
+        )
+    }
+    
 
     pub fn new(
         table_name: String,
@@ -33,6 +53,7 @@ impl Table {
         key_index: usize,
         table_id: usize,
         bufferpool: Arc<BufferPool>,
+        lock_manager: Arc<LockManager>,
     ) -> Table {
         let num_total_cols = num_columns + Table::NUM_META_PAGES;
         Self {
@@ -54,6 +75,7 @@ impl Table {
             table_id,
             num_total_cols,
             dirty_base_rids: DashSet::new(),
+            lock_manager,
         }
     }
 
@@ -65,7 +87,8 @@ impl Table {
         bufferpool: Arc<BufferPool>,
         page_dir_pairs: Vec<(i64, PhysicalAddress)>,
         counters: TableCounters,
-        primary_pairs: Vec<(i64, i64)>
+        primary_pairs: Vec<(i64, i64)>,
+        lock_manager: Arc<LockManager>,
     ) -> Self {
         let num_total_cols = num_columns + Table::NUM_META_PAGES;
 
@@ -106,7 +129,8 @@ impl Table {
             indices,
             table_id,
             num_total_cols,
-            dirty_base_rids: DashSet::new()
+            dirty_base_rids: DashSet::new(),
+            lock_manager,
         }
     }
 
