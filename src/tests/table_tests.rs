@@ -17,7 +17,7 @@ fn make_bp(prefix: &str) -> Arc<BufferPool> {
 
 fn setup(num_columns: usize) -> Query {
     let bp = make_bp("ttest");
-    let table = Table::new(String::from("test"), num_columns, 0, 0, bp);
+    let table = Table::new_no_transaction(String::from("test"), num_columns, 0, 0, bp);
     Query::new(Arc::from(table))
 }
 
