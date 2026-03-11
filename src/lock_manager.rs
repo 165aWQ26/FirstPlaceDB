@@ -46,15 +46,28 @@ impl LockManager {
         }
         true
     }
-
-    pub fn release_all(&self, txn_id: usize) {
-        self.table.retain(|_, entry| {
-            entry.shared.retain(|&id| id != txn_id);
-            if entry.exclusive == Some(txn_id) {
-                entry.exclusive = None;
+    
+    pub fn release_locks(&self, txn_id: usize, held: &[(usize, i64)]) {
+        for &(table_id, key) in held {
+            let remove = {
+                if let Some(mut entry) = self.table.get_mut(&(table_id, key)) {
+                    entry.shared.retain(|&id| id != txn_id);
+                    if entry.exclusive == Some(txn_id) {
+                        entry.exclusive = None;
+                    }
+                    entry.shared.is_empty() && entry.exclusive.is_none()
+                } else {
+                    false
+                }
+            };
+            if remove {
+                // Entry is empty; clean it up so the map doesn't grow forever.
+                // remove_if avoids a TOCTOU race: only remove if still empty.
+                self.table.remove_if(&(table_id, key), |_, entry| {
+                    entry.shared.is_empty() && entry.exclusive.is_none()
+                });
             }
-            !entry.shared.is_empty() || entry.exclusive.is_some()
-        });
+        }
     }
 }
 
